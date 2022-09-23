@@ -124,6 +124,10 @@ namespace vks {
     }
 
     VulkanInstance::Builder& VulkanInstance::Builder::with_extension(const char* requested) {
+        if (strlen(requested) == 0u) {
+            return *this;
+        }
+        
         // Ensure requested extension does not already exist.
         bool found = false;
 
@@ -142,6 +146,10 @@ namespace vks {
     }
 
     VulkanInstance::Builder& VulkanInstance::Builder::with_layer(const char* requested) {
+        if (strlen(requested) == 0u) {
+            return *this;
+        }
+        
         // Ensure requested validation layer does not already exist.
         bool found = false;
 
