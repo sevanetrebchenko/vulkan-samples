@@ -3,4 +3,5 @@
 
 #include "core/entry_point.hpp"
 #include "core/sample.hpp"
-#include "types/instance.hpp"
+#include "vulkan/instance.hpp"
+#include "vulkan/device.hpp"

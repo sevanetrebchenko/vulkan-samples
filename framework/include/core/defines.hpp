@@ -41,3 +41,7 @@
 #endif
 
 #define NODISCARD [[nodiscard]]
+
+#if !defined(NDEBUG)
+    #define VKS_DEBUG 1
+#endif

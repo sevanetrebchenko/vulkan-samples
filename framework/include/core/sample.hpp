@@ -3,7 +3,7 @@
 
 #include "core/defines.hpp"
 #include "core/window.hpp"
-#include "types/instance.hpp"
+#include "vulkan/instance.hpp"
 
 namespace vks {
     
@@ -20,6 +20,10 @@ namespace vks {
             };
             
         private:
+            struct Data {
+                int test;
+            } data;
+            
             VulkanInstance instance_;
             Window window_;
     };

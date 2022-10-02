@@ -1,13 +1,18 @@
 
 #include <iostream>
 #include "framework.hpp"
-
-#include <cstring>
+#include <cassert>
+#include "core/assert.hpp"
 
 bool create_application() {
-    vks::Sample sample { };
+    // vks::Sample sample { };
     
-    std::cout << strlen("") << std::endl;
+    for (int i = 0; i < 10; ++i) {
+        std::cout << (1 << i) << std::endl;
+    }
+    
+    std::uint32_t feature = 5;
+    ASSERT(feature && !(feature & (feature - 1u)), "hello");
     
     std::cout << "Hello from hello-triangle sample." << std::endl;
     return false;
