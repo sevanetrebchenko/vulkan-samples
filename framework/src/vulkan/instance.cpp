@@ -66,11 +66,32 @@ namespace vks {
 //    }
     
     VulkanInstance::Builder::Builder() : application_name_(""),
-                                         application_version_(),
+                                         application_version_({
+                                             .major = 1u,
+                                             .minor = 0u,
+                                             .patch = 0u,
+                                             .variant = 0u
+                                         }),
                                          engine_name_("vulkan-samples"),
-                                         engine_version_(),
-                                         required_api_version_(),
-                                         minimum_api_version_(),
+                                         engine_version_({
+                                             .major = 1u,
+                                             .minor = 0u,
+                                             .patch = 0u,
+                                             .variant = 0u
+                                         }),
+                                         required_api_version_({
+                                             .major = 0u,
+                                             .minor = 0u,
+                                             .patch = 0u,
+                                             .variant = 0u
+                                         }),
+                                         // Use Vulkan 1.0 API version by default.
+                                         minimum_api_version_({
+                                             .major = 1u,
+                                             .minor = 0u,
+                                             .patch = 0u,
+                                             .variant = 0u
+                                         }),
                                          headless_mode_(false),
                                          validation_features_(),
                                          requested_extensions_(),
@@ -258,6 +279,53 @@ namespace vks {
         
         // Determine application version.
         Version api_version { };
+    
+        std::uint32_t available_instance_version;
+        vkEnumerateInstanceVersion(&available_instance_version);
+        
+        if (required_api_version_ > 0u) {
+            // Framework prioritizes meeting the required API version.
+            // Ensure required API version is supported.
+            if (required_api_version_ > available_instance_version) {
+                std::stringstream builder { };
+                builder << "ERROR: Failed to create Vulkan instance - Vulkan API version ("
+                        << required_api_version_.major << '.'
+                        << required_api_version_.minor << '.'
+                        << required_api_version_.patch << '.'
+                        << required_api_version_.variant
+                        << ") requested by 'with_required_api_version(...)' is unavailable.\n";
+                throw std::runtime_error(builder.str());
+            }
+            
+            api_version = required_api_version_;
+        }
+        else if (minimum_api_version_ > 0u) {
+            // Minimum API version was set.
+            // Ensure minimum API version is supported.
+            if (minimum_api_version_ > available_instance_version) {
+                std::stringstream builder { };
+                builder << "ERROR: Failed to create Vulkan instance - Vulkan API version ("
+                        << required_api_version_.major << '.'
+                        << required_api_version_.minor << '.'
+                        << required_api_version_.patch << '.'
+                        << required_api_version_.variant
+                        << ") requested by 'with_minimum_api_version(...)' is unavailable.\n";
+                throw std::runtime_error(builder.str());
+            }
+            
+            api_version = minimum_api_version_;
+        }
+        else {
+            // Use supported instance version.
+            api_version = {
+                .major = VK_API_VERSION_MAJOR(available_instance_version),
+                .minor = VK_API_VERSION_MINOR(available_instance_version),
+                .patch = VK_API_VERSION_PATCH(available_instance_version),
+                .variant = VK_API_VERSION_VARIANT(available_instance_version),
+            };
+            
+            // TODO: Log message.
+        }
         
         // Create Vulkan instance.
         VkApplicationInfo application_info {
