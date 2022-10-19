@@ -21,5 +21,8 @@ find_package(Vulkan REQUIRED)
 target_include_directories(${PROJECT_NAME} PUBLIC ${Vulkan_INCLUDE_DIRS})
 target_link_libraries(${PROJECT_NAME} INTERFACE Vulkan::Vulkan)
 
+# Dynamically link against Vulkan.
+target_compile_definitions(${PROJECT_NAME} PRIVATE VK_NO_PROTOTYPES)
+
 # External applications should only include 'framework/include/framework.hpp'.
 target_include_directories(${PROJECT_NAME} PUBLIC "${PROJECT_SOURCE_DIR}/include")
