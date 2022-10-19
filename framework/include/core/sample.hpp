@@ -15,16 +15,9 @@ namespace vks {
             ~Sample();
     
         protected:
-            struct SampleInfo {
-                bool enable_debugging;
-            };
-            
-        private:
-            struct Data {
-                int test;
-            } data;
-            
             VulkanInstance instance_;
+    
+        private:
             Window window_;
     };
     

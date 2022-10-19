@@ -1,18 +1,26 @@
 
 #include "core/sample.hpp"
 #include <vulkan/vulkan.h>
+
+#include <windows.h>
+
+
+
 #include <iostream>
 
 namespace vks {
 
     Sample::Sample() : instance_(VulkanInstance::Builder().build()) {
         
+        auto handle = LoadLibrary(TEXT("vulkan-1.dll"));
+        if (handle) {
+            std::cout << "asdf" << std::endl;
+        }
+        
         instance_ = VulkanInstance::Builder()
-                .with_enabled_extension("asdf")
+                .with_target_api_version(1, 3)
                 .with_enabled_extension("")
                 .with_application_name("")
-                .with_minimum_api_version(1, 0, 0)
-                .with_headless_mode()
                 .build();
         
 //        VulkanDevice device = instance_.create_device()

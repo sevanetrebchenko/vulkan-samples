@@ -9,7 +9,7 @@
 
 namespace vks {
 
-    // A VulkanDevice encapsulates both physical hardware and a logical interface with the Vulkan API.
+    // A VulkanDevice encapsulates both the physical hardware and a logical interface with the Vulkan API.
     class VulkanDevice {
         public:
             class Builder;

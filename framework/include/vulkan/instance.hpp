@@ -3,6 +3,7 @@
 
 #include "core/defines.hpp"
 #include "vulkan/device.hpp"
+#include "vulkan/loader.hpp"
 #include <vector>
 #include <vulkan/vulkan.h>
 
@@ -17,20 +18,16 @@ namespace vks {
             VulkanInstance(VulkanInstance&& other) noexcept;
             VulkanInstance& operator=(VulkanInstance&& other) noexcept;
             
+            explicit operator VkInstance() const;
+            NODISCARD VulkanDevice::Builder create_device() const;
+        
             // Instances should not be copied.
             VulkanInstance(const VulkanInstance& other) = delete;
             VulkanInstance& operator=(const VulkanInstance& other) = delete;
             
-            explicit operator VkInstance() const;
-            
-            NODISCARD VulkanDevice::Builder create_device() const;
-            
-            VkInstance handle;
-            std::vector<const char*> extensions;
-            std::vector<const char*> layers;
-        
         private:
             VulkanInstance();
+            VkInstance handle;
     };
     
     class VulkanInstance::Builder {
@@ -53,19 +50,16 @@ namespace vks {
             NODISCARD VulkanInstance build();
             
             Builder& with_application_name(const char* name);
+            
             Builder& with_application_version(std::uint32_t major, std::uint32_t minor, std::uint32_t patch = 0u);
         
             Builder& with_engine_name(const char* name);
+            
             Builder& with_engine_version(std::uint32_t major, std::uint32_t minor, std::uint32_t patch = 0u);
         
-            // Vulkan API versioning. Calling 'build' will fail if requested version is not available.
-            // Require a specific version of the Vulkan API.
-            Builder& with_required_api_version(std::uint32_t version);
-            Builder& with_required_api_version(std::uint32_t major, std::uint32_t minor, std::uint32_t patch = 0u, std::uint32_t variant = 0u);
-        
-            // Require any version of the Vulkan API greater than the one specified.
-            Builder& with_minimum_api_version(std::uint32_t version);
-            Builder& with_minimum_api_version(std::uint32_t major, std::uint32_t minor, std::uint32_t patch = 0u, std::uint32_t variant = 0u);
+            // Specify the Vulkan API version that the source code of the application expects to target.
+            // Note: specifying unsupported / invalid versions will throw an exception.
+            Builder& with_target_api_version(std::uint32_t major, std::uint32_t minor, std::uint32_t patch = 0u); // TODO: no variant for now.
         
             Builder& with_enabled_extension(const char* extension);
             Builder& with_disabled_extension(const char* extension);
@@ -91,15 +85,11 @@ namespace vks {
             const char* engine_name_;
             Version engine_version_;
         
-            Version required_api_version_;
-            Version minimum_api_version_;
+            Version api_version_;
             
-            bool headless_mode_;
-            
+            std::vector<const char*> extensions_;
+            std::vector<const char*> validation_layers_;
             std::vector<VulkanValidationFeature> validation_features_;
-            
-            std::vector<const char*> requested_extensions_;
-            std::vector<const char*> requested_layers_;
     };
     
     VulkanInstance::Builder::VulkanValidationFeature operator|(VulkanInstance::Builder::VulkanValidationFeature first, VulkanInstance::Builder::VulkanValidationFeature second);

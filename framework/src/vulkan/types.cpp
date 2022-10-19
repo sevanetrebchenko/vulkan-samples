@@ -5,7 +5,7 @@
 namespace vks {
     
     Version::operator std::uint32_t() const {
-        return VK_MAKE_API_VERSION(variant, major, minor, patch);
+        return VK_MAKE_API_VERSION(0u, major, minor, patch);
     }
     
 }

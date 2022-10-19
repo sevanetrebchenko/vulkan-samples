@@ -40,9 +40,9 @@
 //        vkEnumerateDeviceExtensionProperties(handle, nullptr, &available_extension_count, available_extensions.data());
 //
 //        std::vector<const char*> unsupported_extensions { };
-//        unsupported_extensions.reserve(requested_extensions_.size()); // Maximum number of unsupported extensions.
+//        unsupported_extensions.reserve(extensions_.size()); // Maximum number of unsupported extensions.
 //
-//        for (const char* requested : requested_extensions_) {
+//        for (const char* requested : extensions_) {
 //            bool found = false;
 //
 //            for (std::uint32_t i = 0u; i < available_extension_count; ++i) {

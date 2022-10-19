@@ -12,7 +12,6 @@ namespace vks {
         std::uint32_t major;
         std::uint32_t minor;
         std::uint32_t patch;
-        std::uint32_t variant;
     };
     
 }

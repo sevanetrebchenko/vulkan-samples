@@ -1,26 +1,51 @@
 
 #include "vulkan/instance.hpp"
 #include "vulkan/device.hpp"
-#include "core/assert.hpp"
+#include "core/debug.hpp"
 #include <cstring>
 #include <cstdint>
-#include <stdexcept>
-#include <sstream>
+
+#include "vulkan/dispatch.hpp"
 
 namespace vks {
-
+    
+    static struct DispatchTable {
+        DispatchTable();
+        ~DispatchTable();
+        
+        VkResult (VKAPI_PTR *fp_vk_create_instance)(const VkInstanceCreateInfo* create_info, const VkAllocationCallbacks* allocator, VkInstance* instance);
+        void (VKAPI_PTR *fp_vk_destroy_instance)(VkInstance instance, const VkAllocationCallbacks* allocator);
+        
+        VkResult (VKAPI_PTR *fp_vk_enumerate_instance_version)(std::uint32_t* version);
+        
+        VkResult (VKAPI_PTR *fp_vk_enumerate_instance_extension_properties)(const char* layer_name, std::uint32_t* property_count, VkExtensionProperties* properties);
+        VkResult (VKAPI_PTR *fp_vk_enumerate_instance_layer_properties)(std::uint32_t* property_count, VkLayerProperties* properties);
+    } dispatch;
+    
+    DispatchTable::DispatchTable() {
+        detail::fp_vk_get_instance_proc_addr vk_get_instance_proc_addr = detail::get_vulkan_symbol_loader();
+        
+        fp_vk_create_instance = reinterpret_cast<typeof(fp_vk_create_instance)>(vk_get_instance_proc_addr(VK_NULL_HANDLE, "vkCreateInstance"));
+        fp_vk_destroy_instance = reinterpret_cast<typeof(fp_vk_destroy_instance)>(vk_get_instance_proc_addr(VK_NULL_HANDLE, "vkDestroyInstance"));
+        
+        fp_vk_enumerate_instance_version = reinterpret_cast<typeof(fp_vk_enumerate_instance_version)>(vk_get_instance_proc_addr(VK_NULL_HANDLE, "vkEnumerateInstanceVersion"));
+        
+        fp_vk_enumerate_instance_extension_properties = reinterpret_cast<typeof(fp_vk_enumerate_instance_extension_properties)>(vk_get_instance_proc_addr(VK_NULL_HANDLE, "vkEnumerateInstanceExtensionProperties"));
+        fp_vk_enumerate_instance_layer_properties = reinterpret_cast<typeof(fp_vk_enumerate_instance_layer_properties)>(vk_get_instance_proc_addr(VK_NULL_HANDLE, "vkEnumerateInstanceLayerProperties"));
+    }
+    
+    DispatchTable::~DispatchTable() = default;
+    
     VulkanInstance::VulkanInstance() : handle(nullptr) {
     }
     
     VulkanInstance::~VulkanInstance() {
-        vkDestroyInstance(handle, nullptr);
+        dispatch.fp_vk_destroy_instance(handle, nullptr);
     }
 
-    VulkanInstance::VulkanInstance(VulkanInstance&& other) noexcept : extensions(std::move(other.extensions)),
-                                                                      layers(std::move(other.layers))
-                                                                      {
+    VulkanInstance::VulkanInstance(VulkanInstance&& other) noexcept {
         if (handle) {
-            vkDestroyInstance(handle, nullptr);
+            dispatch.fp_vk_destroy_instance(handle, nullptr);
         }
         handle = other.handle;
         other.handle = nullptr;
@@ -33,19 +58,20 @@ namespace vks {
         }
     
         if (handle) {
-            vkDestroyInstance(handle, nullptr);
+            dispatch.fp_vk_destroy_instance(handle, nullptr);
         }
         handle = other.handle;
         other.handle = nullptr;
-    
-        extensions = std::move(other.extensions);
-        layers = std::move(other.layers);
         
         return *this;
     }
     
-//    VulkanDevice::Builder VulkanInstance::create_device() const {
-//        Device::Builder builder { };
+    VulkanInstance::operator VkInstance() const {
+        return handle;
+    }
+    
+    VulkanDevice::Builder VulkanInstance::create_device() const {
+//        VulkanDevice::Builder builder { };
 //
 //        builder.instance_ = handle;
 //
@@ -56,52 +82,43 @@ namespace vks {
 //        std::vector<VkPhysicalDevice> physical_devices(physical_device_count);
 //        vkEnumeratePhysicalDevices(nullptr, &physical_device_count, physical_devices.data());
 //
-//        Device::Builder().with_selector([](const Device::Properties& device_properties) -> int {
+//        builder.with_selector([](const Device::Properties& device_properties) -> int {
 //            int score = 0;
 //
 //
 //
 //            return score;
 //        }).with_debug_name()
-//    }
+    }
     
-    VulkanInstance::Builder::Builder() : application_name_(""),
+    
+    // https://www.intel.com/content/www/us/en/developer/articles/training/api-without-secrets-introduction-to-vulkan-part-1.html
+    
+    VulkanInstance::Builder::Builder() : application_name_("My Application"),
                                          application_version_({
                                              .major = 1u,
                                              .minor = 0u,
-                                             .patch = 0u,
-                                             .variant = 0u
+                                             .patch = 0u
                                          }),
                                          engine_name_("vulkan-samples"),
                                          engine_version_({
                                              .major = 1u,
                                              .minor = 0u,
-                                             .patch = 0u,
-                                             .variant = 0u
+                                             .patch = 0u
                                          }),
-                                         required_api_version_({
-                                             .major = 0u,
-                                             .minor = 0u,
-                                             .patch = 0u,
-                                             .variant = 0u
-                                         }),
-                                         // Use Vulkan 1.0 API version by default.
-                                         minimum_api_version_({
+                                         // Use Vulkan 1.0 by default.
+                                         api_version_({
                                              .major = 1u,
                                              .minor = 0u,
-                                             .patch = 0u,
-                                             .variant = 0u
-                                         }),
-                                         headless_mode_(false),
-                                         validation_features_(),
-                                         requested_extensions_(),
-                                         requested_layers_()
+                                             .patch = 0u
+                                         })
                                          {
         
         // Enable default presentation extensions.
         with_headless_mode(false);
         
         // Enable / disable default Vulkan validation features.
+        with_enabled_validation_layer("VK_LAYER_KHRONOS_validation");
         with_enabled_validation_feature(GPU_VALIDATION | CORE_VALIDATION | THREAD_SAFETY | OBJECT_LIFETIMES | UNIQUE_HANDLES);
     }
     
@@ -109,59 +126,18 @@ namespace vks {
     }
 
     VulkanInstance VulkanInstance::Builder::build() {
-        VulkanInstance instance { };
-        
-        // Validate instance extensions.
-        std::uint32_t available_extension_count = 0u;
-        vkEnumerateInstanceExtensionProperties(nullptr, &available_extension_count, nullptr);
-    
-        std::vector<VkExtensionProperties> available_extensions(available_extension_count);
-        vkEnumerateInstanceExtensionProperties(nullptr, &available_extension_count, available_extensions.data());
-    
-        std::vector<const char*> unsupported_extensions { };
-        unsupported_extensions.reserve(requested_extensions_.size()); // Maximum number of unsupported extensions.
-    
-        // Verify all requested extensions are available.
-        for (const char* requested : requested_extensions_) {
-            bool found = false;
-        
-            for (std::uint32_t i = 0u; i < available_extension_count; ++i) {
-                const char* available = available_extensions[i].extensionName;
-            
-                if (strcmp(requested, available) == 0) {
-                    found = true;
-                    break;
-                }
-            }
-        
-            if (!found) {
-                unsupported_extensions.emplace_back(requested);
-            }
-        }
-    
-        if (!unsupported_extensions.empty()) {
-            std::stringstream builder { };
-            builder << "ERROR: Failed to create Vulkan instance - found " << unsupported_extensions.size() << " unsupported extension(s):\n";
-            for (const char* extension : unsupported_extensions) {
-                builder << "\t- " << extension << '\n';
-            }
-            throw std::runtime_error(builder.str());
-        }
-    
-        instance.extensions = requested_extensions_;
-        
-        // Validate instance validation layers.
+        // Validate requested validation layers first (instance extensions may depend on extensions provided by validation layers).
         std::uint32_t available_layer_count = 0u;
-        vkEnumerateInstanceLayerProperties(&available_layer_count, nullptr);
+        dispatch.fp_vk_enumerate_instance_layer_properties(&available_layer_count, nullptr);
     
         std::vector<VkLayerProperties> available_layers(available_layer_count);
-        vkEnumerateInstanceLayerProperties(&available_layer_count, available_layers.data());
+        dispatch.fp_vk_enumerate_instance_layer_properties(&available_layer_count, available_layers.data());
     
-        std::vector<const char*> unsupported_layers { };
-        unsupported_layers.reserve(requested_layers_.size()); // Maximum number of unsupported layers.
+        std::vector<const char*> unsupported_layers;
+        unsupported_layers.reserve(validation_layers_.size()); // Maximum number of unsupported layers.
     
         // Verify that all requested validation layers are available.
-        for (const char* requested : requested_layers_) {
+        for (const char* requested : validation_layers_) {
             bool found = false;
         
             for (std::uint32_t i = 0u; i < available_layer_count; ++i) {
@@ -179,16 +155,58 @@ namespace vks {
         }
     
         if (!unsupported_layers.empty()) {
-            std::stringstream builder { };
-            builder << "ERROR: Failed to create Vulkan instance - found " << unsupported_layers.size() << " unsupported validation layer(s):\n";
-            for (const char* layer : unsupported_layers) {
-                builder << "\t- " << layer << '\n';
-            }
-            throw std::runtime_error(builder.str());
+            // TODO: specify which layers are unsupported.
+            throw VulkanException("ERROR: Failed to create Vulkan instance - found %zu unsupported validation layer(s).");
         }
         
-        instance.layers = requested_layers_;
+        // Validate requested instance extensions.
         
+        // Determine total number of supported instance extensions.
+        // Include instance extensions that are implicitly enabled / provided by the Vulkan implementation.
+        std::uint32_t available_extension_count = 0u;
+        dispatch.fp_vk_enumerate_instance_extension_properties(nullptr, &available_extension_count, nullptr);
+    
+        std::vector<VkExtensionProperties> available_extensions(available_extension_count);
+        dispatch.fp_vk_enumerate_instance_extension_properties(nullptr, &available_extension_count, available_extensions.data());
+    
+        // Include instance extensions provided by enabled validation layers.
+        for (const char* layer : validation_layers_) {
+            std::uint32_t layer_extension_count = 0u;
+            dispatch.fp_vk_enumerate_instance_extension_properties(layer, &layer_extension_count, nullptr);
+            
+            std::vector<VkExtensionProperties> layer_extensions(layer_extension_count);
+            dispatch.fp_vk_enumerate_instance_extension_properties(layer, &layer_extension_count, layer_extensions.data());
+    
+            available_extension_count += layer_extension_count;
+            available_extensions.insert(available_extensions.end(), layer_extensions.begin(), layer_extensions.end());
+        }
+        
+        std::vector<const char*> unsupported_extensions;
+        unsupported_extensions.reserve(extensions_.size()); // Maximum number of unsupported extensions.
+    
+        // Verify all requested extensions are available.
+        for (const char* requested : extensions_) {
+            bool found = false;
+            
+            for (std::uint32_t i = 0u; i < available_extension_count; ++i) {
+                const char* available = available_extensions[i].extensionName;
+                
+                if (strcmp(requested, available) == 0) {
+                    found = true;
+                    break;
+                }
+            }
+        
+            if (!found) {
+                unsupported_extensions.emplace_back(requested);
+            }
+        }
+    
+        if (!unsupported_extensions.empty()) {
+            // TODO: specify which instance extensions are unsupported.
+            throw VulkanException("ERROR: Failed to create Vulkan instance - found %zu unsupported extension(s).", unsupported_extensions.size());
+        }
+    
         // Configure enabled / disabled instance validation features.
         
         // If CORE_VALIDATION is disabled, GPU_VALIDATION must also be disabled.
@@ -214,60 +232,58 @@ namespace vks {
         std::vector<VkValidationFeatureEnableEXT> enabled_validation_features;
         std::vector<VkValidationFeatureDisableEXT> disabled_validation_features;
         
-        // CORE_VALIDATION (enabled by default).
+        // Features below are enabled by default - if feature is present in the requested validation feature list, disable it.
         if (!has_validation_feature(VulkanValidationFeature::CORE_VALIDATION)) {
             disabled_validation_features.emplace_back(VkValidationFeatureDisableEXT::VK_VALIDATION_FEATURE_DISABLE_CORE_CHECKS_EXT);
         }
     
+        if (!has_validation_feature(VulkanValidationFeature::THREAD_SAFETY)) {
+            disabled_validation_features.emplace_back(VkValidationFeatureDisableEXT::VK_VALIDATION_FEATURE_DISABLE_THREAD_SAFETY_EXT);
+        }
+    
+        if (!has_validation_feature(VulkanValidationFeature::STATELESS_VALIDATION)) {
+            disabled_validation_features.emplace_back(VkValidationFeatureDisableEXT::VK_VALIDATION_FEATURE_DISABLE_API_PARAMETERS_EXT);
+        }
+    
+        if (!has_validation_feature(VulkanValidationFeature::OBJECT_LIFETIMES)) {
+            disabled_validation_features.emplace_back(VkValidationFeatureDisableEXT::VK_VALIDATION_FEATURE_DISABLE_OBJECT_LIFETIMES_EXT);
+        }
+    
+        if (!has_validation_feature(VulkanValidationFeature::UNIQUE_HANDLES)) {
+            disabled_validation_features.emplace_back(VkValidationFeatureDisableEXT::VK_VALIDATION_FEATURE_DISABLE_UNIQUE_HANDLES_EXT);
+        }
+        
+        // Features below are disabled by default - if feature is present in the requested validation feature list, enable it.
+        if (has_validation_feature(VulkanValidationFeature::SYNCHRONIZATION)) {
+            enabled_validation_features.emplace_back(VkValidationFeatureEnableEXT::VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT);
+        }
+    
+        if (has_validation_feature(VulkanValidationFeature::BEST_PRACTICES)) {
+            enabled_validation_features.emplace_back(VkValidationFeatureEnableEXT::VK_VALIDATION_FEATURE_ENABLE_BEST_PRACTICES_EXT);
+        }
+    
+        if (has_validation_feature(VulkanValidationFeature::DEBUG_PRINTING)) {
+            enabled_validation_features.emplace_back(VkValidationFeatureEnableEXT::VK_VALIDATION_FEATURE_ENABLE_DEBUG_PRINTF_EXT);
+        }
+        
         // GPU_VALIDATION controls a combination of shader and GPU validation features.
         if (has_validation_feature(VulkanValidationFeature::GPU_VALIDATION)) {
             enabled_validation_features.emplace_back(VkValidationFeatureEnableEXT::VK_VALIDATION_FEATURE_ENABLE_GPU_ASSISTED_EXT);
             enabled_validation_features.emplace_back(VkValidationFeatureEnableEXT::VK_VALIDATION_FEATURE_ENABLE_GPU_ASSISTED_RESERVE_BINDING_SLOT_EXT);
     
-            // VK_VALIDATION_FEATURE_DISABLE_SHADERS_EXT and VK_VALIDATION_FEATURE_DISABLE_SHADER_VALIDATION_CACHE_EXT are enabled by default.
+            // Enabled by default (no action necessary):
+            //      - VK_VALIDATION_FEATURE_DISABLE_SHADERS_EXT
+            //      - VK_VALIDATION_FEATURE_DISABLE_SHADER_VALIDATION_CACHE_EXT
         }
         else {
             disabled_validation_features.emplace_back(VkValidationFeatureDisableEXT::VK_VALIDATION_FEATURE_DISABLE_SHADERS_EXT);
             disabled_validation_features.emplace_back(VkValidationFeatureDisableEXT::VK_VALIDATION_FEATURE_DISABLE_SHADER_VALIDATION_CACHE_EXT);
     
-            // VK_VALIDATION_FEATURE_ENABLE_GPU_ASSISTED_EXT and VK_VALIDATION_FEATURE_ENABLE_GPU_ASSISTED_RESERVE_BINDING_SLOT_EXT are disabled by default.
-        }
-        
-        // THREAD_SAFETY (enabled by default).
-        if (!has_validation_feature(VulkanValidationFeature::THREAD_SAFETY)) {
-            disabled_validation_features.emplace_back(VkValidationFeatureDisableEXT::VK_VALIDATION_FEATURE_DISABLE_THREAD_SAFETY_EXT);
-        }
-        
-        // STATELESS_VALIDATION (enabled by default).
-        if (!has_validation_feature(VulkanValidationFeature::STATELESS_VALIDATION)) {
-            disabled_validation_features.emplace_back(VkValidationFeatureDisableEXT::VK_VALIDATION_FEATURE_DISABLE_API_PARAMETERS_EXT);
+            // Disabled by default (no action necessary):
+            //      - VK_VALIDATION_FEATURE_ENABLE_GPU_ASSISTED_EXT
+            //      - VK_VALIDATION_FEATURE_ENABLE_GPU_ASSISTED_RESERVE_BINDING_SLOT_EXT
         }
     
-        // OBJECT_LIFETIMES (enabled by default).
-        if (!has_validation_feature(VulkanValidationFeature::OBJECT_LIFETIMES)) {
-            disabled_validation_features.emplace_back(VkValidationFeatureDisableEXT::VK_VALIDATION_FEATURE_DISABLE_OBJECT_LIFETIMES_EXT);
-        }
-    
-        // UNIQUE_HANDLES (enabled by default).
-        if (!has_validation_feature(VulkanValidationFeature::UNIQUE_HANDLES)) {
-            disabled_validation_features.emplace_back(VkValidationFeatureDisableEXT::VK_VALIDATION_FEATURE_DISABLE_UNIQUE_HANDLES_EXT);
-        }
-    
-        // SYNCHRONIZATION (disabled by default).
-        if (has_validation_feature(VulkanValidationFeature::SYNCHRONIZATION)) {
-            enabled_validation_features.emplace_back(VkValidationFeatureEnableEXT::VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT);
-        }
-    
-        // BEST_PRACTICES (disabled by default).
-        if (has_validation_feature(VulkanValidationFeature::BEST_PRACTICES)) {
-            enabled_validation_features.emplace_back(VkValidationFeatureEnableEXT::VK_VALIDATION_FEATURE_ENABLE_BEST_PRACTICES_EXT);
-        }
-    
-        // DEBUG_PRINTING (disabled by default).
-        if (has_validation_feature(VulkanValidationFeature::DEBUG_PRINTING)) {
-            enabled_validation_features.emplace_back(VkValidationFeatureEnableEXT::VK_VALIDATION_FEATURE_ENABLE_DEBUG_PRINTF_EXT);
-        }
-        
         VkValidationFeaturesEXT validation_features {
             .sType = VK_STRUCTURE_TYPE_VALIDATION_FEATURES_EXT,
             .pNext = nullptr,
@@ -278,100 +294,42 @@ namespace vks {
         };
         
         // Determine application version.
-        Version api_version { };
-    
+        // TODO: vkGetInstanceProcAddr(nullptr, "vkEnumerateInstanceVersion")
         std::uint32_t available_instance_version;
-        vkEnumerateInstanceVersion(&available_instance_version);
+        dispatch.fp_vk_enumerate_instance_version(&available_instance_version);
         
-        if (required_api_version_ > 0u) {
-            // Framework prioritizes meeting the required API version.
-            // Ensure required API version is supported.
-            if (required_api_version_ > available_instance_version) {
-                std::stringstream builder { };
-                builder << "ERROR: Failed to create Vulkan instance - Vulkan API version ("
-                        << required_api_version_.major << '.'
-                        << required_api_version_.minor << '.'
-                        << required_api_version_.patch << '.'
-                        << required_api_version_.variant
-                        << ") requested by 'with_required_api_version(...)' is unavailable.\n";
-                throw std::runtime_error(builder.str());
-            }
-            
-            api_version = required_api_version_;
-        }
-        else if (minimum_api_version_ > 0u) {
-            // Minimum API version was set.
-            // Ensure minimum API version is supported.
-            if (minimum_api_version_ > available_instance_version) {
-                std::stringstream builder { };
-                builder << "ERROR: Failed to create Vulkan instance - Vulkan API version ("
-                        << required_api_version_.major << '.'
-                        << required_api_version_.minor << '.'
-                        << required_api_version_.patch << '.'
-                        << required_api_version_.variant
-                        << ") requested by 'with_minimum_api_version(...)' is unavailable.\n";
-                throw std::runtime_error(builder.str());
-            }
-            
-            api_version = minimum_api_version_;
-        }
-        else {
-            // Use supported instance version.
-            api_version = {
-                .major = VK_API_VERSION_MAJOR(available_instance_version),
-                .minor = VK_API_VERSION_MINOR(available_instance_version),
-                .patch = VK_API_VERSION_PATCH(available_instance_version),
-                .variant = VK_API_VERSION_VARIANT(available_instance_version),
-            };
-            
-            // TODO: Log message.
+        if (api_version_ > available_instance_version) {
+            throw VulkanException("ERROR: Failed to create Vulkan instance - target instance Vulkan version (%i.%i.%i.0) is unsupported (highest available Vulkan version: %i.%i.%i.%i).",
+                                  api_version_.major, api_version_.minor, api_version_.patch,
+                                  VK_API_VERSION_MAJOR(available_instance_version), VK_API_VERSION_MINOR(available_instance_version), VK_API_VERSION_PATCH(available_instance_version), VK_API_VERSION_VARIANT(available_instance_version));
         }
         
         // Create Vulkan instance.
         VkApplicationInfo application_info {
             .sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
-            .pNext = &validation_features,
+            .pNext = nullptr,
             .pApplicationName = application_name_,
             .applicationVersion = application_version_,
             .pEngineName = engine_name_,
             .engineVersion = engine_version_,
-            .apiVersion = api_version
+            .apiVersion = api_version_
         };
 
         VkInstanceCreateInfo instance_create_info {
             .sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
+            .pNext = &validation_features,
             .pApplicationInfo = &application_info,
-            .enabledLayerCount = static_cast<std::uint32_t>(requested_layers_.size()),
-            .ppEnabledLayerNames = requested_layers_.data(),
-            .enabledExtensionCount = static_cast<std::uint32_t>(requested_extensions_.size()),
-            .ppEnabledExtensionNames = requested_extensions_.data()
+            .enabledLayerCount = static_cast<std::uint32_t>(validation_layers_.size()),
+            .ppEnabledLayerNames = validation_layers_.data(),
+            .enabledExtensionCount = static_cast<std::uint32_t>(extensions_.size()),
+            .ppEnabledExtensionNames = extensions_.data()
         };
-
-        VkResult result = vkCreateInstance(&instance_create_info, nullptr, &instance.handle);
+    
+        VulkanInstance instance { };
+    
+        VkResult result = dispatch.fp_vk_create_instance(&instance_create_info, nullptr, &instance.handle);
         if (result != VK_SUCCESS) {
-            std::stringstream builder;
-            builder << "ERROR: Failed to create Vulkan instance - vkCreateInstance exited with code " << result;
-            
-            switch (result) {
-                case VK_ERROR_OUT_OF_HOST_MEMORY:
-                    builder << " (VK_ERROR_OUT_OF_HOST_MEMORY).";
-                    break;
-                case VK_ERROR_OUT_OF_DEVICE_MEMORY:
-                    builder << " (VK_ERROR_OUT_OF_DEVICE_MEMORY).";
-                    break;
-                case VK_ERROR_INITIALIZATION_FAILED:
-                    builder << " (VK_ERROR_INITIALIZATION_FAILED).";
-                    break;
-                case VK_ERROR_INCOMPATIBLE_DRIVER:
-                    builder << " (VK_ERROR_INCOMPATIBLE_DRIVER).";
-                    break;
-                    
-                // Validated above.
-                // case VK_ERROR_LAYER_NOT_PRESENT: ...
-                // case VK_ERROR_EXTENSION_NOT_PRESENT: ...
-            }
-            
-            throw std::runtime_error(builder.str());
+            throw VulkanException("ERROR: Failed to create Vulkan instance - vkCreateInstance exited with code %i.", result);
         }
 
         return instance;
@@ -388,8 +346,7 @@ namespace vks {
         application_version_ = {
             .major = major,
             .minor = minor,
-            .patch = patch,
-            .variant = 0u
+            .patch = patch
         };
         
         return *this;
@@ -406,54 +363,19 @@ namespace vks {
         engine_version_ = {
             .major = major,
             .minor = minor,
-            .patch = patch,
-            .variant = 0u
+            .patch = patch
         };
         
         return *this;
     }
     
-    VulkanInstance::Builder& VulkanInstance::Builder::with_required_api_version(std::uint32_t version) {
-        required_api_version_ = {
-            .major = VK_API_VERSION_MAJOR(version),
-            .minor = VK_API_VERSION_MINOR(version),
-            .patch = VK_API_VERSION_PATCH(version),
-            .variant = VK_API_VERSION_VARIANT(version),
-        };
-        
-        return *this;
-    }
-    
-    VulkanInstance::Builder& VulkanInstance::Builder::with_required_api_version(std::uint32_t major, std::uint32_t minor, std::uint32_t patch, std::uint32_t variant) {
-        required_api_version_ = {
+    VulkanInstance::Builder& VulkanInstance::Builder::with_target_api_version(std::uint32_t major, std::uint32_t minor, std::uint32_t patch) {
+        api_version_ = {
             .major = major,
             .minor = minor,
-            .patch = patch,
-            .variant = variant
+            .patch = patch
         };
         
-        return *this;
-    }
-    
-    VulkanInstance::Builder& VulkanInstance::Builder::with_minimum_api_version(std::uint32_t version) {
-        minimum_api_version_ = {
-            .major = VK_API_VERSION_MAJOR(version),
-            .minor = VK_API_VERSION_MINOR(version),
-            .patch = VK_API_VERSION_PATCH(version),
-            .variant = VK_API_VERSION_VARIANT(version),
-        };
-    
-        return *this;
-    }
-    
-    VulkanInstance::Builder& VulkanInstance::Builder::with_minimum_api_version(std::uint32_t major, std::uint32_t minor, std::uint32_t patch, std::uint32_t variant) {
-        minimum_api_version_ = {
-            .major = major,
-            .minor = minor,
-            .patch = patch,
-            .variant = variant
-        };
-    
         return *this;
     }
     
@@ -465,7 +387,7 @@ namespace vks {
         // Ensure requested extension does not already exist.
         bool found = false;
 
-        for (const char* extension : requested_extensions_) {
+        for (const char* extension : extensions_) {
             if (strcmp(requested, extension) == 0) {
                 found = true;
                 break;
@@ -474,7 +396,7 @@ namespace vks {
 
         if (!found) {
             // Only add the first instance of the extension.
-            requested_extensions_.emplace_back(requested);
+            extensions_.emplace_back(requested);
         }
 
         return *this;
@@ -485,13 +407,13 @@ namespace vks {
             return *this;
         }
     
-        for (std::size_t i = 0u; i < requested_extensions_.size(); ++i) {
-            const char* extension = requested_extensions_[i];
+        for (std::size_t i = 0u; i < extensions_.size(); ++i) {
+            const char* extension = extensions_[i];
             
             if (strcmp(requested, extension) == 0) {
                 // Found extension.
-                std::swap(requested_extensions_[i], requested_extensions_[requested_extensions_.size() - 1u]); // Swap idiom.
-                requested_extensions_.pop_back();
+                std::swap(extensions_[i], extensions_[extensions_.size() - 1u]); // Swap idiom.
+                extensions_.pop_back();
                 
                 // Extension is guaranteed to be present in the list only once.
                 break;
@@ -505,11 +427,11 @@ namespace vks {
         if (strlen(requested) == 0u) {
             return *this;
         }
-
+        
         // Ensure requested validation layer does not already exist.
         bool found = false;
 
-        for (const char* layer : requested_layers_) {
+        for (const char* layer : validation_layers_) {
             if (strcmp(requested, layer) == 0) {
                 found = true;
                 break;
@@ -517,7 +439,7 @@ namespace vks {
         }
 
         if (!found) {
-            requested_layers_.emplace_back(requested);
+            validation_layers_.emplace_back(requested);
         }
 
         return *this;
@@ -528,13 +450,13 @@ namespace vks {
             return *this;
         }
     
-        for (std::size_t i = 0u; i < requested_layers_.size(); ++i) {
-            const char* layer = requested_layers_[i];
+        for (std::size_t i = 0u; i < validation_layers_.size(); ++i) {
+            const char* layer = validation_layers_[i];
         
             if (strcmp(requested, layer) == 0) {
                 // Found validation layer.
-                std::swap(requested_layers_[i], requested_layers_[requested_layers_.size() - 1u]); // Swap idiom.
-                requested_layers_.pop_back();
+                std::swap(validation_layers_[i], validation_layers_[validation_layers_.size() - 1u]); // Swap idiom.
+                validation_layers_.pop_back();
             
                 // Validation layer is guaranteed to be present in the list only once.
                 break;
@@ -550,9 +472,9 @@ namespace vks {
             return *this;
         }
         
-        // Enable extension for supporting validation features if not enabled already.
-        // Includes all functionality provided in the (deprecated) 'VK_EXT_validation_flags' extension.
-        with_enabled_extension(VK_EXT_VALIDATION_FEATURES_EXTENSION_NAME);
+        // Enable extensions for supporting validation features.
+        with_enabled_validation_layer("VK_LAYER_KHRONOS_validation");
+        with_enabled_extension("VK_EXT_validation_features");
     
         // Note: 'feature' is a bit field and may have several requested validation features to enable.
         if (feature & VulkanValidationFeature::CORE_VALIDATION) {
@@ -671,7 +593,6 @@ namespace vks {
             #endif
         }
         
-        headless_mode_ = headless;
         return *this;
     }
     
