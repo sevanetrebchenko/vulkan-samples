@@ -9,46 +9,26 @@
 
 namespace vks {
     
-    static struct DispatchTable {
-        DispatchTable();
-        ~DispatchTable();
-        
-        VkResult (VKAPI_PTR *fp_vk_create_instance)(const VkInstanceCreateInfo* create_info, const VkAllocationCallbacks* allocator, VkInstance* instance);
-        void (VKAPI_PTR *fp_vk_destroy_instance)(VkInstance instance, const VkAllocationCallbacks* allocator);
-        
-        VkResult (VKAPI_PTR *fp_vk_enumerate_instance_version)(std::uint32_t* version);
-        
-        VkResult (VKAPI_PTR *fp_vk_enumerate_instance_extension_properties)(const char* layer_name, std::uint32_t* property_count, VkExtensionProperties* properties);
-        VkResult (VKAPI_PTR *fp_vk_enumerate_instance_layer_properties)(std::uint32_t* property_count, VkLayerProperties* properties);
-    } dispatch;
-    
-    DispatchTable::DispatchTable() {
+    VulkanInstance::VulkanInstance(VkInstance handle) : handle_(handle) {
+        // Instance-level functions need to be loaded with a valid handle.
         detail::fp_vk_get_instance_proc_addr vk_get_instance_proc_addr = detail::get_vulkan_symbol_loader();
-        
-        fp_vk_create_instance = reinterpret_cast<typeof(fp_vk_create_instance)>(vk_get_instance_proc_addr(VK_NULL_HANDLE, "vkCreateInstance"));
-        fp_vk_destroy_instance = reinterpret_cast<typeof(fp_vk_destroy_instance)>(vk_get_instance_proc_addr(VK_NULL_HANDLE, "vkDestroyInstance"));
-        
-        fp_vk_enumerate_instance_version = reinterpret_cast<typeof(fp_vk_enumerate_instance_version)>(vk_get_instance_proc_addr(VK_NULL_HANDLE, "vkEnumerateInstanceVersion"));
-        
-        fp_vk_enumerate_instance_extension_properties = reinterpret_cast<typeof(fp_vk_enumerate_instance_extension_properties)>(vk_get_instance_proc_addr(VK_NULL_HANDLE, "vkEnumerateInstanceExtensionProperties"));
-        fp_vk_enumerate_instance_layer_properties = reinterpret_cast<typeof(fp_vk_enumerate_instance_layer_properties)>(vk_get_instance_proc_addr(VK_NULL_HANDLE, "vkEnumerateInstanceLayerProperties"));
-    }
-    
-    DispatchTable::~DispatchTable() = default;
-    
-    VulkanInstance::VulkanInstance() : handle(nullptr) {
+        dispatch_ = DispatchTable {
+            .fp_vk_destroy_instance = reinterpret_cast<typeof(DispatchTable::fp_vk_destroy_instance)>(vk_get_instance_proc_addr(handle, "vkDestroyInstance"))
+        };
     }
     
     VulkanInstance::~VulkanInstance() {
-        dispatch.fp_vk_destroy_instance(handle, nullptr);
+        dispatch_.fp_vk_destroy_instance(handle_, nullptr);
     }
 
     VulkanInstance::VulkanInstance(VulkanInstance&& other) noexcept {
-        if (handle) {
-            dispatch.fp_vk_destroy_instance(handle, nullptr);
+        if (handle_) {
+            // 'this' is already initialized.
+            dispatch_.fp_vk_destroy_instance(handle_, nullptr);
         }
-        handle = other.handle;
-        other.handle = nullptr;
+
+        handle_ = other.handle_;
+        other.handle_ = nullptr;
     }
     
     VulkanInstance& VulkanInstance::operator=(VulkanInstance&& other) noexcept {
@@ -57,17 +37,17 @@ namespace vks {
             return *this;
         }
     
-        if (handle) {
-            dispatch.fp_vk_destroy_instance(handle, nullptr);
+        if (handle_) {
+            dispatch_.fp_vk_destroy_instance(handle_, nullptr);
         }
-        handle = other.handle;
-        other.handle = nullptr;
+        handle_ = other.handle_;
+        other.handle_ = nullptr;
         
         return *this;
     }
     
     VulkanInstance::operator VkInstance() const {
-        return handle;
+        return handle_;
     }
     
     VulkanDevice::Builder VulkanInstance::create_device() const {
@@ -113,6 +93,19 @@ namespace vks {
                                              .patch = 0u
                                          })
                                          {
+        // Load global-level Vulkan functions.
+        detail::fp_vk_get_instance_proc_addr vk_get_instance_proc_addr = detail::get_vulkan_symbol_loader();
+        dispatch_ = DispatchTable {
+            .fp_vk_create_instance = reinterpret_cast<typeof(DispatchTable::fp_vk_create_instance)>(vk_get_instance_proc_addr(VK_NULL_HANDLE, "vkCreateInstance")),
+            .fp_vk_enumerate_instance_version = reinterpret_cast<typeof(DispatchTable::fp_vk_enumerate_instance_version)>(vk_get_instance_proc_addr(VK_NULL_HANDLE, "vkEnumerateInstanceVersion")),
+            .fp_vk_enumerate_instance_extension_properties = reinterpret_cast<typeof(DispatchTable::fp_vk_enumerate_instance_extension_properties)>(vk_get_instance_proc_addr(VK_NULL_HANDLE, "vkEnumerateInstanceExtensionProperties")),
+            .fp_vk_enumerate_instance_layer_properties = reinterpret_cast<typeof(DispatchTable::fp_vk_enumerate_instance_layer_properties)>(vk_get_instance_proc_addr(VK_NULL_HANDLE, "vkEnumerateInstanceLayerProperties"))
+        };
+    
+        // TODO: messages
+        ASSERT(dispatch_.fp_vk_create_instance != nullptr, "");
+        ASSERT(dispatch_.fp_vk_enumerate_instance_extension_properties != nullptr, "");
+        ASSERT(dispatch_.fp_vk_enumerate_instance_layer_properties != nullptr, "");
         
         // Enable default presentation extensions.
         with_headless_mode(false);
@@ -128,10 +121,10 @@ namespace vks {
     VulkanInstance VulkanInstance::Builder::build() {
         // Validate requested validation layers first (instance extensions may depend on extensions provided by validation layers).
         std::uint32_t available_layer_count = 0u;
-        dispatch.fp_vk_enumerate_instance_layer_properties(&available_layer_count, nullptr);
+        dispatch_.fp_vk_enumerate_instance_layer_properties(&available_layer_count, nullptr);
     
         std::vector<VkLayerProperties> available_layers(available_layer_count);
-        dispatch.fp_vk_enumerate_instance_layer_properties(&available_layer_count, available_layers.data());
+        dispatch_.fp_vk_enumerate_instance_layer_properties(&available_layer_count, available_layers.data());
     
         std::vector<const char*> unsupported_layers;
         unsupported_layers.reserve(validation_layers_.size()); // Maximum number of unsupported layers.
@@ -164,18 +157,18 @@ namespace vks {
         // Determine total number of supported instance extensions.
         // Include instance extensions that are implicitly enabled / provided by the Vulkan implementation.
         std::uint32_t available_extension_count = 0u;
-        dispatch.fp_vk_enumerate_instance_extension_properties(nullptr, &available_extension_count, nullptr);
+        dispatch_.fp_vk_enumerate_instance_extension_properties(nullptr, &available_extension_count, nullptr);
     
         std::vector<VkExtensionProperties> available_extensions(available_extension_count);
-        dispatch.fp_vk_enumerate_instance_extension_properties(nullptr, &available_extension_count, available_extensions.data());
+        dispatch_.fp_vk_enumerate_instance_extension_properties(nullptr, &available_extension_count, available_extensions.data());
     
         // Include instance extensions provided by enabled validation layers.
         for (const char* layer : validation_layers_) {
             std::uint32_t layer_extension_count = 0u;
-            dispatch.fp_vk_enumerate_instance_extension_properties(layer, &layer_extension_count, nullptr);
+            dispatch_.fp_vk_enumerate_instance_extension_properties(layer, &layer_extension_count, nullptr);
             
             std::vector<VkExtensionProperties> layer_extensions(layer_extension_count);
-            dispatch.fp_vk_enumerate_instance_extension_properties(layer, &layer_extension_count, layer_extensions.data());
+            dispatch_.fp_vk_enumerate_instance_extension_properties(layer, &layer_extension_count, layer_extensions.data());
     
             available_extension_count += layer_extension_count;
             available_extensions.insert(available_extensions.end(), layer_extensions.begin(), layer_extensions.end());
@@ -294,9 +287,8 @@ namespace vks {
         };
         
         // Determine application version.
-        // TODO: vkGetInstanceProcAddr(nullptr, "vkEnumerateInstanceVersion")
         std::uint32_t available_instance_version;
-        dispatch.fp_vk_enumerate_instance_version(&available_instance_version);
+        dispatch_.fp_vk_enumerate_instance_version(&available_instance_version);
         
         if (api_version_ > available_instance_version) {
             throw VulkanException("ERROR: Failed to create Vulkan instance - target instance Vulkan version (%i.%i.%i.0) is unsupported (highest available Vulkan version: %i.%i.%i.%i).",
@@ -325,14 +317,13 @@ namespace vks {
             .ppEnabledExtensionNames = extensions_.data()
         };
     
-        VulkanInstance instance { };
-    
-        VkResult result = dispatch.fp_vk_create_instance(&instance_create_info, nullptr, &instance.handle);
+        VkInstance handle = nullptr;
+        VkResult result = dispatch_.fp_vk_create_instance(&instance_create_info, nullptr, &handle);
         if (result != VK_SUCCESS) {
             throw VulkanException("ERROR: Failed to create Vulkan instance - vkCreateInstance exited with code %i.", result);
         }
 
-        return instance;
+        return VulkanInstance { handle };
     }
     
     VulkanInstance::Builder& VulkanInstance::Builder::with_application_name(const char* name) {

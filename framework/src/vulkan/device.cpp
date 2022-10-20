@@ -1,65 +1,29 @@
-//
-//#include "vulkan/device.hpp"
-//#include "vulkan/instance.hpp"
-//#include <cstring>
-//#include <stdexcept>
-//
-//namespace vks {
-//
-//    VulkanDevice VulkanDevice::Builder::build() const {
-//        // Enumerate all available physical devices.
-//        std::uint32_t physical_device_count = 0u;
-//        vkEnumeratePhysicalDevices(instance_->handle, &physical_device_count, nullptr);
-//
-//        if (physical_device_count == 0u) {
-//            // Detected no physical devices with Vulkan support.
-//            throw std::runtime_error("ERROR: Failed to create Vulkan device - detected no physical devices with Vulkan support.");
-//        }
-//
-//        std::vector<VkPhysicalDevice> physical_devices(physical_device_count);
-//        vkEnumeratePhysicalDevices(instance_->handle, &physical_device_count, physical_devices.data());
-//
-//        // Determine physical device suitability.
-//        for (VkPhysicalDevice handle : physical_devices) {
-//            VkPhysicalDeviceProperties properties { };
-//            vkGetPhysicalDeviceProperties(handle, &properties);
-//
-////            properties.
-////
-////            VkPhysicalDeviceFeatures features { };
-////            vkGetPhysicalDeviceFeatures(handle, &features);
-//        }
-//    }
-//
-//    std::vector<const char*> VulkanDevice::Builder::validate_extensions(VkPhysicalDevice handle) const {
-//        // Enumerate all available extensions.
-//        std::uint32_t available_extension_count = 0u;
-//        vkEnumerateDeviceExtensionProperties(handle, nullptr, &available_extension_count, nullptr);
-//
-//        std::vector<VkExtensionProperties> available_extensions(available_extension_count);
-//        vkEnumerateDeviceExtensionProperties(handle, nullptr, &available_extension_count, available_extensions.data());
-//
-//        std::vector<const char*> unsupported_extensions { };
-//        unsupported_extensions.reserve(extensions_.size()); // Maximum number of unsupported extensions.
-//
-//        for (const char* requested : extensions_) {
-//            bool found = false;
-//
-//            for (std::uint32_t i = 0u; i < available_extension_count; ++i) {
-//                const char* available = available_extensions[i].extensionName;
-//
-//                if (strcmp(requested, available) == 0) {
-//                    found = true;
-//                    break;
-//                }
-//            }
-//
-//            if (!found) {
-//                unsupported_extensions.emplace_back(requested);
-//            }
-//        }
-//
-//        return unsupported_extensions;
-//    }
-//
-//}
+
+#include "vulkan/device.hpp"
+#include "vulkan/instance.hpp"
+
+namespace vks {
+    
+    VulkanDevice::Builder::Builder(VulkanInstance* instance) : instance_(instance) {
+        // Load instance-level Vulkan functions.
+        detail::fp_vk_get_instance_proc_addr vk_get_instance_proc_addr = detail::get_vulkan_symbol_loader();
+        dispatch_ = DispatchTable {
+            .fp_vk_enumerate_physical_devices = reinterpret_cast<typeof(DispatchTable::fp_vk_enumerate_physical_devices)>(vk_get_instance_proc_addr((VkInstance) instance, "vkEnumeratePhysicalDevices")),
+            .fp_vk_get_physical_device_properties = reinterpret_cast<typeof(DispatchTable::fp_vk_get_physical_device_properties)>(vk_get_instance_proc_addr((VkInstance) instance, "vkGetPhysicalDeviceProperties")),
+            .fp_vk_get_physical_device_features = reinterpret_cast<typeof(DispatchTable::fp_vk_get_physical_device_features)>(vk_get_instance_proc_addr((VkInstance) instance, "vkGetPhysicalDeviceFeatures")),
+            .fp_vk_get_physical_device_queue_family_properties = reinterpret_cast<typeof(DispatchTable::fp_vk_get_physical_device_queue_family_properties)>(vk_get_instance_proc_addr((VkInstance) instance, "vkGetPhysicalDeviceQueueFamilyProperties")),
+            .fp_vk_enumerate_device_extension_properties = reinterpret_cast<typeof(DispatchTable::fp_vk_enumerate_device_extension_properties)>(vk_get_instance_proc_addr((VkInstance) instance, "vkEnumerateDeviceExtensionProperties"))
+        };
+        
+    }
+    
+    VulkanDevice::Builder::~Builder() {
+    }
+    
+    VulkanDevice VulkanDevice::Builder::build() {
+    }
+    
+    VulkanDevice::Builder& VulkanDevice::Builder::with_debug_name(const char* debug_name) {
+        return *this;
+    }
+}

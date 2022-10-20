@@ -26,18 +26,14 @@ namespace vks {
             VulkanInstance& operator=(const VulkanInstance& other) = delete;
             
         private:
-            static struct DispatchTable {
-                VkResult (VKAPI_PTR *fp_vk_create_instance)(const VkInstanceCreateInfo* create_info, const VkAllocationCallbacks* allocator, VkInstance* instance);
-                void (VKAPI_PTR *fp_vk_destroy_instance)(VkInstance instance, const VkAllocationCallbacks* allocator);
-    
-                VkResult (VKAPI_PTR *fp_vk_enumerate_instance_version)(std::uint32_t* version);
-    
-                VkResult (VKAPI_PTR *fp_vk_enumerate_instance_extension_properties)(const char* layer_name, std::uint32_t* property_count, VkExtensionProperties* properties);
-                VkResult (VKAPI_PTR *fp_vk_enumerate_instance_layer_properties)(std::uint32_t* property_count, VkLayerProperties* properties);
-            } dispatch;
+            // Dispatch table for instance-level functions.
+            // Note: instance-level functions are used for manipulating physical devices, checking their properties / abilities, and creating logical devices.
+            struct DispatchTable {
+                void (VKAPI_PTR *fp_vk_destroy_instance)(VkInstance, const VkAllocationCallbacks*);
+            } dispatch_;
             
-            VulkanInstance();
-            VkInstance handle;
+            VulkanInstance(VkInstance instance);
+            VkInstance handle_;
     };
     
     class VulkanInstance::Builder {
@@ -85,6 +81,14 @@ namespace vks {
             Builder& with_headless_mode(bool headless = true);
             
         private:
+            // Dispatch table for global-level functions.
+            struct DispatchTable {
+                VkResult (VKAPI_PTR *fp_vk_create_instance)(const VkInstanceCreateInfo*, const VkAllocationCallbacks*, VkInstance*);
+                VkResult (VKAPI_PTR *fp_vk_enumerate_instance_version)(std::uint32_t*);
+                VkResult (VKAPI_PTR *fp_vk_enumerate_instance_extension_properties)(const char*, std::uint32_t*, VkExtensionProperties*);
+                VkResult (VKAPI_PTR *fp_vk_enumerate_instance_layer_properties)(std::uint32_t*, VkLayerProperties*);
+            } dispatch_;
+            
             void add_validation_feature(VulkanValidationFeature feature);
             NODISCARD bool has_validation_feature(VulkanValidationFeature feature) const;
             void remove_validation_feature(VulkanValidationFeature feature);

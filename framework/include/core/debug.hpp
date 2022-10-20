@@ -5,9 +5,16 @@
 #include "core/defines.hpp"
 
 #if defined VKS_DEBUG
+    
     #define ASSERT(EXPRESSION, MESSAGE, ...) vks::debug_assert(#EXPRESSION, EXPRESSION, __FILE__, __func__, __LINE__, MESSAGE, ##__VA_ARGS__)
+
 #else
-    #define ASSERT(EXPRESSION, MESSAGE, ...)
+    
+    #define ASSERT(EXPRESSION, MESSAGE, ...) \
+        do {                                 \
+        }                                    \
+        while(false)
+
 #endif
 
 namespace vks {
