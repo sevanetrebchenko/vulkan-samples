@@ -10,12 +10,18 @@
 
 namespace vks {
 
-    Sample::Sample() : instance_(VulkanInstance::Builder().build()) {
-        instance_ = VulkanInstance::Builder()
-                .with_target_api_version(1, 3)
-                .with_enabled_extension("")
-                .with_application_name("")
-                .build();
+    Sample::Sample() : instance_(VulkanInstance::Builder()
+                                         .with_target_api_version(1, 0)
+                                         .with_enabled_extension("")
+                                         .with_application_name("")
+                                         .build()) {
+    
+//        auto h = detail::vk_get_instance_proc_addr(instance_, "vkGetPhysicalDeviceProperties2KHR");
+//        if (!h) {
+//            throw std::runtime_error("");
+//        }
+        
+        instance_.select_physical_device().select();
     }
 
     Sample::~Sample() {

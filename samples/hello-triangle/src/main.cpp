@@ -2,8 +2,6 @@
 #include <iostream>
 #include "framework.hpp"
 
-#include "vulkan/dispatch.hpp"
-
 bool create_application() {
     vks::Sample sample { };
     

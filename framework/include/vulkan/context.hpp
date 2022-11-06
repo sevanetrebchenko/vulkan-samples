@@ -2,7 +2,7 @@
 #pragma once
 
 #include "vulkan/instance.hpp"
-#include "vulkan/device.hpp"
+#include "device.hpp"
 
 namespace vks {
 

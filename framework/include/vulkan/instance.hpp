@@ -2,10 +2,12 @@
 #pragma once
 
 #include "core/defines.hpp"
-#include "vulkan/device.hpp"
+#include "device.hpp"
+#include "vulkan/types.hpp"
 #include "vulkan/loader.hpp"
 #include <vector>
 #include <vulkan/vulkan.h>
+#include <cstdint>
 
 namespace vks {
     
@@ -17,22 +19,26 @@ namespace vks {
         
             VulkanInstance(VulkanInstance&& other) noexcept;
             VulkanInstance& operator=(VulkanInstance&& other) noexcept;
-            
-            explicit operator VkInstance() const;
-            NODISCARD VulkanDevice::Builder create_device() const;
         
             // Instances should not be copied.
             VulkanInstance(const VulkanInstance& other) = delete;
             VulkanInstance& operator=(const VulkanInstance& other) = delete;
             
-        private:
-            // Dispatch table for instance-level functions.
-            // Note: instance-level functions are used for manipulating physical devices, checking their properties / abilities, and creating logical devices.
-            struct DispatchTable {
-                void (VKAPI_PTR *fp_vk_destroy_instance)(VkInstance, const VkAllocationCallbacks*);
-            } dispatch_;
+            operator VkInstance() const;
+            NODISCARD VulkanPhysicalDevice::Selector select_physical_device()  {
+                return VulkanPhysicalDevice::Selector(this);
+            }
+        
+            NODISCARD bool is_extension_enabled(const char* extension) const;
             
-            VulkanInstance(VkInstance instance);
+            Version api_version;
+            std::vector<const char*> extensions;
+    
+        private:
+            // Vulkan function dispatch.
+            void (VKAPI_PTR *fp_vk_destroy_instance)(VkInstance, const VkAllocationCallbacks*);
+            
+            VulkanInstance(VkInstance handle);
             VkInstance handle_;
     };
     
@@ -81,13 +87,11 @@ namespace vks {
             Builder& with_headless_mode(bool headless = true);
             
         private:
-            // Dispatch table for global-level functions.
-            struct DispatchTable {
-                VkResult (VKAPI_PTR *fp_vk_create_instance)(const VkInstanceCreateInfo*, const VkAllocationCallbacks*, VkInstance*);
-                VkResult (VKAPI_PTR *fp_vk_enumerate_instance_version)(std::uint32_t*);
-                VkResult (VKAPI_PTR *fp_vk_enumerate_instance_extension_properties)(const char*, std::uint32_t*, VkExtensionProperties*);
-                VkResult (VKAPI_PTR *fp_vk_enumerate_instance_layer_properties)(std::uint32_t*, VkLayerProperties*);
-            } dispatch_;
+            // Vulkan function dispatch.
+            VkResult (VKAPI_PTR *fp_vk_create_instance)(const VkInstanceCreateInfo*, const VkAllocationCallbacks*, VkInstance*);
+            VkResult (VKAPI_PTR *fp_vk_enumerate_instance_version)(std::uint32_t*);
+            VkResult (VKAPI_PTR *fp_vk_enumerate_instance_extension_properties)(const char*, std::uint32_t*, VkExtensionProperties*);
+            VkResult (VKAPI_PTR *fp_vk_enumerate_instance_layer_properties)(std::uint32_t*, VkLayerProperties*);
             
             void add_validation_feature(VulkanValidationFeature feature);
             NODISCARD bool has_validation_feature(VulkanValidationFeature feature) const;
@@ -103,6 +107,7 @@ namespace vks {
             
             std::vector<const char*> extensions_;
             std::vector<const char*> validation_layers_;
+            
             std::vector<VulkanValidationFeature> validation_features_;
     };
     

@@ -10,11 +10,13 @@ add_library(${PROJECT_NAME} OBJECT
             "${PROJECT_SOURCE_DIR}/src/core/debug.cpp"
 
             # vulkan
-            "${PROJECT_SOURCE_DIR}/src/vulkan/context.cpp"
-            "${PROJECT_SOURCE_DIR}/src/vulkan/device.cpp"
+            # "${PROJECT_SOURCE_DIR}/src/vulkan/context.cpp"
             "${PROJECT_SOURCE_DIR}/src/vulkan/instance.cpp"
+            "${PROJECT_SOURCE_DIR}/src/vulkan/device.cpp"
             "${PROJECT_SOURCE_DIR}/src/vulkan/loader.cpp"
             "${PROJECT_SOURCE_DIR}/src/vulkan/types.cpp"
+            #"${PROJECT_SOURCE_DIR}/src/vulkan/device/device.cpp"
+            #"${PROJECT_SOURCE_DIR}/src/vulkan/device/types.cpp"
         )
 
 find_package(Vulkan REQUIRED)
@@ -23,6 +25,7 @@ target_link_libraries(${PROJECT_NAME} INTERFACE Vulkan::Vulkan)
 
 # Dynamically link against Vulkan.
 target_compile_definitions(${PROJECT_NAME} PRIVATE VK_NO_PROTOTYPES)
+# target_compile_definitions(${PROJECT_NAME} PRIVATE VK_ENABLE_BETA_EXTENSIONS)
 
 # External applications should only include 'framework/include/framework.hpp'.
 target_include_directories(${PROJECT_NAME} PUBLIC "${PROJECT_SOURCE_DIR}/include")

@@ -13,7 +13,7 @@
 namespace vks {
     namespace detail {
     
-        struct VulkanLoader {
+        static struct VulkanLoader {
             VulkanLoader();
             ~VulkanLoader();
         
@@ -23,8 +23,8 @@ namespace vks {
                 void* library;
             #endif
         
-            fp_vk_get_instance_proc_addr instance_proc_addr;
-        };
+            void (VKAPI_PTR *(VKAPI_PTR *fp_vk_get_instance_proc_addr)(VkInstance, const char*))(void);
+        } loader;
         
         VulkanLoader::VulkanLoader() {
             #if defined VKS_PLATFORM_WINDOWS
@@ -37,7 +37,7 @@ namespace vks {
                     throw VulkanException("ERROR: Unable to initialize Vulkan loader - '%s' not found.", name);
                 }
     
-                instance_proc_addr = reinterpret_cast<typeof(fp_vk_get_instance_proc_addr)>(GetProcAddress(library, "vkGetInstanceProcAddr"));
+                fp_vk_get_instance_proc_addr = reinterpret_cast<typeof(fp_vk_get_instance_proc_addr)>(GetProcAddress(library, "vkGetInstanceProcAddr"));
             
             #elif defined(VKS_PLATFORM_LINUX)
             
@@ -48,7 +48,7 @@ namespace vks {
                     throw VulkanException("ERROR: Unable to initialize Vulkan loader - '%s' not found.", name);
                 }
                 
-                instance_proc_addr = reinterpret_cast<void(*)(VkInstance, const char*)>(dlsym(library, "vkGetInstanceProcAddr"));
+                fp_vk_get_instance_proc_addr = reinterpret_cast<void(*)(VkInstance, const char*)>(dlsym(library, "vkGetInstanceProcAddr"));
                 
             #elif defined(VKS_PLATFORM_APPLE)
                 
@@ -59,9 +59,11 @@ namespace vks {
                     throw VulkanException("ERROR: Unable to initialize Vulkan loader - '%s' not found.", name);
                 }
                 
-                instance_proc_addr = reinterpret_cast<void(*)(VkInstance, const char*)>(dlsym(library, "vkGetInstanceProcAddr"));
+                fp_vk_get_instance_proc_addr = reinterpret_cast<void(*)(VkInstance, const char*)>(dlsym(library, "vkGetInstanceProcAddr"));
             
             #endif
+            
+            ASSERT(fp_vk_get_instance_proc_addr != nullptr, "ERROR: Failed to initialize Vulkan function loader.");
         }
         
         VulkanLoader::~VulkanLoader() {
@@ -72,9 +74,8 @@ namespace vks {
             #endif
         }
     
-        NODISCARD fp_vk_get_instance_proc_addr get_vulkan_symbol_loader() {
-            static VulkanLoader loader { };
-            return loader.instance_proc_addr;
+        NODISCARD void_fp vk_get_instance_proc_addr(VkInstance instance, const char* name) {
+            return loader.fp_vk_get_instance_proc_addr(instance, name);
         }
         
     }
