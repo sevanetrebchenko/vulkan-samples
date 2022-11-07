@@ -25,9 +25,7 @@ namespace vks {
             VulkanInstance& operator=(const VulkanInstance& other) = delete;
             
             operator VkInstance() const;
-            NODISCARD VulkanPhysicalDevice::Selector select_physical_device()  {
-                return VulkanPhysicalDevice::Selector(this);
-            }
+            NODISCARD VulkanPhysicalDevice::Selector select_physical_device();
         
             NODISCARD bool is_extension_enabled(const char* extension) const;
             
@@ -35,7 +33,7 @@ namespace vks {
             std::vector<const char*> extensions;
     
         private:
-            // Vulkan function dispatch.
+            // vkDestroyInstance
             void (VKAPI_PTR *fp_vk_destroy_instance)(VkInstance, const VkAllocationCallbacks*);
             
             VulkanInstance(VkInstance handle);
@@ -70,12 +68,21 @@ namespace vks {
             // Headless mode does not load extensions required for presentation.
             Builder& with_headless_mode(bool headless = true);
             
+            // TODO: validation features?
+            
         private:
-            // Vulkan function dispatch.
+            // vkCreateInstance
             VkResult (VKAPI_PTR *fp_vk_create_instance)(const VkInstanceCreateInfo*, const VkAllocationCallbacks*, VkInstance*);
+            
+            // vkEnumerateInstanceVersion
             VkResult (VKAPI_PTR *fp_vk_enumerate_instance_version)(std::uint32_t*);
+            
+            // vkEnumerateInstanceExtensionProperties
             VkResult (VKAPI_PTR *fp_vk_enumerate_instance_extension_properties)(const char*, std::uint32_t*, VkExtensionProperties*);
+            
+            // vkEnumerateInstanceLayerProperties
             VkResult (VKAPI_PTR *fp_vk_enumerate_instance_layer_properties)(std::uint32_t*, VkLayerProperties*);
+            
             
             const char* application_name_;
             Version application_version_;

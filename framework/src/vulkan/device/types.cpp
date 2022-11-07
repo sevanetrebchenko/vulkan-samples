@@ -95,8 +95,7 @@ namespace vks {
         fp_vk_get_physical_device_properties(device, &properties);
     }
 
-    VulkanPhysicalDevice::Properties::~Properties() {
-    }
+
     
     VulkanPhysicalDevice::Properties::AccelerationStructureProperties::operator VkPhysicalDeviceAccelerationStructurePropertiesKHR() const {
         return VkPhysicalDeviceAccelerationStructurePropertiesKHR {

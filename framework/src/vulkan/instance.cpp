@@ -9,6 +9,7 @@ namespace vks {
     
     VulkanInstance::VulkanInstance(VkInstance handle) : handle_(handle),
                                                         fp_vk_destroy_instance(reinterpret_cast<typeof(fp_vk_destroy_instance)>(detail::vk_get_instance_proc_addr(handle, "vkDestroyInstance"))) {
+        ASSERT(fp_vk_destroy_instance != nullptr, "");
     }
     
     VulkanInstance::~VulkanInstance() {
