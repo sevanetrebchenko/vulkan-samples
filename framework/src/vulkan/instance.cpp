@@ -103,7 +103,6 @@ namespace vks {
         
         // Enable / disable default Vulkan validation features.
         with_enabled_validation_layer("VK_LAYER_KHRONOS_validation");
-        with_enabled_validation_feature(GPU_VALIDATION | CORE_VALIDATION | THREAD_SAFETY | OBJECT_LIFETIMES | UNIQUE_HANDLES);
     }
     
     VulkanInstance::Builder::~Builder() {
@@ -191,92 +190,6 @@ namespace vks {
             throw VulkanException("ERROR: Failed to create Vulkan instance - found %zu unsupported extension(s).", unsupported_extensions.size());
         }
     
-        // Configure enabled / disabled instance validation features.
-        
-        // If CORE_VALIDATION is disabled, GPU_VALIDATION must also be disabled.
-        if (!has_validation_feature(VulkanValidationFeature::CORE_VALIDATION)) {
-            remove_validation_feature(VulkanValidationFeature::GPU_VALIDATION);
-        }
-        
-        // GPU_VALIDATION cannot be enabled alongside DEBUG_PRINTING. Builder respects the most recently enabled validation feature.
-        for (auto iter = validation_features_.rbegin(); iter != validation_features_.rend(); ++iter) {
-            if (*iter == VulkanValidationFeature::GPU_VALIDATION) {
-                // Found GPU_VALIDATION first, discard DEBUG_PRINTING (if applicable).
-                remove_validation_feature(DEBUG_PRINTING);
-                break;
-            }
-    
-            if (*iter == VulkanValidationFeature::DEBUG_PRINTING) {
-                // Found DEBUG_PRINTING, discard GPU_VALIDATION (if applicable).
-                remove_validation_feature(VulkanValidationFeature::GPU_VALIDATION);
-                break;
-            }
-        }
-    
-        std::vector<VkValidationFeatureEnableEXT> enabled_validation_features;
-        std::vector<VkValidationFeatureDisableEXT> disabled_validation_features;
-        
-        // Features below are enabled by default - if feature is present in the requested validation feature list, disable it.
-        if (!has_validation_feature(VulkanValidationFeature::CORE_VALIDATION)) {
-            disabled_validation_features.emplace_back(VkValidationFeatureDisableEXT::VK_VALIDATION_FEATURE_DISABLE_CORE_CHECKS_EXT);
-        }
-    
-        if (!has_validation_feature(VulkanValidationFeature::THREAD_SAFETY)) {
-            disabled_validation_features.emplace_back(VkValidationFeatureDisableEXT::VK_VALIDATION_FEATURE_DISABLE_THREAD_SAFETY_EXT);
-        }
-    
-        if (!has_validation_feature(VulkanValidationFeature::STATELESS_VALIDATION)) {
-            disabled_validation_features.emplace_back(VkValidationFeatureDisableEXT::VK_VALIDATION_FEATURE_DISABLE_API_PARAMETERS_EXT);
-        }
-    
-        if (!has_validation_feature(VulkanValidationFeature::OBJECT_LIFETIMES)) {
-            disabled_validation_features.emplace_back(VkValidationFeatureDisableEXT::VK_VALIDATION_FEATURE_DISABLE_OBJECT_LIFETIMES_EXT);
-        }
-    
-        if (!has_validation_feature(VulkanValidationFeature::UNIQUE_HANDLES)) {
-            disabled_validation_features.emplace_back(VkValidationFeatureDisableEXT::VK_VALIDATION_FEATURE_DISABLE_UNIQUE_HANDLES_EXT);
-        }
-        
-        // Features below are disabled by default - if feature is present in the requested validation feature list, enable it.
-        if (has_validation_feature(VulkanValidationFeature::SYNCHRONIZATION)) {
-            enabled_validation_features.emplace_back(VkValidationFeatureEnableEXT::VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT);
-        }
-    
-        if (has_validation_feature(VulkanValidationFeature::BEST_PRACTICES)) {
-            enabled_validation_features.emplace_back(VkValidationFeatureEnableEXT::VK_VALIDATION_FEATURE_ENABLE_BEST_PRACTICES_EXT);
-        }
-    
-        if (has_validation_feature(VulkanValidationFeature::DEBUG_PRINTING)) {
-            enabled_validation_features.emplace_back(VkValidationFeatureEnableEXT::VK_VALIDATION_FEATURE_ENABLE_DEBUG_PRINTF_EXT);
-        }
-        
-        // GPU_VALIDATION controls a combination of shader and GPU validation features.
-        if (has_validation_feature(VulkanValidationFeature::GPU_VALIDATION)) {
-            enabled_validation_features.emplace_back(VkValidationFeatureEnableEXT::VK_VALIDATION_FEATURE_ENABLE_GPU_ASSISTED_EXT);
-            enabled_validation_features.emplace_back(VkValidationFeatureEnableEXT::VK_VALIDATION_FEATURE_ENABLE_GPU_ASSISTED_RESERVE_BINDING_SLOT_EXT);
-    
-            // Enabled by default (no action necessary):
-            //      - VK_VALIDATION_FEATURE_DISABLE_SHADERS_EXT
-            //      - VK_VALIDATION_FEATURE_DISABLE_SHADER_VALIDATION_CACHE_EXT
-        }
-        else {
-            disabled_validation_features.emplace_back(VkValidationFeatureDisableEXT::VK_VALIDATION_FEATURE_DISABLE_SHADERS_EXT);
-            disabled_validation_features.emplace_back(VkValidationFeatureDisableEXT::VK_VALIDATION_FEATURE_DISABLE_SHADER_VALIDATION_CACHE_EXT);
-    
-            // Disabled by default (no action necessary):
-            //      - VK_VALIDATION_FEATURE_ENABLE_GPU_ASSISTED_EXT
-            //      - VK_VALIDATION_FEATURE_ENABLE_GPU_ASSISTED_RESERVE_BINDING_SLOT_EXT
-        }
-    
-        VkValidationFeaturesEXT validation_features {
-            .sType = VK_STRUCTURE_TYPE_VALIDATION_FEATURES_EXT,
-            .pNext = nullptr,
-            .enabledValidationFeatureCount = static_cast<std::uint32_t>(enabled_validation_features.size()),
-            .pEnabledValidationFeatures = enabled_validation_features.data(),
-            .disabledValidationFeatureCount = static_cast<std::uint32_t>(disabled_validation_features.size()),
-            .pDisabledValidationFeatures = disabled_validation_features.data()
-        };
-        
         // Determine application version.
         std::uint32_t available_instance_version;
         fp_vk_enumerate_instance_version(&available_instance_version);
@@ -300,7 +213,7 @@ namespace vks {
 
         VkInstanceCreateInfo instance_create_info {
             .sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
-            .pNext = nullptr,//&validation_features,
+            .pNext = nullptr,
             .pApplicationInfo = &application_info,
             .enabledLayerCount = static_cast<std::uint32_t>(validation_layers_.size()),
             .ppEnabledLayerNames = validation_layers_.data(),
@@ -448,107 +361,6 @@ namespace vks {
         return *this;
     }
     
-    VulkanInstance::Builder& VulkanInstance::Builder::with_enabled_validation_feature(VulkanValidationFeature feature) {
-        if (feature == 0u) {
-            // No requested validation features.
-            return *this;
-        }
-        
-        // Enable extensions for supporting validation features.
-        with_enabled_validation_layer("VK_LAYER_KHRONOS_validation");
-        with_enabled_extension("VK_EXT_validation_features");
-    
-        // Note: 'feature' is a bit field and may have several requested validation features to enable.
-        if (feature & VulkanValidationFeature::CORE_VALIDATION) {
-            add_validation_feature(VulkanValidationFeature::CORE_VALIDATION);
-        }
-        
-        if (feature & VulkanValidationFeature::GPU_VALIDATION) {
-            add_validation_feature(VulkanValidationFeature::GPU_VALIDATION);
-        }
-    
-        if (feature & VulkanValidationFeature::THREAD_SAFETY) {
-            add_validation_feature(VulkanValidationFeature::THREAD_SAFETY);
-        }
-    
-        if (feature & VulkanValidationFeature::STATELESS_VALIDATION) {
-            add_validation_feature(VulkanValidationFeature::STATELESS_VALIDATION);
-        }
-    
-        if (feature & VulkanValidationFeature::OBJECT_LIFETIMES) {
-            add_validation_feature(VulkanValidationFeature::OBJECT_LIFETIMES);
-        }
-    
-        if (feature & VulkanValidationFeature::UNIQUE_HANDLES) {
-            add_validation_feature(VulkanValidationFeature::UNIQUE_HANDLES);
-        }
-    
-        if (feature & VulkanValidationFeature::SYNCHRONIZATION) {
-            add_validation_feature(VulkanValidationFeature::SYNCHRONIZATION);
-        }
-    
-        if (feature & VulkanValidationFeature::BEST_PRACTICES) {
-            add_validation_feature(VulkanValidationFeature::BEST_PRACTICES);
-        }
-    
-        if (feature & VulkanValidationFeature::DEBUG_PRINTING) {
-            add_validation_feature(VulkanValidationFeature::DEBUG_PRINTING);
-        }
-        
-        return *this;
-    }
-    
-    VulkanInstance::Builder& VulkanInstance::Builder::with_disabled_validation_feature(VulkanValidationFeature feature) {
-        if (!feature) {
-            return *this;
-        }
-    
-        // Enable extension for supporting validation features if not enabled already.
-        // Includes all functionality provided in the (deprecated) 'VK_EXT_validation_flags' extension.
-        with_enabled_extension(VK_EXT_VALIDATION_FEATURES_EXTENSION_NAME);
-    
-        // Note: 'feature' is a bit field and may have several validation features requested.
-        if (feature & VulkanValidationFeature::CORE_VALIDATION) {
-            
-            
-            remove_validation_feature(VulkanValidationFeature::CORE_VALIDATION);
-        }
-    
-        if (feature & VulkanValidationFeature::GPU_VALIDATION) {
-            remove_validation_feature(VulkanValidationFeature::GPU_VALIDATION);
-        }
-    
-        if (feature & VulkanValidationFeature::THREAD_SAFETY) {
-            remove_validation_feature(VulkanValidationFeature::THREAD_SAFETY);
-        }
-    
-        if (feature & VulkanValidationFeature::STATELESS_VALIDATION) {
-            remove_validation_feature(VulkanValidationFeature::STATELESS_VALIDATION);
-        }
-    
-        if (feature & VulkanValidationFeature::OBJECT_LIFETIMES) {
-            remove_validation_feature(VulkanValidationFeature::OBJECT_LIFETIMES);
-        }
-    
-        if (feature & VulkanValidationFeature::UNIQUE_HANDLES) {
-            remove_validation_feature(VulkanValidationFeature::UNIQUE_HANDLES);
-        }
-    
-        if (feature & VulkanValidationFeature::SYNCHRONIZATION) {
-            remove_validation_feature(VulkanValidationFeature::SYNCHRONIZATION);
-        }
-    
-        if (feature & VulkanValidationFeature::BEST_PRACTICES) {
-            remove_validation_feature(VulkanValidationFeature::BEST_PRACTICES);
-        }
-    
-        if (feature & VulkanValidationFeature::DEBUG_PRINTING) {
-            remove_validation_feature(VulkanValidationFeature::DEBUG_PRINTING);
-        }
-        
-        return *this;
-    }
-    
     VulkanInstance::Builder& VulkanInstance::Builder::with_headless_mode(bool headless) {
         if (headless) {
             #if defined VKS_PLATFORM_WINDOWS
@@ -580,48 +392,6 @@ namespace vks {
     
         with_enabled_extension("VK_KHR_surface");
         return *this;
-    }
-    
-    void VulkanInstance::Builder::add_validation_feature(VulkanValidationFeature requested) {
-        ASSERT(requested && !(requested & (requested - 1u)), "VulkanValidationFeature provided to 'enable_validation_feature' must be singular.");
-        if (!has_validation_feature(requested)) {
-            validation_features_.emplace_back(requested);
-        }
-    }
-    
-    bool VulkanInstance::Builder::has_validation_feature(VulkanValidationFeature requested) const {
-        bool found = false;
-        
-        for (VulkanValidationFeature feature : validation_features_) {
-            if (feature == requested) {
-                found = true;
-                break;
-            }
-        }
-        
-        return found;
-    }
-    
-    void VulkanInstance::Builder::remove_validation_feature(VulkanValidationFeature requested) {
-        ASSERT(requested && !(requested & (requested - 1u)), "VulkanValidationFeature provided to 'disable_validation_feature' must be singular.");
-        
-        // Note: cannot use swap paradigm as the validation feature insert order matters.
-        for (auto iter = validation_features_.begin(); iter != validation_features_.end(); ++iter) {
-            if (*iter == requested) {
-                validation_features_.erase(iter);
-                break;
-            }
-        }
-    }
-    
-    VulkanInstance::Builder::VulkanValidationFeature operator|(VulkanInstance::Builder::VulkanValidationFeature first, VulkanInstance::Builder::VulkanValidationFeature second) {
-        using T = std::underlying_type<VulkanInstance::Builder::VulkanValidationFeature>::type;
-        return static_cast<VulkanInstance::Builder::VulkanValidationFeature>(static_cast<T>(first) | static_cast<T>(second));
-    }
-    
-    VulkanInstance::Builder::VulkanValidationFeature operator&(VulkanInstance::Builder::VulkanValidationFeature first, VulkanInstance::Builder::VulkanValidationFeature second) {
-        using T = std::underlying_type<VulkanInstance::Builder::VulkanValidationFeature>::type;
-        return static_cast<VulkanInstance::Builder::VulkanValidationFeature>(static_cast<T>(first) & static_cast<T>(second));
     }
     
 } // namespace vks

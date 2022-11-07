@@ -219,7 +219,6 @@ namespace vks {
     
             // vkEnumerateDeviceLayerProperties
             VkResult (VKAPI_PTR *fp_vk_enumerate_device_layer_properties_)(VkPhysicalDevice, std::uint32_t*, VkLayerProperties*);
-    
     };
     
 }

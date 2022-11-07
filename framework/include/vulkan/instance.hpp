@@ -44,18 +44,6 @@ namespace vks {
     
     class VulkanInstance::Builder {
         public:
-            enum VulkanValidationFeature : std::uint32_t {
-                CORE_VALIDATION       = (1 << 0),
-                GPU_VALIDATION        = (1 << 1),
-                THREAD_SAFETY         = (1 << 2),
-                STATELESS_VALIDATION  = (1 << 3),
-                OBJECT_LIFETIMES      = (1 << 4),
-                UNIQUE_HANDLES        = (1 << 5),
-                SYNCHRONIZATION       = (1 << 6),
-                BEST_PRACTICES        = (1 << 7),
-                DEBUG_PRINTING        = (1 << 8)
-            };
-            
             Builder();
             ~Builder();
             
@@ -79,10 +67,6 @@ namespace vks {
             Builder& with_enabled_validation_layer(const char* layer);
             Builder& with_disabled_validation_layer(const char* layer);
             
-            // Enable / disable features checked by validation layers.
-            Builder& with_enabled_validation_feature(VulkanValidationFeature feature);
-            Builder& with_disabled_validation_feature(VulkanValidationFeature feature);
-        
             // Headless mode does not load extensions required for presentation.
             Builder& with_headless_mode(bool headless = true);
             
@@ -92,10 +76,6 @@ namespace vks {
             VkResult (VKAPI_PTR *fp_vk_enumerate_instance_version)(std::uint32_t*);
             VkResult (VKAPI_PTR *fp_vk_enumerate_instance_extension_properties)(const char*, std::uint32_t*, VkExtensionProperties*);
             VkResult (VKAPI_PTR *fp_vk_enumerate_instance_layer_properties)(std::uint32_t*, VkLayerProperties*);
-            
-            void add_validation_feature(VulkanValidationFeature feature);
-            NODISCARD bool has_validation_feature(VulkanValidationFeature feature) const;
-            void remove_validation_feature(VulkanValidationFeature feature);
             
             const char* application_name_;
             Version application_version_;
@@ -107,11 +87,6 @@ namespace vks {
             
             std::vector<const char*> extensions_;
             std::vector<const char*> validation_layers_;
-            
-            std::vector<VulkanValidationFeature> validation_features_;
     };
-    
-    VulkanInstance::Builder::VulkanValidationFeature operator|(VulkanInstance::Builder::VulkanValidationFeature first, VulkanInstance::Builder::VulkanValidationFeature second);
-    VulkanInstance::Builder::VulkanValidationFeature operator&(VulkanInstance::Builder::VulkanValidationFeature first, VulkanInstance::Builder::VulkanValidationFeature second);
     
 } // namespace vks
