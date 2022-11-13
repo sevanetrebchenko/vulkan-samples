@@ -2,7 +2,7 @@
 #pragma once
 
 #include "core/defines.hpp"
-#include "device.hpp"
+#include "vulkan/physical_device.hpp"
 #include "vulkan/types.hpp"
 #include "vulkan/loader.hpp"
 #include <vector>
@@ -45,7 +45,7 @@ namespace vks {
             Builder();
             ~Builder();
             
-            NODISCARD VulkanInstance build();
+            NODISCARD VulkanInstance build() const;
             
             Builder& with_application_name(const char* name);
             
@@ -82,7 +82,6 @@ namespace vks {
             
             // vkEnumerateInstanceLayerProperties
             VkResult (VKAPI_PTR *fp_vk_enumerate_instance_layer_properties)(std::uint32_t*, VkLayerProperties*);
-            
             
             const char* application_name_;
             Version application_version_;

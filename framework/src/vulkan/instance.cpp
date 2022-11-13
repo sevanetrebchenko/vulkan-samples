@@ -109,7 +109,7 @@ namespace vks {
     VulkanInstance::Builder::~Builder() {
     }
     
-    VulkanInstance VulkanInstance::Builder::build() {
+    VulkanInstance VulkanInstance::Builder::build() const {
         // Validate requested validation layers first (instance extensions may depend on extensions provided by validation layers).
         std::uint32_t available_layer_count = 0u;
         fp_vk_enumerate_instance_layer_properties(&available_layer_count, nullptr);
