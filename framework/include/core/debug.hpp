@@ -3,6 +3,7 @@
 
 #include <stdexcept>
 #include "core/defines.hpp"
+#include <vulkan/vulkan.h>
 
 #if defined VKS_DEBUG
     
@@ -31,5 +32,7 @@ namespace vks {
     };
     
     void debug_assert(const char* expression, bool result, const char* file, const char* function, int line, const char* format, ...);
+    
+    const char* to_string(VkResult result);
     
 }

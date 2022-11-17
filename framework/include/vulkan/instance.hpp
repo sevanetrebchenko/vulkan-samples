@@ -2,9 +2,11 @@
 #pragma once
 
 #include "core/defines.hpp"
-#include "vulkan/physical_device.hpp"
+#include "vulkan/device.hpp"
 #include "vulkan/types.hpp"
 #include "vulkan/loader.hpp"
+#include "vulkan/window.hpp"
+
 #include <vector>
 #include <vulkan/vulkan.h>
 #include <cstdint>
@@ -25,7 +27,9 @@ namespace vks {
             VulkanInstance& operator=(const VulkanInstance& other) = delete;
             
             operator VkInstance() const;
-            NODISCARD VulkanPhysicalDevice::Selector select_physical_device();
+            
+            NODISCARD VulkanDevice::Builder create_device();
+            NODISCARD VulkanWindow::Builder create_window();
             
             NODISCARD bool is_extension_enabled(const char* extension) const;
             

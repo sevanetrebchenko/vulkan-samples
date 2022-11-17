@@ -21,7 +21,7 @@ namespace vks {
 //            throw std::runtime_error("");
 //        }
         
-        instance_.select_physical_device().select();
+        instance_.select_physical_device().build();
     }
 
     Sample::~Sample() {

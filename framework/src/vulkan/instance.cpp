@@ -45,29 +45,17 @@ namespace vks {
         return handle_;
     }
 
-//    VulkanDevice::Builder VulkanInstance::create_device() const {
-//        VulkanDevice::Builder builder { };
-//
-//        builder.instance_ = handle;
-//
-//        // Initialize physical device.
-//        unsigned physical_device_count = 0u;
-//        vkEnumeratePhysicalDevices(nullptr, &physical_device_count, nullptr);
-//
-//        std::vector<VkPhysicalDevice> physical_devices(physical_device_count);
-//        vkEnumeratePhysicalDevices(nullptr, &physical_device_count, physical_devices.data());
-//
-//        builder.with_selector([](const Device::Properties& device_properties) -> int {
-//            int score = 0;
-//
-//
-//
-//            return score;
-//        }).with_debug_name()
-//    }
+    VulkanDevice::Builder VulkanInstance::create_device() {
+        VulkanDevice::Builder builder(*this);
+        
+        return builder;
+    }
     
-    
-    // https://www.intel.com/content/www/us/en/developer/articles/training/api-without-secrets-introduction-to-vulkan-part-1.html
+    VulkanWindow::Builder VulkanInstance::create_window() {
+        VulkanWindow::Builder builder(*this);
+        
+        return builder;
+    }
     
     VulkanInstance::Builder::Builder() : application_name_("My Application"),
                                          application_version_({

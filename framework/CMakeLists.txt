@@ -10,7 +10,7 @@ add_library(${PROJECT_NAME} OBJECT
             "${PROJECT_SOURCE_DIR}/src/core/debug.cpp"
 
             # vulkan
-            # "${PROJECT_SOURCE_DIR}/src/vulkan/context.cpp"
+            "${PROJECT_SOURCE_DIR}/src/vulkan/window.cpp"
             "${PROJECT_SOURCE_DIR}/src/vulkan/instance.cpp"
             "${PROJECT_SOURCE_DIR}/src/vulkan/device.cpp"
             "${PROJECT_SOURCE_DIR}/src/vulkan/loader.cpp"
