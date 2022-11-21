@@ -5,7 +5,6 @@ project(framework)
 add_library(${PROJECT_NAME} OBJECT
             # core
             "${PROJECT_SOURCE_DIR}/src/core/entry_point.cpp"
-            "${PROJECT_SOURCE_DIR}/src/core/window.cpp"
             "${PROJECT_SOURCE_DIR}/src/core/sample.cpp"
             "${PROJECT_SOURCE_DIR}/src/core/debug.cpp"
 

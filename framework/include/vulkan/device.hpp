@@ -251,8 +251,6 @@ namespace vks {
     
     class VulkanDevice::Builder {
         public:
-            typedef std::function<int(const Properties&, const Features&)> SelectorFn;
-            
             Builder(const VulkanInstance& instance);
             ~Builder() {
             
@@ -261,7 +259,9 @@ namespace vks {
             NODISCARD VulkanDevice build() const;
             
             // Provides a read-only view into the capabilities of an available physical device on the system.
-            Builder& with_physical_device_selector_function(const SelectorFn& selector);
+            // Builder& with_physical_device_selector_function(const SelectorFn& selector);
+             Builder& with_physical_device_selector_function(int (*selector)(const Properties&, const Features&));
+            //Builder& with_physical_device_selector_function(const std::function<int(const Properties&, const Features&)>& selector);
             
             // Enable / disable specific device features.
             // Note: any enabled features must be supported by the device.
@@ -337,7 +337,7 @@ namespace vks {
             
             const VulkanInstance& instance_;
             
-            SelectorFn selector_;
+            int (*selector_)(const Properties&, const Features&);
             Features requested_features_;
             std::vector<const char*> extensions_;
             std::vector<const char*> validation_layers_;

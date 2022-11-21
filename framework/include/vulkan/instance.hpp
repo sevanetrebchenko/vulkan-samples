@@ -11,9 +11,11 @@
 #include <vulkan/vulkan.h>
 #include <cstdint>
 
+#include <memory>
+
 namespace vks {
     
-    class VulkanInstance {
+    class VulkanInstance : public ManagedObject<VulkanInstance> {
         public:
             class Builder;
             

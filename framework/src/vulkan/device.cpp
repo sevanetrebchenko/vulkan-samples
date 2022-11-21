@@ -564,7 +564,7 @@ namespace vks {
         
     }
     
-    VulkanDevice::Builder& VulkanDevice::Builder::with_physical_device_selector_function(const SelectorFn& selector) {
+    VulkanDevice::Builder& VulkanDevice::Builder::with_physical_device_selector_function(int(*selector)(const Properties& p, const Features& f)) {
     }
     
     VulkanDevice::Builder& VulkanDevice::Builder::with_features(const Features& requested) {
@@ -976,64 +976,95 @@ namespace vks {
     }
     
     bool VulkanDevice::Builder::verify_device_queue_family_support(const std::vector<VkQueueFamilyProperties>& device_queue_families) const {
-        struct Configuration {
-            std::vector<std::uint32_t> graphics_families;
-            
-            std::uint32_t graphics_queue_family;
-            
-            std::uint32_t async_compute_queue_family;
-            std::uint32_t compute_queue_family;
-            
-            std::uint32_t async_transfer_queue_family;
-            std::uint32_t transfer_queue_family;
-        };
-
-        std::vector<Configuration> configurations;
+        std::uint32_t device_queue_family_count = static_cast<std::uint32_t>(device_queue_families.size());
+        
+        struct GraphicsQueueFamily {
+            std::uint32_t index;
+            bool has_compute_support;
+            bool has_transfer_support;
+        } graphics_queue_family;
+        
+        graphics_queue_family.index = device_queue_family_count;
+        graphics_queue_family.has_compute_support = false;
+        graphics_queue_family.has_transfer_support = false;
     
-        do {
-            // Generate configuration.
-            // Preference: graphics + presentation, sync/async compute, and sync/async transfer operations.
-            // Prefer
-            Configuration configuration { };
-            
-            for (unsigned i = 0u; i < device_queue_families.size(); ++i) {
-                const VkQueueFamilyProperties& family = device_queue_families[i];
-        
-                bool has_graphics_support = (family.queueFlags & VK_QUEUE_GRAPHICS_BIT) != 0;
-                bool has_compute_support = (family.queueFlags & VK_QUEUE_COMPUTE_BIT) != 0;
-                bool has_transfer_support = (family.queueFlags & VK_QUEUE_TRANSFER_BIT) != 0;
-                bool has_presentation_support = false; // TODO: presentation
-        
-                if (has_graphics_support) {
-                    // Preference: queue for graphics also has support for presentation, compute, and transfer operations.
-                    configuration.graphics_queue_family = i;
-            
-                    if (has_compute_support) {
-                        // Queue family supports graphics, synchronized compute, and (implicitly) synchronized transfer operations.
-                        configuration.compute_queue_family = i;
-                        configuration.transfer_queue_family = i;
-                    }
-                    else if (has_transfer_support) {
-                        // Queue family supports graphics and synchronized transfer (GPU internal) operations.
-                        configuration.transfer_queue_family = i;
-                    }
-                }
-                else if (has_compute_support) {
-                    configuration.async_compute_queue_family = i;
-                    
-                    if (has_transfer_support) {
-                        configuration.async_transfer_queue_family = i;
-                    }
+        // Select the most suitable queue family for dedicated graphics operations.
+        for (std::uint32_t i = 0u; i < device_queue_family_count; ++i) {
+            const VkQueueFamilyProperties& family = device_queue_families[i];
+    
+            bool has_graphics_support = (family.queueFlags & VK_QUEUE_GRAPHICS_BIT) != 0;
+            bool has_compute_support = (family.queueFlags & VK_QUEUE_COMPUTE_BIT) != 0;
+            bool has_transfer_support = (family.queueFlags & VK_QUEUE_TRANSFER_BIT) != 0;
+            bool has_presentation_support = true; // TODO: presentation
+    
+            if (has_graphics_support && has_presentation_support) {
+                if (has_compute_support) {
+                    // GRAPHICS | PRESENTATION | COMPUTE | TRANSFER
+                    graphics_queue_family.index = i;
+                    graphics_queue_family.has_compute_support = true;
+                    graphics_queue_family.has_transfer_support = true; // Transfer operations can be submitted to queue families supporting GRAPHICS | COMPUTE operations.
+                    break;
                 }
                 else if (has_transfer_support) {
-                    // Queue family supports only asynchronous compute operations (host to GPU).
-                    configuration.async_transfer_queue_family = i;
+                    // GRAPHICS | PRESENTATION | TRANSFER
+                    graphics_queue_family.index = i;
+                    graphics_queue_family.has_compute_support = false;
+                    graphics_queue_family.has_transfer_support = true;
+                }
+                else {
+                    // GRAPHICS | PRESENTATION
+                    if (graphics_queue_family.index == device_queue_family_count) {
+                        // This graphics queue family is the worst in terms of features and should only be used if no better graphics queue families are available.
+                        graphics_queue_family.index = i;
+                        graphics_queue_family.has_compute_support = false;
+                        graphics_queue_family.has_transfer_support = false;
+                    }
                 }
             }
-            
-            configurations.emplace_back(configuration);
         }
-        while (true);
+        
+        // Check for graphics queue family validity.
+        if (graphics_queue_family.index == device_queue_family_count) {
+            return false;
+        }
+        
+        struct ComputeQueueFamily {
+            std::uint32_t index;
+        } compute_queue_family;
+        
+        compute_queue_family.index = device_queue_family_count;
+    
+        struct TransferQueueFamily {
+            std::uint32_t index;
+        } transfer_queue_family;
+        
+        transfer_queue_family.index = device_queue_family_count;
+        
+        // Select the most suitable queue families for dedicated compute and transfer operations.
+        for (std::uint32_t i = 0u; i < device_queue_family_count; ++i) {
+            const VkQueueFamilyProperties& family = device_queue_families[i];
+            
+            bool has_graphics_support = (family.queueFlags & VK_QUEUE_GRAPHICS_BIT) != 0;
+            bool has_compute_support = (family.queueFlags & VK_QUEUE_COMPUTE_BIT) != 0;
+            bool has_transfer_support = (family.queueFlags & VK_QUEUE_TRANSFER_BIT) != 0;
+            
+            if (has_compute_support) {
+                if (!has_graphics_support) {
+                    // COMPUTE
+                    compute_queue_family.index = i;
+                }
+                else {
+                    // GRAPHICS | COMPUTE | TRANSFER
+                    if (compute_queue_family.index == device_queue_family_count) {
+                        // This compute queue family is the worst in terms of features and should only be used if no better compute queue families are available.
+                        compute_queue_family.index = i;
+                    }
+                }
+            }
+        }
+        
+
+        
         
         return true;
     }

@@ -2,8 +2,11 @@
 #pragma once
 
 #include "core/defines.hpp"
-#include "core/window.hpp"
+
 #include "vulkan/instance.hpp"
+#include "core/events.hpp"
+
+#include <iostream>
 
 namespace vks {
     
@@ -14,11 +17,21 @@ namespace vks {
             Sample();
             ~Sample();
     
+
+            
         protected:
-            VulkanInstance instance_;
+            std::shared_ptr<VulkanInstance> m_instance;
+        
+//            EventListener<Sample> event_listener;
+        
+            bool test(float e) {
+                std::cout << "hello from test" << std::endl;
+                return true;
+            }
+            
+            int selector(const VulkanDevice::Properties& p, const VulkanDevice::Features& f);
     
         private:
-            Window window_;
     };
     
 }// namespace vks

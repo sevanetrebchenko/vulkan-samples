@@ -52,8 +52,7 @@ namespace vks {
     }
     
     VulkanWindow::Builder VulkanInstance::create_window() {
-        VulkanWindow::Builder builder(*this);
-        
+        VulkanWindow::Builder builder(shared_from_this());
         return builder;
     }
     

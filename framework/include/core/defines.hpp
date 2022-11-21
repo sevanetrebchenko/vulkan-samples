@@ -45,3 +45,9 @@
 #if !defined(NDEBUG)
     #define VKS_DEBUG 1
 #endif
+
+#include <memory>
+
+template <typename T>
+struct ManagedObject : public std::enable_shared_from_this<T> {
+};
