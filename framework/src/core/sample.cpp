@@ -48,6 +48,7 @@ namespace vks {
 //        instance_.create_device().with_physical_device_selector_function([this](const VulkanDevice::Properties&, const VulkanDevice::Features&) -> int {
 //        });
         
+        m_instance->create_device().build();
         m_instance->create_window().build();
         
         while (true) {

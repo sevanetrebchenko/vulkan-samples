@@ -243,6 +243,7 @@ namespace vks {
         
             // Device queues.
             Queue graphics_queue_; // Graphics and presentation operations.
+            Queue m_presentation_queue;
             Queue compute_queue_; // Compute operations only.
             Queue async_compute_queue_;
             Queue transfer_queue_; // GPU-internal data transfers.
@@ -291,21 +292,35 @@ namespace vks {
                 std::vector<std::string> messages;
             };
             
-            struct QueueFamilies {
-                // Query whether this device has a queue dedicated to a given operation.
-                NODISCARD bool has_dedicated_queue(Queue::Operation op) const;
-    
-                // Query whether this device has a queue that supports a given operation.
-                NODISCARD bool supports_operation(Queue::Operation op) const;
-
-                std::vector<std::pair<VkQueueFamilyProperties, std::uint32_t>> families;
+            struct GraphicsQueueFamily {
+                std::uint32_t index;
+                bool has_presentation_support;
+                bool has_compute_support; // For synchronous compute operations.
+                bool has_transfer_support; // For synchronous (inside-GPU) transfer operations.
+            };
+            
+            // Optional for headless devices.
+            struct PresentationQueueFamily {
+                std::uint32_t index;
+            };
+            
+            // Queue family for asynchronous compute operations.
+            struct ComputeQueueFamily {
+                std::uint32_t index;
+            };
+            
+            // Queue family for asynchronous (CPU-GPU) transfer operations.
+            struct TransferQueueFamily {
+                std::uint32_t index;
             };
             
             NODISCARD bool verify_device_extension_support(VkPhysicalDevice device_handle) const;
             NODISCARD bool verify_device_validation_layer_support(VkPhysicalDevice device_handle) const;
             NODISCARD bool verify_device_properties(const VkPhysicalDeviceProperties& device_properties) const;
             NODISCARD bool verify_device_feature_support(const VkPhysicalDeviceFeatures& device_features) const;
-            NODISCARD bool verify_device_queue_family_support(const std::vector<VkQueueFamilyProperties>& device_queue_families) const;
+            NODISCARD bool verify_device_queue_family_support(VkPhysicalDevice device_handle, const std::vector<VkQueueFamilyProperties>& device_queue_families) const;
+            
+            NODISCARD std::tuple<GraphicsQueueFamily, PresentationQueueFamily, ComputeQueueFamily, TransferQueueFamily> select_device_queue_families(VkPhysicalDevice) const;
             
             // SECTION: Physical device Vulkan functions.
             
@@ -320,16 +335,27 @@ namespace vks {
             
             // vkGetPhysicalDeviceQueueFamilyProperties
             void (VKAPI_PTR* fp_vk_get_physical_device_queue_family_properties_)(VkPhysicalDevice, std::uint32_t*, VkQueueFamilyProperties*);
-        
-            // vkGetPhysicalDeviceSurfaceSupportKHR
-            VkResult (VKAPI_PTR* fp_vk_get_physical_device_surface_support_)(VkPhysicalDevice, std::uint32_t, VkSurfaceKHR, VkBool32*);
             
             // vkEnumerateDeviceExtensionProperties
             VkResult (VKAPI_PTR* fp_vk_enumerate_device_extension_properties_)(VkPhysicalDevice, const char*, std::uint32_t*, VkExtensionProperties*);
             
             // vkEnumerateDeviceLayerProperties
             VkResult (VKAPI_PTR* fp_vk_enumerate_device_layer_properties_)(VkPhysicalDevice, std::uint32_t*, VkLayerProperties*);
-            
+        
+            #if defined(VKS_PLATFORM_WINDOWS)
+        
+                // vkGetPhysicalDeviceWin32PresentationSupportKHR
+                VkBool32 (VKAPI_PTR* m_fp_vk_get_physical_device_win32_presentation_support)(VkPhysicalDevice, std::uint32_t);
+        
+            #elif defined(VKS_PLATFORM_LINUX)
+        
+                // vkGetPhysicalDeviceXcbPresentationSupportKHR
+                VkBool32 (VKAPI_PTR* m_fp_vk_get_physical_device_xcb_presentation_support)(VkPhysicalDevice, std::uint32_t, xcb_connection_t*, xcb_visualid_t);
+                
+            #endif
+            // TODO: Android + Apple
+        
+        
             // SECTION: Logical device Vulkan functions.
             
             // vkCreateDevice

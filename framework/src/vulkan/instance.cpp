@@ -214,8 +214,11 @@ namespace vks {
         if (result != VK_SUCCESS) {
             throw VulkanException("ERROR: Failed to create Vulkan instance - vkCreateInstance exited with code %i.", result);
         }
+
+        VulkanInstance inst { handle };
+        inst.runtime = api_version_;
         
-        return { handle };
+        return inst;
     }
     
     VulkanInstance::Builder& VulkanInstance::Builder::with_application_name(const char* name) {
