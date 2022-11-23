@@ -284,7 +284,9 @@ namespace vks {
                 VkPhysicalDevice device;
                 VkPhysicalDeviceProperties properties;
                 VkPhysicalDeviceFeatures features;
-                std::vector<VkQueueFamilyProperties> queue_families;
+                
+                // Queue families.
+                
     
                 // Logical device.
                 VkDevice handle;
@@ -294,6 +296,7 @@ namespace vks {
             
             struct GraphicsQueueFamily {
                 std::uint32_t index;
+                std::uint32_t num_available_queues;
                 bool has_presentation_support;
                 bool has_compute_support; // For synchronous compute operations.
                 bool has_transfer_support; // For synchronous (inside-GPU) transfer operations.
@@ -302,16 +305,21 @@ namespace vks {
             // Optional for headless devices.
             struct PresentationQueueFamily {
                 std::uint32_t index;
+                std::uint32_t num_available_queues;
             };
             
             // Queue family for asynchronous compute operations.
             struct ComputeQueueFamily {
                 std::uint32_t index;
+                std::uint32_t num_available_queues;
+                bool async;
             };
             
             // Queue family for asynchronous (CPU-GPU) transfer operations.
             struct TransferQueueFamily {
                 std::uint32_t index;
+                std::uint32_t num_available_queues;
+                bool async;
             };
             
             NODISCARD bool verify_device_extension_support(VkPhysicalDevice device_handle) const;
