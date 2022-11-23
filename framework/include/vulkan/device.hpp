@@ -21,7 +21,7 @@ namespace vks {
             struct Properties {
                 operator VkPhysicalDeviceProperties() const;
                 
-                enum class Type : std::uint8_t {
+                enum class Type : u8 {
                     DISCRETE_GPU   = 1u << 0u,
                     INTEGRATED_GPU = 1u << 1u,
                     VIRTUAL_GPU    = 1u << 2u,
@@ -32,103 +32,103 @@ namespace vks {
                 struct Limits {
                     operator VkPhysicalDeviceLimits() const;
                     
-                    std::uint32_t max_image_dimension_1d;
-                    std::uint32_t max_image_dimension_2d;
-                    std::uint32_t max_image_dimension_3d;
-                    std::uint32_t max_image_dimension_cube;
-                    std::uint32_t max_image_array_layers;
-                    std::uint32_t max_texel_buffer_elements;
-                    std::uint32_t max_uniform_buffer_range;
-                    std::uint32_t max_storage_buffer_range;
-                    std::uint32_t max_push_constants_size;
-                    std::uint32_t max_memory_allocation_count;
-                    std::uint32_t max_sampler_allocation_count;
-                    std::uint32_t buffer_image_granularity;
-                    std::uint32_t sparse_address_space_size;
-                    std::uint32_t max_bound_descriptor_sets;
-                    std::uint32_t max_per_stage_descriptor_samplers;
-                    std::uint32_t max_per_stage_descriptor_uniform_buffers;
-                    std::uint32_t max_per_stage_descriptor_storage_buffers;
-                    std::uint32_t max_per_stage_descriptor_sampled_images;
-                    std::uint32_t max_per_stage_descriptor_storage_images;
-                    std::uint32_t max_per_stage_descriptor_input_attachments;
-                    std::uint32_t max_per_stage_resources;
-                    std::uint32_t max_descriptor_set_samplers;
-                    std::uint32_t max_descriptor_set_uniform_buffers;
-                    std::uint32_t max_descriptor_set_uniform_buffers_dynamic;
-                    std::uint32_t max_descriptor_set_storage_buffers;
-                    std::uint32_t max_descriptor_set_storage_buffers_dynamic;
-                    std::uint32_t max_descriptor_set_sampled_images;
-                    std::uint32_t max_descriptor_set_storage_images;
-                    std::uint32_t max_descriptor_set_input_attachments;
-                    std::uint32_t max_vertex_input_attributes;
-                    std::uint32_t max_vertex_input_bindings;
-                    std::uint32_t max_vertex_input_attribute_offset;
-                    std::uint32_t max_vertex_input_binding_stride;
-                    std::uint32_t max_vertex_output_components;
-                    std::uint32_t max_tesselation_generation_level;
-                    std::uint32_t max_tesselation_patch_size;
-                    std::uint32_t max_tesselation_control_per_vertex_input_components;
-                    std::uint32_t max_tesselation_control_per_vertex_output_components;
-                    std::uint32_t max_tesselation_control_per_patch_output_components;
-                    std::uint32_t max_tesselation_control_total_output_components;
-                    std::uint32_t max_tesselation_evaluation_input_components;
-                    std::uint32_t max_tesselation_evaluation_output_components;
-                    std::uint32_t max_geometry_shader_invocations;
-                    std::uint32_t max_geometry_input_components;
-                    std::uint32_t max_geometry_output_components;
-                    std::uint32_t max_geometry_output_vertices;
-                    std::uint32_t max_geometry_total_output_components;
-                    std::uint32_t max_fragment_input_components;
-                    std::uint32_t max_fragment_output_attachments;
-                    std::uint32_t max_fragment_dual_src_attachments;
-                    std::uint32_t max_fragment_combined_output_resources;
-                    std::uint32_t max_compute_shared_memory_size;
-                    std::uint32_t max_compute_work_group_count[3];
-                    std::uint32_t max_compute_work_group_invocations;
-                    std::uint32_t max_compute_work_group_size[3];
-                    std::uint32_t subpixel_precision_bits;
-                    std::uint32_t subtexel_precision_bits;
-                    std::uint32_t mipmap_precision_bits;
-                    std::uint32_t max_draw_indexed_index_value;
-                    std::uint32_t max_draw_indirect_count;
+                    u32 max_image_dimension_1d;
+                    u32 max_image_dimension_2d;
+                    u32 max_image_dimension_3d;
+                    u32 max_image_dimension_cube;
+                    u32 max_image_array_layers;
+                    u32 max_texel_buffer_elements;
+                    u32 max_uniform_buffer_range;
+                    u32 max_storage_buffer_range;
+                    u32 max_push_constants_size;
+                    u32 max_memory_allocation_count;
+                    u32 max_sampler_allocation_count;
+                    u32 buffer_image_granularity;
+                    u32 sparse_address_space_size;
+                    u32 max_bound_descriptor_sets;
+                    u32 max_per_stage_descriptor_samplers;
+                    u32 max_per_stage_descriptor_uniform_buffers;
+                    u32 max_per_stage_descriptor_storage_buffers;
+                    u32 max_per_stage_descriptor_sampled_images;
+                    u32 max_per_stage_descriptor_storage_images;
+                    u32 max_per_stage_descriptor_input_attachments;
+                    u32 max_per_stage_resources;
+                    u32 max_descriptor_set_samplers;
+                    u32 max_descriptor_set_uniform_buffers;
+                    u32 max_descriptor_set_uniform_buffers_dynamic;
+                    u32 max_descriptor_set_storage_buffers;
+                    u32 max_descriptor_set_storage_buffers_dynamic;
+                    u32 max_descriptor_set_sampled_images;
+                    u32 max_descriptor_set_storage_images;
+                    u32 max_descriptor_set_input_attachments;
+                    u32 max_vertex_input_attributes;
+                    u32 max_vertex_input_bindings;
+                    u32 max_vertex_input_attribute_offset;
+                    u32 max_vertex_input_binding_stride;
+                    u32 max_vertex_output_components;
+                    u32 max_tesselation_generation_level;
+                    u32 max_tesselation_patch_size;
+                    u32 max_tesselation_control_per_vertex_input_components;
+                    u32 max_tesselation_control_per_vertex_output_components;
+                    u32 max_tesselation_control_per_patch_output_components;
+                    u32 max_tesselation_control_total_output_components;
+                    u32 max_tesselation_evaluation_input_components;
+                    u32 max_tesselation_evaluation_output_components;
+                    u32 max_geometry_shader_invocations;
+                    u32 max_geometry_input_components;
+                    u32 max_geometry_output_components;
+                    u32 max_geometry_output_vertices;
+                    u32 max_geometry_total_output_components;
+                    u32 max_fragment_input_components;
+                    u32 max_fragment_output_attachments;
+                    u32 max_fragment_dual_src_attachments;
+                    u32 max_fragment_combined_output_resources;
+                    u32 max_compute_shared_memory_size;
+                    u32 max_compute_work_group_count[3];
+                    u32 max_compute_work_group_invocations;
+                    u32 max_compute_work_group_size[3];
+                    u32 subpixel_precision_bits;
+                    u32 subtexel_precision_bits;
+                    u32 mipmap_precision_bits;
+                    u32 max_draw_indexed_index_value;
+                    u32 max_draw_indirect_count;
                     float max_sampler_lod_bias;
                     float max_sampler_anisotropy;
-                    std::uint32_t max_viewports;
-                    std::uint32_t max_viewport_dimensions[2];
+                    u32 max_viewports;
+                    u32 max_viewport_dimensions[2];
                     float viewport_bounds_range[2];
-                    std::uint32_t viewport_subpixel_bits;
-                    std::size_t min_memory_map_alignment;
-                    std::uint64_t min_texel_buffer_offset_alignment;
-                    std::uint64_t min_uniform_buffer_offset_alignment;
-                    std::uint64_t min_storage_buffer_offset_alignment;
-                    std::int32_t min_texel_offset;
-                    std::uint32_t max_texel_offset;
-                    std::int32_t min_texel_gather_offset;
-                    std::uint32_t max_texel_gather_offset;
+                    u32 viewport_subpixel_bits;
+                    u64 min_memory_map_alignment;
+                    u64 min_texel_buffer_offset_alignment;
+                    u64 min_uniform_buffer_offset_alignment;
+                    u64 min_storage_buffer_offset_alignment;
+                    i32 min_texel_offset;
+                    u32 max_texel_offset;
+                    i32 min_texel_gather_offset;
+                    u32 max_texel_gather_offset;
                     float min_interpolation_offset;
                     float max_interpolation_offset;
-                    std::uint32_t subpixel_interpolation_offset_bits;
-                    std::uint32_t max_framebuffer_width;
-                    std::uint32_t max_framebuffer_height;
-                    std::uint32_t max_framebuffer_layers;
+                    u32 subpixel_interpolation_offset_bits;
+                    u32 max_framebuffer_width;
+                    u32 max_framebuffer_height;
+                    u32 max_framebuffer_layers;
                     VkSampleCountFlags framebuffer_color_sample_counts;
                     VkSampleCountFlags framebuffer_depth_sample_counts;
                     VkSampleCountFlags framebuffer_stencil_sample_counts;
                     VkSampleCountFlags framebuffer_no_attachments_sample_counts;
-                    std::uint32_t max_color_attachments;
+                    u32 max_color_attachments;
                     VkSampleCountFlags sampled_image_color_sample_counts;
                     VkSampleCountFlags sampled_image_integer_sample_counts;
                     VkSampleCountFlags sample_image_depth_sample_counts;
                     VkSampleCountFlags sample_image_stencil_sample_counts;
                     VkSampleCountFlags storage_image_sample_counts;
-                    std::uint32_t max_sample_mask_words;
+                    u32 max_sample_mask_words;
                     bool timestamp_compute_and_graphics;
                     float timestamp_period;
-                    std::uint32_t max_clip_distances;
-                    std::uint32_t max_cull_distances;
-                    std::uint32_t max_combined_clip_and_cull_distances;
-                    std::uint32_t discrete_queue_priorities;
+                    u32 max_clip_distances;
+                    u32 max_cull_distances;
+                    u32 max_combined_clip_and_cull_distances;
+                    u32 discrete_queue_priorities;
                     float point_size_range[2];
                     float line_width_range[2];
                     float point_size_granularity;
@@ -144,7 +144,7 @@ namespace vks {
                 Version runtime;
     
                 // Vendor-supplied information.
-                std::uint32_t driver_version;
+                u32 driver_version;
                 std::string device_name;
             } properties;
             
@@ -210,7 +210,7 @@ namespace vks {
             
             class Queue {
                 public:
-                    enum class Operation : std::uint8_t {
+                    enum class Operation : u8 {
                         GRAPHICS = 1u << 0u,
                         COMPUTE  = 1u << 1u,
                         TRANSFER = 1u << 2u
@@ -261,7 +261,7 @@ namespace vks {
             
             // Provides a read-only view into the capabilities of an available physical device on the system.
             // Builder& with_physical_device_selector_function(const SelectorFn& selector);
-             Builder& with_physical_device_selector_function(int (*selector)(const Properties&, const Features&));
+             Builder& with_physical_device_selector_function(i32 (*selector)(const Properties&, const Features&));
             //Builder& with_physical_device_selector_function(const std::function<int(const Properties&, const Features&)>& selector);
             
             // Enable / disable specific device features.
@@ -279,6 +279,34 @@ namespace vks {
             Builder& with_debug_name(const char* name);
         
         private:
+            struct GraphicsQueueFamily {
+                i32 index;
+                u32 num_available_queues;
+                bool has_presentation_support;
+                bool has_compute_support; // For synchronous compute operations.
+                bool has_transfer_support; // For synchronous (inside-GPU) transfer operations.
+            };
+        
+            // Optional for headless devices.
+            struct PresentationQueueFamily {
+                i32 index;
+                u32 num_available_queues;
+            };
+        
+            // Queue family for asynchronous compute operations.
+            struct ComputeQueueFamily {
+                i32 index;
+                u32 num_available_queues;
+                bool async;
+            };
+        
+            // Queue family for asynchronous (CPU-GPU) transfer operations.
+            struct TransferQueueFamily {
+                i32 index;
+                u32 num_available_queues;
+                bool async;
+            };
+            
             struct DeviceContext {
                 // Physical device.
                 VkPhysicalDevice device;
@@ -286,7 +314,8 @@ namespace vks {
                 VkPhysicalDeviceFeatures features;
                 
                 // Queue families.
-                
+                std::vector<VkQueueFamilyProperties> queue_family_properties;
+                std::tuple<GraphicsQueueFamily, PresentationQueueFamily, ComputeQueueFamily, TransferQueueFamily> queue_families;
     
                 // Logical device.
                 VkDevice handle;
@@ -294,46 +323,21 @@ namespace vks {
                 std::vector<std::string> messages;
             };
             
-            struct GraphicsQueueFamily {
-                std::uint32_t index;
-                std::uint32_t num_available_queues;
-                bool has_presentation_support;
-                bool has_compute_support; // For synchronous compute operations.
-                bool has_transfer_support; // For synchronous (inside-GPU) transfer operations.
-            };
-            
-            // Optional for headless devices.
-            struct PresentationQueueFamily {
-                std::uint32_t index;
-                std::uint32_t num_available_queues;
-            };
-            
-            // Queue family for asynchronous compute operations.
-            struct ComputeQueueFamily {
-                std::uint32_t index;
-                std::uint32_t num_available_queues;
-                bool async;
-            };
-            
-            // Queue family for asynchronous (CPU-GPU) transfer operations.
-            struct TransferQueueFamily {
-                std::uint32_t index;
-                std::uint32_t num_available_queues;
-                bool async;
-            };
+
             
             NODISCARD bool verify_device_extension_support(VkPhysicalDevice device_handle) const;
             NODISCARD bool verify_device_validation_layer_support(VkPhysicalDevice device_handle) const;
             NODISCARD bool verify_device_properties(const VkPhysicalDeviceProperties& device_properties) const;
             NODISCARD bool verify_device_feature_support(const VkPhysicalDeviceFeatures& device_features) const;
-            NODISCARD bool verify_device_queue_family_support(VkPhysicalDevice device_handle, const std::vector<VkQueueFamilyProperties>& device_queue_families) const;
+        
+            NODISCARD std::tuple<GraphicsQueueFamily, PresentationQueueFamily, ComputeQueueFamily, TransferQueueFamily> select_device_queue_families(VkPhysicalDevice device_handle, const std::vector<VkQueueFamilyProperties>& queue_families) const;
+            NODISCARD bool verify_device_queue_family_support(const std::tuple<GraphicsQueueFamily, PresentationQueueFamily, ComputeQueueFamily, TransferQueueFamily>& queue_families) const;
             
-            NODISCARD std::tuple<GraphicsQueueFamily, PresentationQueueFamily, ComputeQueueFamily, TransferQueueFamily> select_device_queue_families(VkPhysicalDevice) const;
             
             // SECTION: Physical device Vulkan functions.
             
             // vkEnumeratePhysicalDevices
-            VkResult (VKAPI_PTR* fp_vk_enumerate_physical_devices_)(VkInstance, std::uint32_t*, VkPhysicalDevice*);
+            VkResult (VKAPI_PTR* fp_vk_enumerate_physical_devices_)(VkInstance, u32*, VkPhysicalDevice*);
             
             // vkGetPhysicalDeviceProperties
             void (VKAPI_PTR* fp_vk_get_physical_device_properties_)(VkPhysicalDevice, VkPhysicalDeviceProperties*);
@@ -342,23 +346,23 @@ namespace vks {
             void (VKAPI_PTR* fp_vk_get_physical_device_features_)(VkPhysicalDevice, VkPhysicalDeviceFeatures*);
             
             // vkGetPhysicalDeviceQueueFamilyProperties
-            void (VKAPI_PTR* fp_vk_get_physical_device_queue_family_properties_)(VkPhysicalDevice, std::uint32_t*, VkQueueFamilyProperties*);
+            void (VKAPI_PTR* fp_vk_get_physical_device_queue_family_properties_)(VkPhysicalDevice, u32*, VkQueueFamilyProperties*);
             
             // vkEnumerateDeviceExtensionProperties
-            VkResult (VKAPI_PTR* fp_vk_enumerate_device_extension_properties_)(VkPhysicalDevice, const char*, std::uint32_t*, VkExtensionProperties*);
+            VkResult (VKAPI_PTR* fp_vk_enumerate_device_extension_properties_)(VkPhysicalDevice, const char*, u32*, VkExtensionProperties*);
             
             // vkEnumerateDeviceLayerProperties
-            VkResult (VKAPI_PTR* fp_vk_enumerate_device_layer_properties_)(VkPhysicalDevice, std::uint32_t*, VkLayerProperties*);
+            VkResult (VKAPI_PTR* fp_vk_enumerate_device_layer_properties_)(VkPhysicalDevice, u32*, VkLayerProperties*);
         
             #if defined(VKS_PLATFORM_WINDOWS)
         
                 // vkGetPhysicalDeviceWin32PresentationSupportKHR
-                VkBool32 (VKAPI_PTR* m_fp_vk_get_physical_device_win32_presentation_support)(VkPhysicalDevice, std::uint32_t);
+                VkBool32 (VKAPI_PTR* m_fp_vk_get_physical_device_win32_presentation_support)(VkPhysicalDevice, u32);
         
             #elif defined(VKS_PLATFORM_LINUX)
         
                 // vkGetPhysicalDeviceXcbPresentationSupportKHR
-                VkBool32 (VKAPI_PTR* m_fp_vk_get_physical_device_xcb_presentation_support)(VkPhysicalDevice, std::uint32_t, xcb_connection_t*, xcb_visualid_t);
+                VkBool32 (VKAPI_PTR* m_fp_vk_get_physical_device_xcb_presentation_support)(VkPhysicalDevice, u32, xcb_connection_t*, xcb_visualid_t);
                 
             #endif
             // TODO: Android + Apple
@@ -371,7 +375,7 @@ namespace vks {
             
             const VulkanInstance& instance_;
             
-            int (*selector_)(const Properties&, const Features&);
+            i32 (*selector_)(const Properties&, const Features&);
             Features requested_features_;
             std::vector<const char*> extensions_;
             std::vector<const char*> validation_layers_;

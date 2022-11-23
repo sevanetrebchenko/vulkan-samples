@@ -490,7 +490,7 @@ namespace vks {
     
         // Select physical device. --------------------------------------------------------------------------------------------------------
         // Get available physical devices.
-        std::uint32_t device_count = 0u;
+        u32 device_count = 0u;
         result = fp_vk_enumerate_physical_devices_(instance_, &device_count, nullptr);
         if (result != VK_SUCCESS) {
             throw std::runtime_error("Failed to get physical device count.");
@@ -507,9 +507,9 @@ namespace vks {
         }
     
         VulkanDevice device { };
-        int highest_device_score = -1;
+        i32 highest_device_score = -1;
     
-        for (std::uint32_t i = 0u; i < device_count; ++i) {
+        for (u32 i = 0u; i < device_count; ++i) {
             DeviceContext context {
                 .device = devices[i]
             };
@@ -531,24 +531,25 @@ namespace vks {
 //            }
             
             // Verify that requested device features are supported by the given device.
-            VkPhysicalDeviceFeatures device_features { };
             fp_vk_get_physical_device_features_(context.device, &context.features);
             if (!verify_device_feature_support(context.features)) {
                 continue;
             }
         
-            // Verify that requested device queue family properties are supported by the given device.
-            std::uint32_t queue_family_count = 0u;
+            // Verify that a valid queue family configuration exists on this device.
+            u32 queue_family_count = 0u;
             fp_vk_get_physical_device_queue_family_properties_(context.device, &queue_family_count, nullptr);
     
-            context.queue_families.resize(queue_family_count);
-            fp_vk_get_physical_device_queue_family_properties_(context.device, &queue_family_count, context.queue_families.data());
+            context.queue_family_properties.resize(queue_family_count);
+            fp_vk_get_physical_device_queue_family_properties_(context.device, &queue_family_count, context.queue_family_properties.data());
         
-            if (!verify_device_queue_family_support(context.device, context.queue_families)) {
+            context.queue_families = select_device_queue_families(context.device, context.queue_family_properties);
+            
+            if (!verify_device_queue_family_support(context.queue_families)) {
                 continue;
             }
             
-//            int current_device_score = selector_(device_properties, device_features, device_queue_families);
+            int current_device_score = 0;//selector_(device_properties, device_features, device_queue_families);
 //
 //            // Always pick the device with the highest score.
 //            if (current_device_score > highest_device_score) {
@@ -654,7 +655,7 @@ namespace vks {
     bool VulkanDevice::Builder::verify_device_extension_support(VkPhysicalDevice device_handle) const {
         VkResult result;
         
-        std::uint32_t device_extension_count = 0u;
+        u32 device_extension_count = 0u;
         result = fp_vk_enumerate_device_extension_properties_(device_handle, nullptr, &device_extension_count, nullptr);
         if (result != VK_SUCCESS) {
             // TODO: log message
@@ -665,7 +666,7 @@ namespace vks {
         result = fp_vk_enumerate_device_extension_properties_(device_handle, nullptr, &device_extension_count, device_extensions.data());
         
         for (const char* layer : validation_layers_) {
-            std::uint32_t layer_extension_count = 0u;
+            u32 layer_extension_count = 0u;
             fp_vk_enumerate_device_extension_properties_(device_handle, layer, &layer_extension_count, nullptr);
             
             std::vector<VkExtensionProperties> layer_extensions(layer_extension_count);
@@ -681,7 +682,7 @@ namespace vks {
         for (const char* requested : extensions_) {
             bool found = false;
             
-            for (std::uint32_t j = 0u; j < device_extension_count; ++j) {
+            for (u32 j = 0u; j < device_extension_count; ++j) {
                 const char* available = device_extensions[j].extensionName;
                 
                 if (strcmp(requested, available) == 0) {
@@ -706,7 +707,7 @@ namespace vks {
     bool VulkanDevice::Builder::verify_device_validation_layer_support(VkPhysicalDevice device_handle) const {
         VkResult result;
         
-        std::uint32_t device_validation_layer_count = 0u;
+        u32 device_validation_layer_count = 0u;
         result = fp_vk_enumerate_device_layer_properties_(device_handle, &device_validation_layer_count, nullptr);
         if (result != VK_SUCCESS) {
             // TODO: log message
@@ -727,7 +728,7 @@ namespace vks {
         for (const char* requested : validation_layers_) {
             bool found = false;
         
-            for (std::uint32_t j = 0u; j < device_validation_layer_count; ++j) {
+            for (u32 j = 0u; j < device_validation_layer_count; ++j) {
                 const char* available = device_validation_layers[j].layerName;
             
                 if (strcmp(requested, available) == 0) {
@@ -977,17 +978,17 @@ namespace vks {
         return true;
     }
     
-    bool VulkanDevice::Builder::verify_device_queue_family_support(VkPhysicalDevice device_handle, const std::vector<VkQueueFamilyProperties>& device_queue_families) const {
-        std::uint32_t device_queue_family_count = static_cast<std::uint32_t>(device_queue_families.size());
-        std::uint32_t highest_score = 0u;
-        
-        for (std::uint32_t i = 0u; i < device_queue_family_count; ++i) {
-            const VkQueueFamilyProperties& family = device_queue_families[i];
+    std::tuple<VulkanDevice::Builder::GraphicsQueueFamily, VulkanDevice::Builder::PresentationQueueFamily, VulkanDevice::Builder::ComputeQueueFamily, VulkanDevice::Builder::TransferQueueFamily> VulkanDevice::Builder::select_device_queue_families(VkPhysicalDevice device_handle, const std::vector<VkQueueFamilyProperties>& queue_families) const {
+        i32 invalid = -1;
+        u32 highest_score = 0u;
+    
+        for (u32 i = 0u; i < queue_families.size(); ++i) {
+            const VkQueueFamilyProperties& family = queue_families[i];
             bool has_graphics_support = (family.queueFlags & VK_QUEUE_GRAPHICS_BIT) != 0;
             bool has_compute_support = (family.queueFlags & VK_QUEUE_COMPUTE_BIT) != 0;
             bool has_transfer_support = (family.queueFlags & VK_QUEUE_TRANSFER_BIT) != 0;
             bool has_presentation_support = static_cast<bool>(m_fp_vk_get_physical_device_win32_presentation_support(device_handle, i));
-            
+        
             std::cout << "Queue family: " << i << ", queue count: " << family.queueCount << std::endl;
             std::cout << "graphics support? " << (has_graphics_support ? "yes " : "no") << std::endl;
             std::cout << "presentation support? " << (has_presentation_support ? "yes" : "no") << std::endl;
@@ -995,22 +996,26 @@ namespace vks {
             std::cout << "transfer support? " << (has_transfer_support ? "yes" : "no") << std::endl;
             std::cout << std::endl;
         }
-        
+    
         GraphicsQueueFamily graphics_queue_family {
-            .index = device_queue_family_count
+            .index = invalid,
+            .num_available_queues = 0u,
+            .has_presentation_support = false,
+            .has_compute_support = false,
+            .has_transfer_support = false
         };
     
         highest_score = 0u;
-        
-        // Select a queue family for graphics-related operations.
-        for (std::uint32_t i = 0u; i < device_queue_family_count; ++i) {
-            const VkQueueFamilyProperties& family = device_queue_families[i];
     
+        // Select a queue family for graphics-related operations.
+        for (u32 i = 0u; i < queue_families.size(); ++i) {
+            const VkQueueFamilyProperties& family = queue_families[i];
+        
             bool has_graphics_support = (family.queueFlags & VK_QUEUE_GRAPHICS_BIT) != 0;
             bool has_compute_support = (family.queueFlags & VK_QUEUE_COMPUTE_BIT) != 0;
             bool has_transfer_support = (family.queueFlags & VK_QUEUE_TRANSFER_BIT) != 0;
             bool has_presentation_support = static_cast<bool>(m_fp_vk_get_physical_device_win32_presentation_support(device_handle, i));
-    
+        
             // The ideal graphics queue family supports graphics, presentation, and synchronous compute / transfer operations.
             // Scoring of graphics queue family (based on supported operations):
             // 6. GRAPHICS | PRESENTATION | COMPUTE | TRANSFER
@@ -1019,8 +1024,8 @@ namespace vks {
             // 3. GRAPHICS | COMPUTE | TRANSFER
             // 2. GRAPHICS | TRANSFER
             // 1. GRAPHICS
-            std::uint32_t current_score = 0u;
-    
+            u32 current_score = 0u;
+        
             // Note: TRANSFER operations are implicitly allowed on a queue that supports both GRAPHICS and COMPUTE operations.
             if (has_graphics_support) {
                 if (has_presentation_support) {
@@ -1050,91 +1055,89 @@ namespace vks {
                     current_score = 1u;
                 }
             }
-            
+        
             if (current_score > highest_score) {
                 highest_score = current_score;
-                graphics_queue_family.index = i;
+                graphics_queue_family.index = static_cast<i32>(i);
                 graphics_queue_family.num_available_queues = family.queueCount;
             }
         }
-        
-        if (graphics_queue_family.index == device_queue_family_count) {
-            // Found no queue families that support graphics operations.
-            return false;
-        }
-        
+    
         switch (highest_score) {
+            case 0u:
             case 1u:
                 break;
-                
+        
             case 2u:
                 graphics_queue_family.has_transfer_support = true;
                 break;
-                
+        
             case 3u:
                 graphics_queue_family.has_compute_support = true;
                 graphics_queue_family.has_transfer_support = true;
                 break;
-                
+        
             case 4u:
                 graphics_queue_family.has_presentation_support = true;
                 break;
-                
+        
             case 5u:
                 graphics_queue_family.has_presentation_support = true;
                 graphics_queue_family.has_transfer_support = true;
                 break;
-                
+        
             case 6u:
                 graphics_queue_family.has_presentation_support = true;
                 graphics_queue_family.has_compute_support = true;
                 graphics_queue_family.has_transfer_support = true;
                 break;
         }
-        
+    
         ComputeQueueFamily compute_queue_family {
-            .index = device_queue_family_count,
-            .async = true
+            .index = invalid,
+            .num_available_queues = 0u,
+            .async = false
         };
-        
+    
         TransferQueueFamily transfer_queue_family {
-            .index = device_queue_family_count,
-            .async = true
+            .index = invalid,
+            .num_available_queues = 0u,
+            .async = false
         };
-
-        std::uint32_t highest_compute_score = 0u;
-        std::uint32_t highest_transfer_score = 0u;
-        
+    
+        u32 highest_compute_score = 0u;
+        u32 highest_transfer_score = 0u;
+    
         // Select queue families for compute and transfer operations.
-        for (std::uint32_t i = 0u; i < device_queue_family_count; ++i) {
-            const VkQueueFamilyProperties& family = device_queue_families[i];
+        for (u32 i = 0u; i < queue_families.size(); ++i) {
+            const VkQueueFamilyProperties& family = queue_families[i];
             bool has_compute_support = (family.queueFlags & VK_QUEUE_COMPUTE_BIT) != 0;
             bool has_transfer_support = (family.queueFlags & VK_QUEUE_TRANSFER_BIT) != 0;
             bool has_presentation_support = static_cast<bool>(m_fp_vk_get_physical_device_win32_presentation_support(device_handle, i));
-            
+        
             if (i == graphics_queue_family.index) {
                 // Do not share compute or transfer queue family with the graphics family - if available, this queue family will instead be used for synchronous compute / transfer operations
                 // and will be selected as the default if there are no other families available.
                 continue;
             }
-            
+        
             // The ideal asynchronous compute / transfer queue families come from different queue families and do not share bandwidth with graphics / presentation queue families.
             // Otherwise, prefer sharing queue bandwidth with other asynchronous operations.
-            
+        
             // Scoring of asynchronous compute queue family (based on supported operations):
             // 4. COMPUTE
             // 3. COMPUTE | TRANSFER
             // 2. PRESENTATION | COMPUTE
             // 1. PRESENTATION | COMPUTE | TRANSFER
-            std::uint32_t current_compute_score = 0u;
-    
+            u32 current_compute_score = 0u;
+        
             // Scoring for asynchronous transfer queue family (based on supported operations):
             // 4. TRANSFER
             // 3. COMPUTE | TRANSFER
             // 2. PRESENTATION | TRANSFER
             // 1. PRESENTATION | COMPUTE | TRANSFER
-            std::uint32_t current_transfer_score = 0u;
-    
+            u32 current_transfer_score = 0u;
+        
             if (has_presentation_support) {
                 if (has_compute_support) {
                     if (has_transfer_support) {
@@ -1167,58 +1170,64 @@ namespace vks {
                 // TRANSFER
                 current_transfer_score = 4u;
             }
-            
+        
             if (current_compute_score > highest_compute_score) {
                 highest_compute_score = current_compute_score;
-                compute_queue_family.index = i;
+                compute_queue_family.index = static_cast<i32>(i);
+                compute_queue_family.num_available_queues = family.queueCount;
             }
-            
+        
             if (current_transfer_score > highest_transfer_score) {
                 highest_transfer_score = current_transfer_score;
-                transfer_queue_family.index = i;
+                transfer_queue_family.index = static_cast<i32>(i);
+                transfer_queue_family.num_available_queues = family.queueCount;
             }
         }
-        
-        if (compute_queue_family.index == device_queue_family_count) {
+    
+        if (compute_queue_family.index == invalid) {
             // Found no queue families that support asynchronous compute operations - default to graphics queue family and synchronized compute operations, if available.
             if (graphics_queue_family.has_compute_support) {
                 compute_queue_family.index = graphics_queue_family.index;
                 compute_queue_family.async = false;
-            }
-            else {
-                return false;
+                compute_queue_family.num_available_queues = graphics_queue_family.num_available_queues;
             }
         }
-        
-        if (transfer_queue_family.index == device_queue_family_count) {
+        else {
+            compute_queue_family.async = true;
+        }
+    
+        if (transfer_queue_family.index == invalid) {
             // Found no queue families that support asynchronous transfer operations - default to graphics queue family and synchronized transfer operations, if available.
             if (graphics_queue_family.has_transfer_support) {
                 transfer_queue_family.index = graphics_queue_family.index;
                 transfer_queue_family.async = false;
+                transfer_queue_family.num_available_queues = graphics_queue_family.num_available_queues;
             }
-            else {
-                return false;
-            }
+        }
+        else {
+            transfer_queue_family.async = true;
         }
     
         PresentationQueueFamily presentation_queue_family {
-            .index = device_queue_family_count
+            .index = invalid,
+            .num_available_queues = 0u
         };
     
         if (graphics_queue_family.has_presentation_support) {
             // Prefer a presentation queue family that also supports graphics operations for performance reasons.
             presentation_queue_family.index = graphics_queue_family.index;
+            presentation_queue_family.num_available_queues = graphics_queue_family.num_available_queues;
         }
         else {
             highest_score = 0u;
-            
+        
             // Select a queue family for presentation operations.
-            for (std::uint32_t i = 0u; i < device_queue_family_count; ++i) {
-                const VkQueueFamilyProperties& family = device_queue_families[i];
+            for (u32 i = 0u; i < queue_families.size(); ++i) {
+                const VkQueueFamilyProperties& family = queue_families[i];
                 bool has_presentation_support = static_cast<bool>(m_fp_vk_get_physical_device_win32_presentation_support(device_handle, i));
                 bool shares_compute_support = ((family.queueFlags & VK_QUEUE_COMPUTE_BIT) != 0) && (compute_queue_family.index == i);
                 bool shares_transfer_support = ((family.queueFlags & VK_QUEUE_TRANSFER_BIT) != 0) && (transfer_queue_family.index == i);
-                
+            
                 // The ideal presentation queue family, if not supported by the graphics queue family, is standalone and independent of the selected compute / transfer queue families.
                 // Otherwise, prefer sharing queue bandwidth with other asynchronous operations on the selected compute / transfer queue families.
                 // Scoring of presentation queue family (based on supported operations):
@@ -1226,9 +1235,9 @@ namespace vks {
                 // 3. PRESENTATION | TRANSFER
                 // 2. PRESENTATION | COMPUTE
                 // 1. PRESENTATION | COMPUTE | TRANSFER
-                
-                std::uint32_t current_score = 0u;
-                
+            
+                u32 current_score = 0u;
+            
                 if (has_presentation_support) {
                     if (shares_compute_support) {
                         if (shares_transfer_support) {
@@ -1249,17 +1258,43 @@ namespace vks {
                         current_score = 4u;
                     }
                 }
-                
+            
                 if (current_score > highest_score) {
                     highest_score = current_score;
-                    presentation_queue_family.index = i;
+                    presentation_queue_family.index = static_cast<i32>(i);
                     presentation_queue_family.num_available_queues = family.queueCount;
                 }
             }
         }
     
-        if (presentation_queue_family.index == device_queue_family_count) {
+        return std::make_tuple(graphics_queue_family, presentation_queue_family, compute_queue_family, transfer_queue_family);
+    }
+
+    
+    bool VulkanDevice::Builder::verify_device_queue_family_support(const std::tuple<GraphicsQueueFamily, PresentationQueueFamily, ComputeQueueFamily, TransferQueueFamily>& queue_families) const {
+        i32 invalid = -1;
+        
+        const GraphicsQueueFamily& graphics_queue_family = std::get<GraphicsQueueFamily>(queue_families);
+        if (graphics_queue_family.index == invalid) {
+            // Found no queue families that support graphics operations.
+            return false;
+        }
+    
+        const PresentationQueueFamily& presentation_queue_family = std::get<PresentationQueueFamily>(queue_families);
+        if (presentation_queue_family.index == invalid) {
             // Found no queue families that support presentation operations.
+            return false;
+        }
+    
+        const ComputeQueueFamily& compute_queue_family = std::get<ComputeQueueFamily>(queue_families);
+        if (compute_queue_family.index == invalid) {
+            // Found no queue families that support compute operations.
+            return false;
+        }
+    
+        const TransferQueueFamily& transfer_queue_family = std::get<TransferQueueFamily>(queue_families);
+        if (transfer_queue_family.index == invalid) {
+            // Found no queue families that support transfer operations.
             return false;
         }
         
