@@ -14,7 +14,7 @@ namespace vks {
     // Forward declarations.
     class VulkanInstance;
     
-    class VulkanDevice {
+    class VulkanDevice : public ManagedObject<VulkanDevice> {
         public:
             class Builder;
             
@@ -234,30 +234,33 @@ namespace vks {
             }
         
         private:
-            VulkanDevice() {
+            friend class Builder;
             
-            }
-        
-            VkPhysicalDevice device_;
-            VkDevice handle_;
-        
+            VulkanDevice();
+            
+            VkPhysicalDevice m_device;
+            VkDevice m_handle;
+            
+            std::string m_name;
+            
             // Device queues.
-            Queue graphics_queue_; // Graphics and presentation operations.
-            Queue m_presentation_queue;
-            Queue compute_queue_; // Compute operations only.
-            Queue async_compute_queue_;
-            Queue transfer_queue_; // GPU-internal data transfers.
-            Queue async_transfer_queue_; // Data transfers between CPU and GPU.
+//            Queue graphics_queue_; // Graphics and presentation operations.
+//            Queue m_presentation_queue;
+//            Queue compute_queue_; // Compute operations only.
+//            Queue async_compute_queue_;
+//            Queue transfer_queue_; // GPU-internal data transfers.
+//            Queue async_transfer_queue_; // Data transfers between CPU and GPU.
+            
+            std::vector<const char*> m_extensions;
+            std::vector<const char*> m_validation_layers;
     };
     
     class VulkanDevice::Builder {
         public:
-            Builder(const VulkanInstance& instance);
-            ~Builder() {
+            Builder(std::shared_ptr<VulkanInstance> instance);
+            ~Builder();
             
-            }
-            
-            NODISCARD VulkanDevice build() const;
+            NODISCARD std::shared_ptr<VulkanDevice> build() const;
             
             // Provides a read-only view into the capabilities of an available physical device on the system.
             // Builder& with_physical_device_selector_function(const SelectorFn& selector);
@@ -372,14 +375,15 @@ namespace vks {
             
             // vkCreateDevice
             VkResult (VKAPI_PTR* fp_vk_create_device_)(VkPhysicalDevice, const VkDeviceCreateInfo*, const VkAllocationCallbacks*, VkDevice*);
+
             
-            const VulkanInstance& instance_;
+            bool m_configuration_started;
+            
+            std::shared_ptr<VulkanInstance> m_instance;
+            VulkanDevice m_device;
             
             i32 (*selector_)(const Properties&, const Features&);
             Features requested_features_;
-            std::vector<const char*> extensions_;
-            std::vector<const char*> validation_layers_;
-            const char* name_;
     };
     
 }

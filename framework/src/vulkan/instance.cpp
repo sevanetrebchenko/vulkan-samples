@@ -5,49 +5,74 @@
 #include <cstring>
 #include <cstdint>
 
+#include <iostream>
+
 namespace vks {
     
-    VulkanInstance::VulkanInstance(VkInstance handle) : handle_(handle),
-                                                        fp_vk_destroy_instance(reinterpret_cast<typeof(fp_vk_destroy_instance)>(detail::vk_get_instance_proc_addr(handle, "vkDestroyInstance"))) {
-        ASSERT(fp_vk_destroy_instance != nullptr, "");
+    struct VulkanInstance::InternalData final : public VulkanInstance {
+        InternalData(VkInstance instance);
+        ~InternalData() override;
+        
+        std::shared_ptr<VulkanInstance> build() const;
+        
+        // vkDestroyInstance
+        void (VKAPI_PTR* m_fp_vk_destroy_instance)(VkInstance, const VkAllocationCallbacks*);
+        
+        VkInstance m_instance;
+        
+        std::string m_application_name;
+        Version m_application_version;
+        
+        std::string m_engine_name;
+        Version m_engine_version;
+        
+        Version m_runtime_version;
+        std::vector<const char*> m_extensions;
+        std::vector<const char*> m_validation_layers;
+    };
+    
+    VulkanInstance::InternalData::InternalData(VkInstance instance) : VulkanInstance(),
+                                                                      m_fp_vk_destroy_instance(reinterpret_cast<typeof(m_fp_vk_destroy_instance)>(detail::vk_get_instance_proc_addr(instance, "vkDestroyInstance"))),
+                                                                      m_instance(instance),
+                                                                      m_application_name("Vulkan Application"),
+                                                                      m_application_version({
+                                                                          .major = 1u,
+                                                                          .minor = 0u,
+                                                                          .patch = 0u
+                                                                      }),
+                                                                      m_engine_name("vulkan-samples"),
+                                                                      m_engine_version({
+                                                                          .major = 1u,
+                                                                          .minor = 0u,
+                                                                          .patch = 0u
+                                                                      }),
+                                                                      // Vulkan 1.0 by default...
+                                                                      m_runtime_version({
+                                                                          .major = 1u,
+                                                                          .minor = 0u,
+                                                                          .patch = 0u
+                                                                      }) {
+        ASSERT(m_fp_vk_destroy_instance != nullptr, "");
+    }
+    
+    VulkanInstance::InternalData::~InternalData() {
+        m_fp_vk_destroy_instance(m_instance, nullptr);
+        m_instance = nullptr;
+    }
+    
+    VulkanInstance::VulkanInstance() {
     }
     
     VulkanInstance::~VulkanInstance() {
-        fp_vk_destroy_instance(handle_, nullptr);
-    }
-    
-    VulkanInstance::VulkanInstance(VulkanInstance&& other) noexcept {
-        if (handle_) {
-            // 'this' is already initialized.
-            // fp_vk_destroy_instance(handle_, nullptr);
-        }
-        
-        handle_ = other.handle_;
-        other.handle_ = nullptr;
-    }
-    
-    VulkanInstance& VulkanInstance::operator=(VulkanInstance&& other) noexcept {
-        // Check for self-assignment.
-        if (this == &other) {
-            return *this;
-        }
-        
-        if (handle_) {
-            // fp_vk_destroy_instance(handle_, nullptr);
-        }
-        handle_ = other.handle_;
-        other.handle_ = nullptr;
-        
-        return *this;
     }
     
     VulkanInstance::operator VkInstance() const {
-        return handle_;
+        std::shared_ptr<const VulkanInstance::InternalData> handle = std::reinterpret_pointer_cast<const VulkanInstance::InternalData>(shared_from_this());
+        return handle->m_instance;
     }
-
+    
     VulkanDevice::Builder VulkanInstance::create_device() {
-        VulkanDevice::Builder builder(*this);
-        
+        VulkanDevice::Builder builder(shared_from_this());
         return builder;
     }
     
@@ -56,47 +81,25 @@ namespace vks {
         return builder;
     }
     
-    VulkanInstance::Builder::Builder() : application_name_("My Application"),
-                                         application_version_({
-                                                                      .major = 1u,
-                                                                      .minor = 0u,
-                                                                      .patch = 0u
-                                                              }),
-                                         engine_name_("vulkan-samples"),
-                                         engine_version_({
-                                                                 .major = 1u,
-                                                                 .minor = 0u,
-                                                                 .patch = 0u
-                                                         }),
-            // Use Vulkan 1.0 by default.
-                                         api_version_({
-                                                              .major = 1u,
-                                                              .minor = 0u,
-                                                              .patch = 0u
-                                                      })
-    {
-        // Load global-level Vulkan functions.
-        fp_vk_create_instance = reinterpret_cast<typeof(fp_vk_create_instance)>(detail::vk_get_instance_proc_addr(VK_NULL_HANDLE, "vkCreateInstance"));
-        fp_vk_enumerate_instance_version = reinterpret_cast<typeof(fp_vk_enumerate_instance_version)>(detail::vk_get_instance_proc_addr(VK_NULL_HANDLE, "vkEnumerateInstanceVersion"));
-        fp_vk_enumerate_instance_extension_properties = reinterpret_cast<typeof(fp_vk_enumerate_instance_extension_properties)>(detail::vk_get_instance_proc_addr(VK_NULL_HANDLE, "vkEnumerateInstanceExtensionProperties"));
-        fp_vk_enumerate_instance_layer_properties = reinterpret_cast<typeof(fp_vk_enumerate_instance_layer_properties)>(detail::vk_get_instance_proc_addr(VK_NULL_HANDLE, "vkEnumerateInstanceLayerProperties"));
-        
-        // TODO: messages
-        ASSERT(fp_vk_create_instance != nullptr, "");
-        ASSERT(fp_vk_enumerate_instance_extension_properties != nullptr, "");
-        ASSERT(fp_vk_enumerate_instance_layer_properties != nullptr, "");
-        
-        // Enable default presentation extensions.
-        with_headless_mode(false);
-        
-        // Enable / disable default Vulkan validation features.
-        with_enabled_validation_layer("VK_LAYER_KHRONOS_validation");
+    
+    VulkanInstance::Builder::Builder() {
+//        // Enable default presentation extensions.
+//        with_headless_mode(false);
+//
+//        // Enable / disable default Vulkan validation features.
+//        with_enabled_validation_layer("VK_LAYER_KHRONOS_validation");
     }
     
     VulkanInstance::Builder::~Builder() {
     }
     
-    VulkanInstance VulkanInstance::Builder::build() const {
+    std::shared_ptr<VulkanInstance> VulkanInstance::Builder::build() const {
+        // Load Vulkan functions.
+        static VkResult (VKAPI_PTR* fp_vk_create_instance)(const VkInstanceCreateInfo*, const VkAllocationCallbacks*, VkInstance*) = reinterpret_cast<typeof(fp_vk_create_instance)>(detail::vk_get_instance_proc_addr(VK_NULL_HANDLE, "vkCreateInstance"));
+        static VkResult (VKAPI_PTR* fp_vk_enumerate_instance_version)(std::uint32_t*) = reinterpret_cast<typeof(fp_vk_enumerate_instance_version)>(detail::vk_get_instance_proc_addr(VK_NULL_HANDLE, "vkEnumerateInstanceVersion"));
+        static VkResult (VKAPI_PTR *fp_vk_enumerate_instance_extension_properties)(const char*, std::uint32_t*, VkExtensionProperties*) = reinterpret_cast<typeof(fp_vk_enumerate_instance_extension_properties)>(detail::vk_get_instance_proc_addr(VK_NULL_HANDLE, "vkEnumerateInstanceExtensionProperties"));
+        static VkResult (VKAPI_PTR *fp_vk_enumerate_instance_layer_properties)(std::uint32_t*, VkLayerProperties*) = reinterpret_cast<typeof(fp_vk_enumerate_instance_layer_properties)>(detail::vk_get_instance_proc_addr(VK_NULL_HANDLE, "vkEnumerateInstanceLayerProperties"));
+        
         // Validate requested validation layers first (instance extensions may depend on extensions provided by validation layers).
         std::uint32_t available_layer_count = 0u;
         fp_vk_enumerate_instance_layer_properties(&available_layer_count, nullptr);
@@ -108,7 +111,7 @@ namespace vks {
         unsupported_layers.reserve(validation_layers_.size()); // Maximum number of unsupported layers.
         
         // Verify that all requested validation layers are available.
-        for (const char* requested : validation_layers_) {
+        for (const char* requested: validation_layers_) {
             bool found = false;
             
             for (std::uint32_t i = 0u; i < available_layer_count; ++i) {
@@ -141,7 +144,7 @@ namespace vks {
         fp_vk_enumerate_instance_extension_properties(nullptr, &available_extension_count, available_extensions.data());
         
         // Include instance extensions provided by enabled validation layers.
-        for (const char* layer : validation_layers_) {
+        for (const char* layer: validation_layers_) {
             std::uint32_t layer_extension_count = 0u;
             fp_vk_enumerate_instance_extension_properties(layer, &layer_extension_count, nullptr);
             
@@ -156,7 +159,7 @@ namespace vks {
         unsupported_extensions.reserve(extensions_.size()); // Maximum number of unsupported extensions.
         
         // Verify all requested extensions are available.
-        for (const char* requested : extensions_) {
+        for (const char* requested: extensions_) {
             bool found = false;
             
             for (std::uint32_t i = 0u; i < available_extension_count; ++i) {
@@ -210,15 +213,13 @@ namespace vks {
         };
         
         VkInstance handle = nullptr;
-        VkResult result = fp_vk_create_instance(&instance_create_info, nullptr, &handle);
+        VkResult result = vk_create_instance(&instance_create_info, nullptr, &handle);
         if (result != VK_SUCCESS) {
             throw VulkanException("ERROR: Failed to create Vulkan instance - vkCreateInstance exited with code %i.", result);
         }
-
-        VulkanInstance inst { handle };
-        inst.runtime = api_version_;
         
-        return inst;
+        std::shared_ptr<Internal> instance = std::make_shared<Internal>(handle);
+        return instance;
     }
     
     VulkanInstance::Builder& VulkanInstance::Builder::with_application_name(const char* name) {
@@ -229,7 +230,9 @@ namespace vks {
     }
     
     VulkanInstance::Builder& VulkanInstance::Builder::with_application_version(std::uint32_t major, std::uint32_t minor, std::uint32_t patch) {
-        application_version_ = {
+        std::shared_ptr<VulkanInstance::InternalData> internal = std::reinterpret_pointer_cast<VulkanInstance::InternalData>(m_instance);
+    
+        internal->m_application_version = {
             .major = major,
             .minor = minor,
             .patch = patch
@@ -238,18 +241,20 @@ namespace vks {
         return *this;
     }
     
-    VulkanInstance::Builder& VulkanInstance::Builder::with_engine_name(const char* name) {
+    VulkanInstance::Builder& VulkanInstance::Builder::with_engine_name(std::string name) {
+        std::shared_ptr<VulkanInstance::InternalData> internal = std::reinterpret_pointer_cast<VulkanInstance::InternalData>(m_instance);
+    
         if (strlen(name) > 0u) {
-            engine_name_ = name;
+            internal->m_engine_name = name;
         }
         return *this;
     }
     
     VulkanInstance::Builder& VulkanInstance::Builder::with_engine_version(std::uint32_t major, std::uint32_t minor, std::uint32_t patch) {
         engine_version_ = {
-            .major = major,
-            .minor = minor,
-            .patch = patch
+                .major = major,
+                .minor = minor,
+                .patch = patch
         };
         
         return *this;
@@ -257,9 +262,9 @@ namespace vks {
     
     VulkanInstance::Builder& VulkanInstance::Builder::with_target_api_version(std::uint32_t major, std::uint32_t minor, std::uint32_t patch) {
         api_version_ = {
-            .major = major,
-            .minor = minor,
-            .patch = patch
+                .major = major,
+                .minor = minor,
+                .patch = patch
         };
         
         return *this;
@@ -273,7 +278,7 @@ namespace vks {
         // Ensure requested extension does not already exist.
         bool found = false;
         
-        for (const char* extension : extensions_) {
+        for (const char* extension: extensions_) {
             if (strcmp(requested, extension) == 0) {
                 found = true;
                 break;
@@ -313,11 +318,13 @@ namespace vks {
         if (strlen(requested) == 0u) {
             return *this;
         }
-        
+    
+        std::shared_ptr<VulkanInstance::InternalData> internal = std::reinterpret_pointer_cast<VulkanInstance::InternalData>(m_instance);
+    
         // Ensure requested validation layer does not already exist.
         bool found = false;
         
-        for (const char* layer : validation_layers_) {
+        for (const char* layer: internal->m_validation_layers) {
             if (strcmp(requested, layer) == 0) {
                 found = true;
                 break;
@@ -325,7 +332,7 @@ namespace vks {
         }
         
         if (!found) {
-            validation_layers_.emplace_back(requested);
+            internal->m_validation_layers.emplace_back(requested);
         }
         
         return *this;
@@ -336,13 +343,15 @@ namespace vks {
             return *this;
         }
         
-        for (std::size_t i = 0u; i < validation_layers_.size(); ++i) {
-            const char* layer = validation_layers_[i];
+        std::shared_ptr<VulkanInstance::InternalData> internal = std::reinterpret_pointer_cast<VulkanInstance::InternalData>(m_instance);
+        
+        for (std::size_t i = 0u; i < internal->m_validation_layers.size(); ++i) {
+            const char* layer = internal->m_validation_layers[i];
             
             if (strcmp(requested, layer) == 0) {
                 // Found validation layer.
-                std::swap(validation_layers_[i], validation_layers_[validation_layers_.size() - 1u]); // Swap idiom.
-                validation_layers_.pop_back();
+                std::swap(internal->m_validation_layers[i], internal->m_validation_layers[internal->m_validation_layers.size() - 1u]); // Swap idiom.
+                internal->m_validation_layers.pop_back();
                 
                 // Validation layer is guaranteed to be present in the list only once.
                 break;
@@ -360,9 +369,9 @@ namespace vks {
             with_disabled_extension("VK_KHR_xcb_surface");
                 // with_disabled_extension("VK_KHR_xlib_surface");
                 // with_disabled_extension("VK_KHR_wayland_surface");
-            #elif defined VKS_PLATFORM_ANDROID
+                #elif defined VKS_PLATFORM_ANDROID
                 with_disabled_extension("VK_KHR_android_surface");
-            #elif defined VKS_PLATFORM_APPLE
+                #elif defined VKS_PLATFORM_APPLE
                 with_disabled_extension("VK_EXT_metal_surface");
             #endif
             
@@ -374,9 +383,9 @@ namespace vks {
             with_enabled_extension("VK_KHR_xcb_surface");
                 // with_enabled_extension("VK_KHR_xlib_surface");
                 // with_enabled_extension("VK_KHR_wayland_surface");
-            #elif defined VKS_PLATFORM_ANDROID
+                #elif defined VKS_PLATFORM_ANDROID
                 with_enabled_extension("VK_KHR_android_surface");
-            #elif defined VKS_PLATFORM_APPLE
+                #elif defined VKS_PLATFORM_APPLE
                 with_enabled_extension("VK_EXT_metal_surface");
             #endif
         }

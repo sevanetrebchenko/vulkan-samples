@@ -28,11 +28,11 @@ namespace vks {
         };
     }
     
-    Sample::Sample() : m_instance(std::make_shared<VulkanInstance>(VulkanInstance::Builder()
+    Sample::Sample() : m_instance(VulkanInstance::Builder()
                                          .with_target_api_version(1, 0)
                                          .with_enabled_extension("")
                                          .with_application_name("")
-                                         .build()))
+                                         .build())
 //                       event_listener(std::shared_ptr<Sample>(this))
                        {
 //        event_listener.register_event_handler<int>(&function);
@@ -47,17 +47,17 @@ namespace vks {
 
 //        instance_.create_device().with_physical_device_selector_function([this](const VulkanDevice::Properties&, const VulkanDevice::Features&) -> int {
 //        });
+
+//        m_instance->create_device().build();
+//        m_instance->create_window().build();
         
-        m_instance->create_device().build();
-        m_instance->create_window().build();
-        
-        while (true) {
-            MSG message;
-            while (PeekMessageA(&message, NULL, 0, 0, PM_REMOVE)) {
-                TranslateMessage(&message);
-                DispatchMessageA(&message);
-            }
-        }
+//        while (true) {
+//            MSG message;
+//            while (PeekMessageA(&message, NULL, 0, 0, PM_REMOVE)) {
+//                TranslateMessage(&message);
+//                DispatchMessageA(&message);
+//            }
+//        }
     }
 
     Sample::~Sample() {
