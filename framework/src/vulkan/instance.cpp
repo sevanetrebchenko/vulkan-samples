@@ -2,10 +2,9 @@
 #include "vulkan/instance.hpp"
 #include "vulkan/device.hpp"
 #include "core/debug.hpp"
+
 #include <cstring>
 #include <cstdint>
-
-#include <iostream>
 
 namespace vks {
     
