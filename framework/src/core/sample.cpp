@@ -28,13 +28,24 @@ namespace vks {
         };
     }
     
-    Sample::Sample() : m_instance(VulkanInstance::Builder()
-                                         .with_target_api_version(1, 0)
-                                         .with_enabled_extension("")
-                                         .with_application_name("")
-                                         .build())
+    Sample::Sample() : m_instance(nullptr)
 //                       event_listener(std::shared_ptr<Sample>(this))
                        {
+    auto builder = VulkanInstance::Builder();
+    
+    
+    auto one = builder.with_target_runtime_version(1u, 0u)
+                   .with_enabled_extension("")
+                   .with_application_name("")
+                   .build();
+    
+    std::cout << one.use_count() << std::endl;
+    
+   auto two = builder.build();
+   
+   std::cout << one.use_count() << std::endl;
+
+
 //        event_listener.register_event_handler<int>(&function);
 //        event_listener.register_event_handler<float>(&Sample::test);
         

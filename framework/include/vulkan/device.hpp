@@ -236,7 +236,9 @@ namespace vks {
         private:
             friend class Builder;
             
-            VulkanDevice();
+            VulkanDevice() {
+            
+            }
             
             VkPhysicalDevice m_device;
             VkDevice m_handle;
@@ -257,7 +259,9 @@ namespace vks {
     
     class VulkanDevice::Builder {
         public:
-            Builder(std::shared_ptr<VulkanInstance> instance);
+            Builder(std::shared_ptr<VulkanInstance> instance) {
+            
+            }
             ~Builder();
             
             NODISCARD std::shared_ptr<VulkanDevice> build() const;

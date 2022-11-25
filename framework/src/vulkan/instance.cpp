@@ -5,6 +5,8 @@
 
 #include <cstring>
 #include <cstdint>
+#include <ostream>
+#include <iostream>
 
 namespace vks {
     
@@ -241,14 +243,15 @@ namespace vks {
     
     VulkanInstance::Builder::~Builder() = default;
     
-    std::shared_ptr<VulkanInstance> VulkanInstance::Builder::build() const {
-        std::shared_ptr<VulkanInstance::InternalData> internal = std::reinterpret_pointer_cast<VulkanInstance::InternalData>(m_instance);
-    
-        if (!internal->build()) {
+    std::shared_ptr<VulkanInstance> VulkanInstance::Builder::build() {
+        if (!std::reinterpret_pointer_cast<VulkanInstance::InternalData>(m_instance)->build()) {
             return nullptr;
         }
         
-        return m_instance;
+        // Builder should not maintain ownership over created instances, and allow for subsequent calls to 'build' to generate valid standalone instances.
+        std::shared_ptr<VulkanInstance> instance = std::move(m_instance);
+        m_instance = std::make_shared<VulkanInstance::InternalData>(); // Ensure instance validity after transferring ownership
+        return std::move(instance);
     }
     
     VulkanInstance::Builder& VulkanInstance::Builder::with_application_name(const char* name) {

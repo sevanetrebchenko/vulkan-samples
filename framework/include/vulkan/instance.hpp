@@ -45,7 +45,7 @@ namespace vks {
             ~Builder();
             
             // Returns nullptr on failure.
-            NODISCARD std::shared_ptr<VulkanInstance> build() const;
+            NODISCARD std::shared_ptr<VulkanInstance> build();
             
             Builder& with_application_name(const char* name);
             
