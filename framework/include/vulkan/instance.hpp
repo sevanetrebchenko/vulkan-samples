@@ -70,10 +70,6 @@ namespace vks {
             // TODO: validation features?
         
         private:
-            NODISCARD bool verify_extension_support() const;
-            NODISCARD bool verify_validation_layer_support() const;
-            NODISCARD bool verify_target_version() const;
-            
             std::shared_ptr<VulkanInstance> m_instance;
     };
     

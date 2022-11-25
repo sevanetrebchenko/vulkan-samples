@@ -13,8 +13,17 @@ namespace vks {
         InternalData();
         ~InternalData() override;
         
-        // Initializes any straggler members not initialized in the constructor.
-        void initialize();
+        // Attempts to initialize VulkanInstance internals.
+        NODISCARD bool build();
+        
+        // Verifies that all requested extensions are supported by the Vulkan implementation.
+        NODISCARD bool verify_extension_support() const;
+        
+        // Verifies that all requested validation layers are supported by the Vulkan implementation.
+        NODISCARD bool verify_validation_layer_support() const;
+        
+        // Verifies that the target Vulkan runtime version is supported on the system.
+        NODISCARD bool verify_target_runtime_version() const;
         
         // vkDestroyInstance
         VkInstance m_handle;
@@ -62,11 +71,147 @@ namespace vks {
         m_handle = nullptr;
     }
     
-    void VulkanInstance::InternalData::initialize() {
-        // Load Vulkan functions.
-        if (m_handle) {
-            m_fp_vk_destroy_instance = reinterpret_cast<typeof(m_fp_vk_destroy_instance)>(detail::vk_get_instance_proc_addr(m_handle, "vkDestroyInstance"));
+    bool VulkanInstance::InternalData::verify_extension_support() const {
+        static VkResult (VKAPI_PTR* fp_vk_enumerate_instance_extension_properties)(const char*, u32*, VkExtensionProperties*) = reinterpret_cast<typeof(fp_vk_enumerate_instance_extension_properties)>(detail::vk_get_instance_proc_addr(VK_NULL_HANDLE, "vkEnumerateInstanceExtensionProperties"));
+        ASSERT(fp_vk_enumerate_instance_extension_properties != nullptr, "");
+        
+        // Determine total number of supported instance extensions.
+        u32 available_extension_count = 0u;
+        fp_vk_enumerate_instance_extension_properties(nullptr, &available_extension_count, nullptr);
+        
+        std::vector<VkExtensionProperties> available_extensions(available_extension_count);
+        fp_vk_enumerate_instance_extension_properties(nullptr, &available_extension_count, available_extensions.data());
+        
+        // Include extensions provided by enabled validation layers.
+        for (const char* layer : m_validation_layers) {
+            u32 layer_extension_count = 0u;
+            fp_vk_enumerate_instance_extension_properties(layer, &layer_extension_count, nullptr);
+            
+            std::vector<VkExtensionProperties> layer_extensions(layer_extension_count);
+            fp_vk_enumerate_instance_extension_properties(layer, &layer_extension_count, layer_extensions.data());
+            
+            available_extension_count += layer_extension_count;
+            available_extensions.insert(available_extensions.end(), layer_extensions.begin(), layer_extensions.end());
         }
+        
+        std::vector<const char*> unsupported_extensions;
+        unsupported_extensions.reserve(m_extensions.size()); // Maximum number of unsupported extensions.
+        
+        // Verify all requested extensions are available.
+        for (const char* requested : m_extensions) {
+            bool found = false;
+            
+            for (u32 i = 0u; i < available_extension_count; ++i) {
+                const char* available = available_extensions[i].extensionName;
+                
+                if (strcmp(requested, available) == 0) {
+                    found = true;
+                    break;
+                }
+            }
+            
+            if (!found) {
+                unsupported_extensions.emplace_back(requested);
+            }
+        }
+        
+        return unsupported_extensions.empty();
+    }
+    
+    bool VulkanInstance::InternalData::verify_validation_layer_support() const {
+        static VkResult (VKAPI_PTR* fp_vk_enumerate_instance_layer_properties)(u32*, VkLayerProperties*) = reinterpret_cast<typeof(fp_vk_enumerate_instance_layer_properties)>(detail::vk_get_instance_proc_addr(VK_NULL_HANDLE, "vkEnumerateInstanceLayerProperties"));
+        ASSERT(fp_vk_enumerate_instance_layer_properties != nullptr, "");
+        
+        u32 available_layer_count = 0u;
+        fp_vk_enumerate_instance_layer_properties(&available_layer_count, nullptr);
+        
+        std::vector<VkLayerProperties> available_layers(available_layer_count);
+        fp_vk_enumerate_instance_layer_properties(&available_layer_count, available_layers.data());
+        
+        std::vector<const char*> unsupported_layers;
+        unsupported_layers.reserve(m_validation_layers.size()); // Maximum number of unsupported layers.
+        
+        // Verify that all requested validation layers are available.
+        for (const char* requested : m_validation_layers) {
+            bool found = false;
+            
+            for (u32 i = 0u; i < available_layer_count; ++i) {
+                const char* available = available_layers[i].layerName;
+                
+                if (strcmp(requested, available) == 0) {
+                    found = true;
+                    break;
+                }
+            }
+            
+            if (!found) {
+                unsupported_layers.emplace_back(requested);
+            }
+        }
+        
+        return unsupported_layers.empty();
+    }
+    
+    bool VulkanInstance::InternalData::verify_target_runtime_version() const {
+        static VkResult (VKAPI_PTR* fp_vk_enumerate_instance_version)(u32*) = reinterpret_cast<typeof(fp_vk_enumerate_instance_version)>(detail::vk_get_instance_proc_addr(VK_NULL_HANDLE, "vkEnumerateInstanceVersion"));
+        
+        // vkEnumerateInstanceVersion is provided by Vulkan 1.1 and higher - if it doesn't exist, targeted Vulkan version must be 1.0.
+        u32 available_instance_version;
+        if (fp_vk_enumerate_instance_version) {
+            fp_vk_enumerate_instance_version(&available_instance_version);
+        }
+        else {
+            available_instance_version = VK_API_VERSION_1_0;
+        }
+        
+        return m_runtime_version <= available_instance_version;
+    }
+    
+    bool VulkanInstance::InternalData::build() {
+        if (!verify_validation_layer_support()) {
+            return false;
+        }
+    
+        if (!verify_extension_support()) {
+            return false;
+        }
+    
+        if (!verify_target_runtime_version()) {
+            return false;
+        }
+    
+        // Create Vulkan instance.
+        VkApplicationInfo application_info {
+            .sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
+            .pNext = nullptr,
+            .pApplicationName = m_application_name,
+            .applicationVersion = m_application_version,
+            .pEngineName = m_engine_name,
+            .engineVersion = m_engine_version,
+            .apiVersion = m_runtime_version
+        };
+    
+        VkInstanceCreateInfo instance_create_info {
+            .sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
+            .pNext = nullptr,
+            .pApplicationInfo = &application_info,
+            .enabledLayerCount = static_cast<u32>(m_validation_layers.size()),
+            .ppEnabledLayerNames = m_validation_layers.data(),
+            .enabledExtensionCount = static_cast<u32>(m_extensions.size()),
+            .ppEnabledExtensionNames = m_extensions.data()
+        };
+    
+        static VkResult (VKAPI_PTR* fp_vk_create_instance)(const VkInstanceCreateInfo*, const VkAllocationCallbacks*, VkInstance*) = reinterpret_cast<typeof(fp_vk_create_instance)>(detail::vk_get_instance_proc_addr(VK_NULL_HANDLE, "vkCreateInstance"));
+        ASSERT(fp_vk_create_instance != nullptr, "");
+    
+        VkResult result = fp_vk_create_instance(&instance_create_info, nullptr, &m_handle);
+        if (result != VK_SUCCESS) {
+            return false;
+        }
+    
+        // Initialize any straggler members not initialized in the constructor.
+        m_fp_vk_destroy_instance = reinterpret_cast<typeof(m_fp_vk_destroy_instance)>(detail::vk_get_instance_proc_addr(m_handle, "vkDestroyInstance"));
+        return true;
     }
     
     VulkanInstance::VulkanInstance() {
@@ -98,50 +243,12 @@ namespace vks {
     VulkanInstance::Builder::~Builder() = default;
     
     std::shared_ptr<VulkanInstance> VulkanInstance::Builder::build() const {
-        if (!verify_validation_layer_support()) {
-            return nullptr;
-        }
-        
-        if (!verify_extension_support()) {
-            return nullptr;
-        }
-        
-        if (!verify_target_version()) {
-            return nullptr;
-        }
-    
         std::shared_ptr<VulkanInstance::InternalData> internal = std::reinterpret_pointer_cast<VulkanInstance::InternalData>(m_instance);
     
-        // Create Vulkan instance.
-        VkApplicationInfo application_info {
-            .sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
-            .pNext = nullptr,
-            .pApplicationName = internal->m_application_name,
-            .applicationVersion = internal->m_application_version,
-            .pEngineName = internal->m_engine_name,
-            .engineVersion = internal->m_engine_version,
-            .apiVersion = internal->m_runtime_version
-        };
-        
-        VkInstanceCreateInfo instance_create_info {
-            .sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
-            .pNext = nullptr,
-            .pApplicationInfo = &application_info,
-            .enabledLayerCount = static_cast<u32>(internal->m_validation_layers.size()),
-            .ppEnabledLayerNames = internal->m_validation_layers.data(),
-            .enabledExtensionCount = static_cast<u32>(internal->m_extensions.size()),
-            .ppEnabledExtensionNames = internal->m_extensions.data()
-        };
-    
-        static VkResult (VKAPI_PTR* fp_vk_create_instance)(const VkInstanceCreateInfo*, const VkAllocationCallbacks*, VkInstance*) = reinterpret_cast<typeof(fp_vk_create_instance)>(detail::vk_get_instance_proc_addr(VK_NULL_HANDLE, "vkCreateInstance"));
-        ASSERT(fp_vk_create_instance != nullptr, "");
-        
-        VkResult result = fp_vk_create_instance(&instance_create_info, nullptr, &internal->m_handle);
-        if (result != VK_SUCCESS) {
+        if (!internal->build()) {
             return nullptr;
         }
         
-        internal->initialize();
         return m_instance;
     }
     
@@ -297,136 +404,33 @@ namespace vks {
     VulkanInstance::Builder& VulkanInstance::Builder::with_headless_mode(bool headless) {
         if (headless) {
             #if defined VKS_PLATFORM_WINDOWS
-            with_disabled_extension("VK_KHR_win32_surface");
+                with_disabled_extension(VK_KHR_WIN32_SURFACE_EXTENSION_NAME);
             #elif defined VKS_PLATFORM_LINUX
-            with_disabled_extension("VK_KHR_xcb_surface");
+                // with_disabled_extension("VK_KHR_xcb_surface");
                 // with_disabled_extension("VK_KHR_xlib_surface");
                 // with_disabled_extension("VK_KHR_wayland_surface");
-                #elif defined VKS_PLATFORM_ANDROID
-                with_disabled_extension("VK_KHR_android_surface");
-                #elif defined VKS_PLATFORM_APPLE
-                with_disabled_extension("VK_EXT_metal_surface");
+            #elif defined VKS_PLATFORM_ANDROID
+                // with_disabled_extension("VK_KHR_android_surface");
+            #elif defined VKS_PLATFORM_APPLE
+                // with_disabled_extension("VK_EXT_metal_surface");
             #endif
-            
         }
         else {
             #if defined VKS_PLATFORM_WINDOWS
-            with_enabled_extension("VK_KHR_win32_surface");
+                with_enabled_extension(VK_KHR_WIN32_SURFACE_EXTENSION_NAME);
             #elif defined VKS_PLATFORM_LINUX
-            with_enabled_extension("VK_KHR_xcb_surface");
+                // with_enabled_extension("VK_KHR_xcb_surface");
                 // with_enabled_extension("VK_KHR_xlib_surface");
                 // with_enabled_extension("VK_KHR_wayland_surface");
-                #elif defined VKS_PLATFORM_ANDROID
-                with_enabled_extension("VK_KHR_android_surface");
-                #elif defined VKS_PLATFORM_APPLE
-                with_enabled_extension("VK_EXT_metal_surface");
+            #elif defined VKS_PLATFORM_ANDROID
+                // with_enabled_extension("VK_KHR_android_surface");
+            #elif defined VKS_PLATFORM_APPLE
+                // with_enabled_extension("VK_EXT_metal_surface");
             #endif
         }
         
-        with_enabled_extension("VK_KHR_surface");
+        with_enabled_extension(VK_KHR_SURFACE_EXTENSION_NAME);
         return *this;
-    }
-    
-    bool VulkanInstance::Builder::verify_extension_support() const {
-        static VkResult (VKAPI_PTR* fp_vk_enumerate_instance_extension_properties)(const char*, u32*, VkExtensionProperties*) = reinterpret_cast<typeof(fp_vk_enumerate_instance_extension_properties)>(detail::vk_get_instance_proc_addr(VK_NULL_HANDLE, "vkEnumerateInstanceExtensionProperties"));
-        ASSERT(fp_vk_enumerate_instance_extension_properties != nullptr, "");
-        
-        std::shared_ptr<VulkanInstance::InternalData> internal = std::reinterpret_pointer_cast<VulkanInstance::InternalData>(m_instance);
-    
-        // Determine total number of supported instance extensions.
-        u32 available_extension_count = 0u;
-        fp_vk_enumerate_instance_extension_properties(nullptr, &available_extension_count, nullptr);
-    
-        std::vector<VkExtensionProperties> available_extensions(available_extension_count);
-        fp_vk_enumerate_instance_extension_properties(nullptr, &available_extension_count, available_extensions.data());
-    
-        // Include extensions provided by enabled validation layers.
-        for (const char* layer : internal->m_validation_layers) {
-            u32 layer_extension_count = 0u;
-            fp_vk_enumerate_instance_extension_properties(layer, &layer_extension_count, nullptr);
-        
-            std::vector<VkExtensionProperties> layer_extensions(layer_extension_count);
-            fp_vk_enumerate_instance_extension_properties(layer, &layer_extension_count, layer_extensions.data());
-        
-            available_extension_count += layer_extension_count;
-            available_extensions.insert(available_extensions.end(), layer_extensions.begin(), layer_extensions.end());
-        }
-    
-        std::vector<const char*> unsupported_extensions;
-        unsupported_extensions.reserve(internal->m_extensions.size()); // Maximum number of unsupported extensions.
-    
-        // Verify all requested extensions are available.
-        for (const char* requested : internal->m_extensions) {
-            bool found = false;
-        
-            for (u32 i = 0u; i < available_extension_count; ++i) {
-                const char* available = available_extensions[i].extensionName;
-            
-                if (strcmp(requested, available) == 0) {
-                    found = true;
-                    break;
-                }
-            }
-        
-            if (!found) {
-                unsupported_extensions.emplace_back(requested);
-            }
-        }
-    
-        return unsupported_extensions.empty();
-    }
-    
-    bool VulkanInstance::Builder::verify_validation_layer_support() const {
-        static VkResult (VKAPI_PTR* fp_vk_enumerate_instance_layer_properties)(u32*, VkLayerProperties*) = reinterpret_cast<typeof(fp_vk_enumerate_instance_layer_properties)>(detail::vk_get_instance_proc_addr(VK_NULL_HANDLE, "vkEnumerateInstanceLayerProperties"));
-        ASSERT(fp_vk_enumerate_instance_layer_properties != nullptr, "");
-        
-        std::shared_ptr<VulkanInstance::InternalData> internal = std::reinterpret_pointer_cast<VulkanInstance::InternalData>(m_instance);
-    
-        u32 available_layer_count = 0u;
-        fp_vk_enumerate_instance_layer_properties(&available_layer_count, nullptr);
-    
-        std::vector<VkLayerProperties> available_layers(available_layer_count);
-        fp_vk_enumerate_instance_layer_properties(&available_layer_count, available_layers.data());
-    
-        std::vector<const char*> unsupported_layers;
-        unsupported_layers.reserve(internal->m_validation_layers.size()); // Maximum number of unsupported layers.
-    
-        // Verify that all requested validation layers are available.
-        for (const char* requested : internal->m_validation_layers) {
-            bool found = false;
-        
-            for (u32 i = 0u; i < available_layer_count; ++i) {
-                const char* available = available_layers[i].layerName;
-            
-                if (strcmp(requested, available) == 0) {
-                    found = true;
-                    break;
-                }
-            }
-        
-            if (!found) {
-                unsupported_layers.emplace_back(requested);
-            }
-        }
-    
-        return unsupported_layers.empty();
-    }
-    
-    bool VulkanInstance::Builder::verify_target_version() const {
-        static VkResult (VKAPI_PTR* fp_vk_enumerate_instance_version)(u32*) = reinterpret_cast<typeof(fp_vk_enumerate_instance_version)>(detail::vk_get_instance_proc_addr(VK_NULL_HANDLE, "vkEnumerateInstanceVersion"));
-    
-        // vkEnumerateInstanceVersion is provided by Vulkan 1.1 and higher - if it doesn't exist, targeted Vulkan version must be 1.0.
-        u32 available_instance_version;
-        if (fp_vk_enumerate_instance_version) {
-            fp_vk_enumerate_instance_version(&available_instance_version);
-        }
-        else {
-            available_instance_version = VK_API_VERSION_1_0;
-        }
-    
-        std::shared_ptr<VulkanInstance::InternalData> internal = std::reinterpret_pointer_cast<VulkanInstance::InternalData>(m_instance);
-        
-        return internal->m_runtime_version <= available_instance_version;
     }
     
 } // namespace vks
