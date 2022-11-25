@@ -5,8 +5,6 @@
 
 #include <cstring>
 #include <cstdint>
-#include <ostream>
-#include <iostream>
 
 namespace vks {
     
