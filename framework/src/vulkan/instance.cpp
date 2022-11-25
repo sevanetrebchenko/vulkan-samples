@@ -250,7 +250,7 @@ namespace vks {
         
         // Builder should not maintain ownership over created instances, and allow for subsequent calls to 'build' to generate valid standalone instances.
         std::shared_ptr<VulkanInstance> instance = std::move(m_instance);
-        m_instance = std::make_shared<VulkanInstance::InternalData>(); // Ensure instance validity after transferring ownership
+        m_instance = std::make_shared<VulkanInstance::InternalData>(); // Ensure instance validity after transferring ownership.
         return std::move(instance);
     }
     
