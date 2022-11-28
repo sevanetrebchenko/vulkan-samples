@@ -17,24 +17,23 @@ namespace vks {
     
     class VulkanInstance : public ManagedObject<VulkanInstance> {
         public:
-            class InternalData;
             class Builder;
             
             ~VulkanInstance() override;
-            
-            // Instances should not be copied.
-            VulkanInstance(const VulkanInstance& other) = delete;
-            VulkanInstance& operator=(const VulkanInstance& other) = delete;
             
             operator VkInstance() const;
         
             NODISCARD VulkanWindow::Builder create_window();
             NODISCARD VulkanDevice::Builder create_device();
             
+            NODISCARD bool is_headless() const;
             NODISCARD bool is_extension_enabled(const char* extension) const;
+            
             NODISCARD Version get_runtime_version() const;
             
         private:
+            class Data;
+            
             // Instances should only be created using VulkanInstance::Builder.
             VulkanInstance();
     };

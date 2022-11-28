@@ -70,3 +70,30 @@ typedef std::int64_t i64;
 // Floating point data types.
 typedef float f32;
 typedef double f64;
+
+#define DEFINE_ENUM_BITFIELD_OPERATIONS(T)                                          \
+    inline constexpr T operator|(T first, T second) {                               \
+        using U = std::underlying_type<T>::type;                                    \
+        return static_cast<T>(static_cast<U>(first) | static_cast<U>(second));      \
+    }                                                                               \
+    inline constexpr T& operator|=(T& target, T value) {                            \
+        return target = target | value;                                             \
+    }                                                                               \
+    inline constexpr T operator&(T first, T second) {                               \
+        using U = std::underlying_type<T>::type;                                    \
+        return static_cast<T>(static_cast<U>(first) & static_cast<U>(second));      \
+    }                                                                               \
+    inline constexpr T& operator&=(T& target, T value) {                            \
+        return target = target & value;                                             \
+    }                                                                               \
+    inline constexpr T operator^(T first, T second) {                               \
+        using U = std::underlying_type<T>::type;                                    \
+        return static_cast<T>(static_cast<U>(first) ^ static_cast<U>(second));      \
+    }                                                                               \
+    inline constexpr T& operator^=(T& target, T value) {                            \
+        return target = target ^ value;                                             \
+    }                                                                               \
+    inline constexpr T operator~(T value) {                                         \
+        using U = std::underlying_type<T>::type;                                    \
+        return static_cast<T>(~static_cast<U>(value));                              \
+    }

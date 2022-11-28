@@ -14,6 +14,7 @@ add_library(${PROJECT_NAME} OBJECT
             "${PROJECT_SOURCE_DIR}/src/vulkan/device.cpp"
             "${PROJECT_SOURCE_DIR}/src/vulkan/loader.cpp"
             "${PROJECT_SOURCE_DIR}/src/vulkan/types.cpp"
+            "${PROJECT_SOURCE_DIR}/src/vulkan/queue.cpp"
         )
 
 find_package(Vulkan REQUIRED)

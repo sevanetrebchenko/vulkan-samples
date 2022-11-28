@@ -21,15 +21,7 @@ namespace vks {
             
         protected:
             std::shared_ptr<VulkanInstance> m_instance;
-        
-//            EventListener<Sample> event_listener;
-        
-            bool test(float e) {
-                std::cout << "hello from test" << std::endl;
-                return true;
-            }
-            
-            int selector(const VulkanDevice::Properties& p, const VulkanDevice::Features& f);
+            std::shared_ptr<VulkanDevice> m_device;
     
         private:
     };

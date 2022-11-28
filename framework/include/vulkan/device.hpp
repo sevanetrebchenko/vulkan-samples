@@ -3,6 +3,7 @@
 
 #include "core/defines.hpp"
 #include "vulkan/types.hpp"
+#include "vulkan/queue.hpp"
 
 #include <functional>
 #include <vulkan/vulkan.h>
@@ -19,8 +20,6 @@ namespace vks {
             class Builder;
             
             struct Properties {
-                operator VkPhysicalDeviceProperties() const;
-                
                 enum class Type : u8 {
                     DISCRETE_GPU   = 1u << 0u,
                     INTEGRATED_GPU = 1u << 1u,
@@ -30,8 +29,6 @@ namespace vks {
                 } type;
     
                 struct Limits {
-                    operator VkPhysicalDeviceLimits() const;
-                    
                     u32 max_image_dimension_1d;
                     u32 max_image_dimension_2d;
                     u32 max_image_dimension_3d;
@@ -149,8 +146,6 @@ namespace vks {
             } properties;
             
             struct Features {
-                operator VkPhysicalDeviceFeatures() const;
-    
                 bool robust_buffer_access;
                 bool full_draw_index_uint32;
                 bool image_cube_array;
@@ -208,186 +203,42 @@ namespace vks {
                 bool inherited_queries;
             } features;
             
-            class Queue {
-                public:
-                    enum class Operation : u8 {
-                        GRAPHICS = 1u << 0u,
-                        COMPUTE  = 1u << 1u,
-                        TRANSFER = 1u << 2u
-                    };
-                
-                    NODISCARD bool supports_operation(Operation op) const;
-                    NODISCARD bool is_dedicated() const;
-                    
-                private:
-                    friend class VulkanDevice;
-                    Queue() {
-                    
-                    }
-                    
-                    VkQueue handle_;
-                    Operation operations_;
-            };
-            
-            ~VulkanDevice() {
-            
-            }
+            ~VulkanDevice() override;
+        
+            NODISCARD operator VkPhysicalDevice() const;
+            NODISCARD operator VkDevice() const;
         
         private:
-            friend class Builder;
-            
-            VulkanDevice() {
-            
-            }
-            
-            VkPhysicalDevice m_device;
-            VkDevice m_handle;
-            
-            std::string m_name;
-            
-            // Device queues.
-//            Queue graphics_queue_; // Graphics and presentation operations.
-//            Queue m_presentation_queue;
-//            Queue compute_queue_; // Compute operations only.
-//            Queue async_compute_queue_;
-//            Queue transfer_queue_; // GPU-internal data transfers.
-//            Queue async_transfer_queue_; // Data transfers between CPU and GPU.
-            
-            std::vector<const char*> m_extensions;
-            std::vector<const char*> m_validation_layers;
+            class Data;
+        
+            // Devices should only be created using VulkanDevice::Builder.
+            VulkanDevice();
     };
     
     class VulkanDevice::Builder {
         public:
-            Builder(std::shared_ptr<VulkanInstance> instance) {
-            
-            }
+            explicit Builder(std::shared_ptr<VulkanInstance> instance);
             ~Builder();
             
-            NODISCARD std::shared_ptr<VulkanDevice> build() const;
+            NODISCARD std::shared_ptr<VulkanDevice> build();
             
-            // Provides a read-only view into the capabilities of an available physical device on the system.
-            // Builder& with_physical_device_selector_function(const SelectorFn& selector);
-             Builder& with_physical_device_selector_function(i32 (*selector)(const Properties&, const Features&));
-            //Builder& with_physical_device_selector_function(const std::function<int(const Properties&, const Features&)>& selector);
-            
-            // Enable / disable specific device features.
             // Note: any enabled features must be supported by the device.
             Builder& with_features(const Features& features);
             
-            // Device extensions.
+            // By default, only GRAPHICS operations are required to be supported by the selected device.
+            Builder& with_supported_queue(VulkanQueue::Operation operation);
+            Builder& with_dedicated_queue(VulkanQueue::Operation operation);
+            
             Builder& with_enabled_extension(const char* extension);
             Builder& with_disabled_extension(const char* extension);
             
-            // Device validation layers.
             Builder& with_enabled_validation_layer(const char* layer);
             Builder& with_disabled_validation_layer(const char* layer);
             
             Builder& with_debug_name(const char* name);
         
         private:
-            struct GraphicsQueueFamily {
-                i32 index;
-                u32 num_available_queues;
-                bool has_presentation_support;
-                bool has_compute_support; // For synchronous compute operations.
-                bool has_transfer_support; // For synchronous (inside-GPU) transfer operations.
-            };
-        
-            // Optional for headless devices.
-            struct PresentationQueueFamily {
-                i32 index;
-                u32 num_available_queues;
-            };
-        
-            // Queue family for asynchronous compute operations.
-            struct ComputeQueueFamily {
-                i32 index;
-                u32 num_available_queues;
-                bool async;
-            };
-        
-            // Queue family for asynchronous (CPU-GPU) transfer operations.
-            struct TransferQueueFamily {
-                i32 index;
-                u32 num_available_queues;
-                bool async;
-            };
-            
-            struct DeviceContext {
-                // Physical device.
-                VkPhysicalDevice device;
-                VkPhysicalDeviceProperties properties;
-                VkPhysicalDeviceFeatures features;
-                
-                // Queue families.
-                std::vector<VkQueueFamilyProperties> queue_family_properties;
-                std::tuple<GraphicsQueueFamily, PresentationQueueFamily, ComputeQueueFamily, TransferQueueFamily> queue_families;
-    
-                // Logical device.
-                VkDevice handle;
-                
-                std::vector<std::string> messages;
-            };
-            
-
-            
-            NODISCARD bool verify_device_extension_support(VkPhysicalDevice device_handle) const;
-            NODISCARD bool verify_device_validation_layer_support(VkPhysicalDevice device_handle) const;
-            NODISCARD bool verify_device_properties(const VkPhysicalDeviceProperties& device_properties) const;
-            NODISCARD bool verify_device_feature_support(const VkPhysicalDeviceFeatures& device_features) const;
-        
-            NODISCARD std::tuple<GraphicsQueueFamily, PresentationQueueFamily, ComputeQueueFamily, TransferQueueFamily> select_device_queue_families(VkPhysicalDevice device_handle, const std::vector<VkQueueFamilyProperties>& queue_families) const;
-            NODISCARD bool verify_device_queue_family_support(const std::tuple<GraphicsQueueFamily, PresentationQueueFamily, ComputeQueueFamily, TransferQueueFamily>& queue_families) const;
-            
-            
-            // SECTION: Physical device Vulkan functions.
-            
-            // vkEnumeratePhysicalDevices
-            VkResult (VKAPI_PTR* fp_vk_enumerate_physical_devices_)(VkInstance, u32*, VkPhysicalDevice*);
-            
-            // vkGetPhysicalDeviceProperties
-            void (VKAPI_PTR* fp_vk_get_physical_device_properties_)(VkPhysicalDevice, VkPhysicalDeviceProperties*);
-            
-            // vkGetPhysicalDeviceFeatures
-            void (VKAPI_PTR* fp_vk_get_physical_device_features_)(VkPhysicalDevice, VkPhysicalDeviceFeatures*);
-            
-            // vkGetPhysicalDeviceQueueFamilyProperties
-            void (VKAPI_PTR* fp_vk_get_physical_device_queue_family_properties_)(VkPhysicalDevice, u32*, VkQueueFamilyProperties*);
-            
-            // vkEnumerateDeviceExtensionProperties
-            VkResult (VKAPI_PTR* fp_vk_enumerate_device_extension_properties_)(VkPhysicalDevice, const char*, u32*, VkExtensionProperties*);
-            
-            // vkEnumerateDeviceLayerProperties
-            VkResult (VKAPI_PTR* fp_vk_enumerate_device_layer_properties_)(VkPhysicalDevice, u32*, VkLayerProperties*);
-        
-            #if defined(VKS_PLATFORM_WINDOWS)
-        
-                // vkGetPhysicalDeviceWin32PresentationSupportKHR
-                VkBool32 (VKAPI_PTR* m_fp_vk_get_physical_device_win32_presentation_support)(VkPhysicalDevice, u32);
-        
-            #elif defined(VKS_PLATFORM_LINUX)
-        
-                // vkGetPhysicalDeviceXcbPresentationSupportKHR
-                VkBool32 (VKAPI_PTR* m_fp_vk_get_physical_device_xcb_presentation_support)(VkPhysicalDevice, u32, xcb_connection_t*, xcb_visualid_t);
-                
-            #endif
-            // TODO: Android + Apple
-        
-        
-            // SECTION: Logical device Vulkan functions.
-            
-            // vkCreateDevice
-            VkResult (VKAPI_PTR* fp_vk_create_device_)(VkPhysicalDevice, const VkDeviceCreateInfo*, const VkAllocationCallbacks*, VkDevice*);
-
-            
-            bool m_configuration_started;
-            
-            std::shared_ptr<VulkanInstance> m_instance;
-            VulkanDevice m_device;
-            
-            i32 (*selector_)(const Properties&, const Features&);
-            Features requested_features_;
+            std::shared_ptr<VulkanDevice> m_device;
     };
     
 }
