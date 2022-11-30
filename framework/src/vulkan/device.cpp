@@ -39,6 +39,11 @@ namespace vks {
         };
     
         struct QueueFamilies {
+            static constexpr i32 INVALID_QUEUE_FAMILY_INDEX = -1;
+            
+            NODISCARD bool is_operation_supported(VulkanQueue::Operation operation) const;
+            NODISCARD bool has_dedicated_queue_family(VulkanQueue::Operation operation) const;
+            
             GraphicsQueueFamily graphics_queue_family;
             PresentationQueueFamily presentation_queue_family;
             ComputeQueueFamily compute_queue_family;
@@ -83,14 +88,65 @@ namespace vks {
         std::vector<const char*> m_extensions;
         std::vector<const char*> m_validation_layers;
     };
-
+    
+    bool VulkanDevice::Data::QueueFamilies::is_operation_supported(VulkanQueue::Operation operation) const {
+        ASSERT(operation == VulkanQueue::Operation::GRAPHICS || operation == VulkanQueue::Operation::PRESENTATION ||
+               operation == VulkanQueue::Operation::COMPUTE || operation == VulkanQueue::Operation::TRANSFER,
+               "Operation provided to VulkanDevice::Data::QueueFamilies::is_operation_supported(...) must be a single operation");
+        
+        switch (operation) {
+            case VulkanQueue::Operation::GRAPHICS:
+                return graphics_queue_family.index != INVALID_QUEUE_FAMILY_INDEX;
+            case VulkanQueue::Operation::PRESENTATION:
+                return presentation_queue_family.index != INVALID_QUEUE_FAMILY_INDEX;
+            case VulkanQueue::Operation::COMPUTE:
+                return compute_queue_family.index != INVALID_QUEUE_FAMILY_INDEX;
+            case VulkanQueue::Operation::TRANSFER:
+                return transfer_queue_family.index != INVALID_QUEUE_FAMILY_INDEX;
+        }
+    }
+    
+    bool VulkanDevice::Data::QueueFamilies::has_dedicated_queue_family(VulkanQueue::Operation operation) const {
+        ASSERT(operation == VulkanQueue::Operation::GRAPHICS || operation == VulkanQueue::Operation::PRESENTATION ||
+               operation == VulkanQueue::Operation::COMPUTE || operation == VulkanQueue::Operation::TRANSFER,
+               "Operation provided to VulkanDevice::Data::QueueFamilies::has_dedicated_queue_family(...) must be a single operation");
+        
+        if (!is_operation_supported(operation)) {
+            return false;
+        }
+        
+        // A dedicated queue family only supports the specified operation.
+        
+        switch (operation) {
+            // If graphics operations are supported, the graphics queue family is considered dedicated.
+            // Other operations (compute, presentation, transfer) that share the graphics queue family are not considered dedicated.
+            case VulkanQueue::Operation::GRAPHICS:
+                return true;
+            
+            case VulkanQueue::Operation::PRESENTATION:
+                return presentation_queue_family.index != graphics_queue_family.index &&
+                       presentation_queue_family.index != compute_queue_family.index &&
+                       presentation_queue_family.index != transfer_queue_family.index;
+            
+            case VulkanQueue::Operation::COMPUTE:
+                return compute_queue_family.index != graphics_queue_family.index &&
+                       compute_queue_family.index != presentation_queue_family.index &&
+                       compute_queue_family.index != transfer_queue_family.index;
+            
+            case VulkanQueue::Operation::TRANSFER:
+                return transfer_queue_family.index != graphics_queue_family.index &&
+                       transfer_queue_family.index != presentation_queue_family.index &&
+                       transfer_queue_family.index != compute_queue_family.index;
+        }
+    }
+    
     VulkanDevice::Data::Data(std::shared_ptr<VulkanInstance> instance) : m_instance(std::move(instance)),
                                                                          m_device(nullptr),
                                                                          m_handle(nullptr),
                                                                          m_requested_features({ }),
                                                                          m_queue_families({ }),
-                                                                         m_supported_queues(VulkanQueue::Operation::GRAPHICS),
-                                                                         m_dedicated_queues(VulkanQueue::Operation::GRAPHICS),
+                                                                         m_supported_queues(static_cast<VulkanQueue::Operation>(0u)),
+                                                                         m_dedicated_queues(static_cast<VulkanQueue::Operation>(0u)),
                                                                          m_graphics_queue(nullptr),
                                                                          m_presentation_queue(nullptr),
                                                                          m_compute_queue(nullptr),
@@ -477,9 +533,80 @@ namespace vks {
         
         // Retrieve device queues.
         VulkanQueue::Builder queue_builder(m_instance, shared_from_this());
+        bool headless = m_instance->is_headless();
+    
+        // Headless application may not require support graphics operations.
+        if (test(m_supported_queues, VulkanQueue::Operation::GRAPHICS) && m_queue_families.is_operation_supported(VulkanQueue::Operation::GRAPHICS)) {
+            ASSERT(m_queue_families.has_dedicated_queue_family(VulkanQueue::Operation::GRAPHICS), "Misconfigured graphics queue family");
+            
+            // Register all operations within the graphics family.
+            VulkanQueue::Operation supported_queue_operations = VulkanQueue::Operation::GRAPHICS;
+    
+            if (m_queue_families.graphics_queue_family.has_presentation_support) {
+                supported_queue_operations |= VulkanQueue::Operation::PRESENTATION;
+            }
+    
+            if (m_queue_families.graphics_queue_family.has_compute_support) {
+                supported_queue_operations |= VulkanQueue::Operation::COMPUTE;
+            }
+    
+            if (m_queue_families.graphics_queue_family.has_transfer_support) {
+                supported_queue_operations |= VulkanQueue::Operation::TRANSFER;
+            }
+            
+            m_graphics_queue = queue_builder.with_operation(supported_queue_operations, m_queue_families.graphics_queue_family.index).build();
+            
+            // Register all other (implicit) queues that will submit operations to the same queue family.
+    
+            // Synchronous compute / transfer queues submit operations to the graphics queue.
+            if (m_queue_families.graphics_queue_family.has_compute_support) {
+                m_compute_queue = m_graphics_queue;
+            }
+            
+            if (m_queue_families.graphics_queue_family.has_transfer_support) {
+                m_transfer_queue = m_graphics_queue;
+            }
+            
+            if (!headless) {
+                if (m_queue_families.graphics_queue_family.has_presentation_support && !)
+            }
+            
+            if (!headless) {
+                if (m_queue_families.is_operation_supported(VulkanQueue::Operation::PRESENTATION)) {
+                    if (m_)
+                }
+            }
+        }
         
-//        m_graphics_queue = queue_builder.with_operation(VulkanQueue::Operation::GRAPHICS, m_queue_families.graphics_queue_family.index).build();
-//        m_presentation_queue = queue_builder.with_operation(VulkanQueue::Operation::PRESENTATION, m_queue_families.presentation_queue_family.index).build();
+        if (!headless) {
+            if (!m_presentation_queue) {
+                ASSERT(m_queue_families.presentation_queue_family.index != m_queue_families.graphics_queue_family.index, "Misconfigured presentation / graphics queue families");
+                ASSERT(!m_queue_families.graphics_queue_family.has_presentation_support, "Misconfigured presentation / graphics queue families");
+                
+                // Presentation queue is separate from the graphics queue.
+                VulkanQueue::Operation supported_queue_operations = VulkanQueue::Operation::PRESENTATION;
+                
+                if (m_queue_families.presentation_queue_family.index == m_queue_families.compute_queue_family.index) {
+                    supported_queue_operations |= VulkanQueue::Operation::COMPUTE;
+                }
+                
+                if (m_queue_families.presentation_queue_family.index == m_queue_families.transfer_queue_family.index) {
+                    supported_queue_operations |= VulkanQueue::Operation::TRANSFER;
+                }
+
+                m_presentation_queue = queue_builder.with_operation(supported_queue_operations, m_queue_families.presentation_queue_family.index).build();
+    
+                if (m_queue_families.presentation_queue_family.index == m_queue_families.compute_queue_family.index) {
+                    m_async_compute_queue = m_presentation_queue;
+                }
+    
+                if (m_queue_families.presentation_queue_family.index == m_queue_families.compute_queue_family.index) {
+                    m_async_transfer_queue = m_presentation_queue;
+                }
+            }
+        }
+        
+        if (!)
         
         return true;
     }
@@ -828,8 +955,7 @@ namespace vks {
     
         std::vector<VkQueueFamilyProperties> queue_families(queue_family_count);
         fp_vk_get_physical_device_queue_family_properties(device_handle, &queue_family_count, queue_families.data());
-    
-        i32 invalid = -1;
+        
         u32 highest_score = 0u;
     
         for (u32 i = 0u; i < queue_families.size(); ++i) {
@@ -848,7 +974,7 @@ namespace vks {
         }
     
         GraphicsQueueFamily graphics_queue_family {
-            .index = invalid,
+            .index = QueueFamilies::INVALID_QUEUE_FAMILY_INDEX,
             .num_available_queues = 0u,
             .has_presentation_support = false,
             .has_compute_support = false,
@@ -944,13 +1070,13 @@ namespace vks {
         }
     
         ComputeQueueFamily compute_queue_family {
-            .index = invalid,
+            .index = QueueFamilies::INVALID_QUEUE_FAMILY_INDEX,
             .num_available_queues = 0u,
             .async = false
         };
     
         TransferQueueFamily transfer_queue_family {
-            .index = invalid,
+            .index = QueueFamilies::INVALID_QUEUE_FAMILY_INDEX,
             .num_available_queues = 0u,
             .async = false
         };
@@ -1034,7 +1160,7 @@ namespace vks {
             }
         }
     
-        if (compute_queue_family.index == invalid) {
+        if (compute_queue_family.index == QueueFamilies::INVALID_QUEUE_FAMILY_INDEX) {
             // Found no queue families that support asynchronous compute operations - default to graphics queue family and synchronized compute operations, if available.
             if (graphics_queue_family.has_compute_support) {
                 compute_queue_family.index = graphics_queue_family.index;
@@ -1046,7 +1172,7 @@ namespace vks {
             compute_queue_family.async = true;
         }
     
-        if (transfer_queue_family.index == invalid) {
+        if (transfer_queue_family.index == QueueFamilies::INVALID_QUEUE_FAMILY_INDEX) {
             // Found no queue families that support asynchronous transfer operations - default to graphics queue family and synchronized transfer operations, if available.
             if (graphics_queue_family.has_transfer_support) {
                 transfer_queue_family.index = graphics_queue_family.index;
@@ -1059,7 +1185,7 @@ namespace vks {
         }
     
         PresentationQueueFamily presentation_queue_family {
-            .index = invalid,
+            .index = QueueFamilies::INVALID_QUEUE_FAMILY_INDEX,
             .num_available_queues = 0u
         };
     
@@ -1126,10 +1252,8 @@ namespace vks {
     }
     
     bool VulkanDevice::Data::verify_device_queue_family_support(const VulkanDevice::Data::QueueFamilies& queue_families) const {
-        i32 invalid = -1;
-    
         if ((m_supported_queues & VulkanQueue::Operation::GRAPHICS) == VulkanQueue::Operation::GRAPHICS) {
-            if (queue_families.graphics_queue_family.index == invalid) {
+            if (!queue_families.is_operation_supported(VulkanQueue::Operation::GRAPHICS)) {
                 // Unable to find a queue family that supports graphics operations.
                 return false;
             }
@@ -1140,52 +1264,44 @@ namespace vks {
         //     ...
         // }
     
-        // Presentation operations are not required if the application is headless.
-        if (!m_instance->is_headless()) {
-            if ((m_supported_queues & VulkanQueue::Operation::PRESENTATION) == VulkanQueue::Operation::PRESENTATION) {
-                if (queue_families.presentation_queue_family.index == invalid) {
-                    // Unable to find a queue family that supports presentation operations.
-                    return false;
-                }
+        if ((m_supported_queues & VulkanQueue::Operation::PRESENTATION) == VulkanQueue::Operation::PRESENTATION) {
+            if (!queue_families.is_operation_supported(VulkanQueue::Operation::PRESENTATION)) {
+                // Unable to find a queue family that supports presentation operations.
+                return false;
             }
-    
-            if ((m_dedicated_queues & VulkanQueue::Operation::PRESENTATION) == VulkanQueue::Operation::PRESENTATION) {
-                if (queue_families.presentation_queue_family.index == queue_families.graphics_queue_family.index ||
-                    queue_families.presentation_queue_family.index == queue_families.compute_queue_family.index ||
-                    queue_families.presentation_queue_family.index == queue_families.transfer_queue_family.index) {
-                    return false;
-                }
+        }
+
+        if ((m_dedicated_queues & VulkanQueue::Operation::PRESENTATION) == VulkanQueue::Operation::PRESENTATION) {
+            if (!queue_families.has_dedicated_queue_family(VulkanQueue::Operation::PRESENTATION)) {
+                // Unable to find a dedicated queue family for presentation operations.
+                return false;
             }
         }
     
         if ((m_supported_queues & VulkanQueue::Operation::COMPUTE) == VulkanQueue::Operation::COMPUTE) {
-            if (queue_families.compute_queue_family.index == invalid) {
+            if (!queue_families.is_operation_supported(VulkanQueue::Operation::COMPUTE)) {
                 // Unable to find a queue family that supports compute operations.
                 return false;
             }
         }
         
         if ((m_dedicated_queues & VulkanQueue::Operation::COMPUTE) == VulkanQueue::Operation::COMPUTE) {
-            if (queue_families.compute_queue_family.index == queue_families.graphics_queue_family.index ||
-                queue_families.compute_queue_family.index == queue_families.presentation_queue_family.index ||
-                queue_families.compute_queue_family.index == queue_families.transfer_queue_family.index) {
-                // Unable to find a queue family dedicated solely to compute operations.
+            if (!queue_families.has_dedicated_queue_family(VulkanQueue::Operation::COMPUTE)) {
+                // Unable to find a dedicated queue family for async compute operations.
                 return false;
             }
         }
     
         if ((m_supported_queues & VulkanQueue::Operation::TRANSFER) == VulkanQueue::Operation::TRANSFER) {
-            if (queue_families.transfer_queue_family.index == invalid) {
+            if (!queue_families.is_operation_supported(VulkanQueue::Operation::TRANSFER)) {
                 // Unable to find a queue family that supports transfer operations.
                 return false;
             }
         }
     
         if ((m_dedicated_queues & VulkanQueue::Operation::TRANSFER) == VulkanQueue::Operation::TRANSFER) {
-            if (queue_families.transfer_queue_family.index == queue_families.graphics_queue_family.index ||
-                queue_families.transfer_queue_family.index == queue_families.presentation_queue_family.index ||
-                queue_families.transfer_queue_family.index == queue_families.compute_queue_family.index) {
-                // Unable to find a queue family dedicated solely to transfer operations.
+            if (!queue_families.has_dedicated_queue_family(VulkanQueue::Operation::TRANSFER)) {
+                // Unable to find a dedicated queue family for presentation operations.
                 return false;
             }
         }

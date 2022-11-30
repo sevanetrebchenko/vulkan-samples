@@ -41,6 +41,18 @@ namespace vks {
             return false;
         }
         
+        // Ensure request to build is being done on at least one valid operation.
+        if (((m_operation & Operation::GRAPHICS) == Operation::GRAPHICS) ||
+            ((m_operation & Operation::PRESENTATION) == Operation::PRESENTATION) ||
+            ((m_operation & Operation::COMPUTE) == Operation::COMPUTE) ||
+            ((m_operation & Operation::TRANSFER) == Operation::TRANSFER)) {
+            
+        }
+
+        if (m_index) {
+            return false;
+        }
+        
         // Retrieve queue handle.
         fp_vk_get_device_queue(*m_device, m_index, 0u, &m_handle);
         return true;
@@ -74,15 +86,9 @@ namespace vks {
     }
     
     VulkanQueue::Builder& VulkanQueue::Builder::with_operation(VulkanQueue::Operation operation, u32 queue_family_index) {
-        // Ensure queue is only being registered with one operation.
-        ASSERT(operation == VulkanQueue::Operation::GRAPHICS || operation == VulkanQueue::Operation::PRESENTATION ||
-               operation == VulkanQueue::Operation::COMPUTE || operation == VulkanQueue::Operation::TRANSFER,
-               "Operation provided to VulkanQueue::Builder::with_operation(...) must be a single operation.");
-        
         std::shared_ptr<VulkanQueue::Data> data = std::reinterpret_pointer_cast<VulkanQueue::Data>(m_queue);
         data->m_operation = operation;
         data->m_index = static_cast<i32>(queue_family_index);
-        
         return *this;
     }
     

@@ -12,7 +12,7 @@ namespace vks {
     class VulkanQueue : public ManagedObject<VulkanQueue> {
         public:
             class Builder;
-            
+
             enum class Operation : u8 {
                 GRAPHICS     = 1u << 0u,
                 PRESENTATION = 1u << 1u,
@@ -29,7 +29,7 @@ namespace vks {
     };
     
     DEFINE_ENUM_BITFIELD_OPERATIONS(VulkanQueue::Operation);
-    
+
     class VulkanQueue::Builder {
         public:
             Builder(std::shared_ptr<VulkanInstance> instance, std::shared_ptr<VulkanDevice> device);
@@ -38,6 +38,7 @@ namespace vks {
             NODISCARD std::shared_ptr<VulkanQueue> build();
             
             Builder& with_operation(VulkanQueue::Operation operation, u32 queue_family_index);
+            Builder& with_queue_count(u32 queue_count);
             
         private:
             std::shared_ptr<VulkanQueue> m_queue;
