@@ -61,6 +61,8 @@ namespace vks {
         NODISCARD bool verify_device_feature_support(const VkPhysicalDeviceFeatures& device_features) const;
         
         NODISCARD QueueFamilies select_device_queue_families(VkPhysicalDevice device_handle) const;
+        NODISCARD GraphicsQueueFamily select_graphics_queue_family(const std::vector<VkQueueFamilyProperties>& queue_families) const;
+        
         NODISCARD bool verify_device_queue_family_support(const QueueFamilies& queue_families) const;
         
         std::shared_ptr<VulkanInstance> m_instance;
@@ -533,11 +535,8 @@ namespace vks {
         
         // Retrieve device queues.
         VulkanQueue::Builder queue_builder(m_instance, shared_from_this());
-        bool headless = m_instance->is_headless();
-    
-        // Headless application may not require support graphics operations.
-        if (test(m_supported_queues, VulkanQueue::Operation::GRAPHICS) && m_queue_families.is_operation_supported(VulkanQueue::Operation::GRAPHICS)) {
-            ASSERT(m_queue_families.has_dedicated_queue_family(VulkanQueue::Operation::GRAPHICS), "Misconfigured graphics queue family");
+        
+        if (m_queue_families.is_operation_supported(VulkanQueue::Operation::GRAPHICS)) {
             
             // Register all operations within the graphics family.
             VulkanQueue::Operation supported_queue_operations = VulkanQueue::Operation::GRAPHICS;
@@ -556,27 +555,30 @@ namespace vks {
             
             m_graphics_queue = queue_builder.with_operation(supported_queue_operations, m_queue_families.graphics_queue_family.index).build();
             
-            // Register all other (implicit) queues that will submit operations to the same queue family.
+            if (m_queue_families.graphics_queue_family.has_presentation_support) {
+                // A queue family that supports presentation operations was requested by the user.
+                m_presentation_queue = m_graphics_queue;
+            }
     
             // Synchronous compute / transfer queues submit operations to the graphics queue.
-            if (m_queue_families.graphics_queue_family.has_compute_support) {
+    
+            if (test(m_supported_queues, VulkanQueue::Operation::COMPUTE) && m_queue_families.graphics_queue_family.has_compute_support) {
+                // A queue family that supports compute operations was requested by the user.
                 m_compute_queue = m_graphics_queue;
             }
             
-            if (m_queue_families.graphics_queue_family.has_transfer_support) {
+            if (test(m_supported_queues, VulkanQueue::Operation::TRANSFER) && m_queue_families.graphics_queue_family.has_transfer_support) {
+                // A queue family that supports transfer operations was requested by the user.
                 m_transfer_queue = m_graphics_queue;
             }
-            
-            if (!headless) {
-                if (m_queue_families.graphics_queue_family.has_presentation_support && !)
-            }
-            
-            if (!headless) {
-                if (m_queue_families.is_operation_supported(VulkanQueue::Operation::PRESENTATION)) {
-                    if (m_)
-                }
-            }
         }
+        
+        if (test(m_dedicated_queues, VulkanQueue::Operation::PRESENTATION) && m_queue_families.has_dedicated_queue_family(VulkanQueue::Operation::PRESENTATION)) {
+            // A queue family that is dedicated to presentation operations was requested by the user.
+            m_presentation_queue = queue_builder.with_operation(VulkanQueue::Operation::PRESENTATION, m_queue_families.presentation_queue_family.index).build();
+        }
+        
+        if (test(m_supported_queues, VulkanQueue::Operation::COMPUTE))
         
         if (!headless) {
             if (!m_presentation_queue) {
@@ -949,7 +951,6 @@ namespace vks {
             ASSERT(fp_vk_get_physical_device_presentation_support != nullptr, "Failed to load vkGetPhysicalDeviceWin32PresentationSupportKHR");
         #endif
         
-    
         u32 queue_family_count = 0u;
         fp_vk_get_physical_device_queue_family_properties(device_handle, &queue_family_count, nullptr);
     
@@ -981,19 +982,70 @@ namespace vks {
             .has_transfer_support = false
         };
     
-        highest_score = 0u;
-    
-        // Select a queue family for graphics-related operations.
-        for (u32 i = 0u; i < queue_families.size(); ++i) {
-            const VkQueueFamilyProperties& family = queue_families[i];
+        bool graphics_support_requested = test(m_supported_queues, VulkanQueue::Operation::GRAPHICS);
+        bool dedicated_graphics_queue_requested = test(m_dedicated_queues, VulkanQueue::Operation::GRAPHICS);
         
+        bool compute_support_requested = test(m_supported_queues, VulkanQueue::Operation::COMPUTE);
+        bool dedicated_compute_queue_requested = test(m_dedicated_queues, VulkanQueue::Operation::COMPUTE);
+        
+        bool transfer_support_requested = test(m_supported_queues, VulkanQueue::Operation::TRANSFER);
+        bool dedicated_transfer_queue_requested = test(m_dedicated_queues, VulkanQueue::Operation::TRANSFER);
+        
+        bool presentation_support_requested = test(m_supported_queues, VulkanQueue::Operation::PRESENTATION);
+        bool dedicated_presentation_queue_requested = test(m_dedicated_queues, VulkanQueue::Operation::PRESENTATION);
+        
+        for (u32 i = 0u; i < queue_family_count; ++i) {
+            const VkQueueFamilyProperties& family = queue_families[i];
             bool has_graphics_support = (family.queueFlags & VK_QUEUE_GRAPHICS_BIT) != 0;
             bool has_compute_support = (family.queueFlags & VK_QUEUE_COMPUTE_BIT) != 0;
             bool has_transfer_support = (family.queueFlags & VK_QUEUE_TRANSFER_BIT) != 0;
-            bool has_presentation_support = static_cast<bool>(fp_vk_get_physical_device_presentation_support(device_handle, i));
-        
-            // The ideal graphics queue family supports graphics, presentation, and synchronous compute / transfer operations.
-            // Scoring of graphics queue family (based on supported operations):
+
+            #if defined(VKS_PLATFORM_WINDOWS)
+                bool has_presentation_support = static_cast<bool>(fp_vk_get_physical_device_presentation_support(device_handle, i));
+            #endif
+
+            if (graphics_support_requested) {
+                if (presentation_support_requested && !dedicated_presentation_queue_requested) {
+                    if (compute_support_requested) {
+                    
+                    }
+                    else if (transfer_support_requested) {
+                    
+                    }
+                }
+                else {
+                    // Presentation support is optional.
+                }
+            }
+            
+            if (graphics_support_requested) {
+                if (presentation_support_requested) {
+                }
+                else {
+                }
+            }
+            
+            if (graphics_support_requested) {
+            }
+            
+            
+            if (graphics_support_requested && !has_graphics_support) {
+                continue;
+            }
+            
+            if ((dedicated_presentation_queue_requested) || (presentation_support_requested && !has_presentation_support)) {
+                continue;
+            }
+            
+            if (compute_support_requested && !has_compute_support) {
+                continue;
+            }
+            
+            if (transfer_support_requested && (!has_transfer_support || !(has_graphics_support && has_compute_support))) {
+                continue;
+            }
+
+            // Scoring of queue family based on supported operations:
             // 6. GRAPHICS | PRESENTATION | COMPUTE | TRANSFER
             // 5. GRAPHICS | PRESENTATION | TRANSFER
             // 4. GRAPHICS | PRESENTATION
@@ -1001,73 +1053,298 @@ namespace vks {
             // 2. GRAPHICS | TRANSFER
             // 1. GRAPHICS
             u32 current_score = 0u;
-        
-            // Note: TRANSFER operations are implicitly allowed on a queue that supports both GRAPHICS and COMPUTE operations.
-            if (has_graphics_support) {
-                if (has_presentation_support) {
-                    if (has_compute_support) {
-                        // GRAPHICS | PRESENTATION | COMPUTE | TRANSFER
-                        current_score = 6u;
+            
+                    
+                    
+                    if (!has_graphics_support) {
+                        continue;
+                    }
+                    
+
+                    
+                    // Notes:
+                    //  - Since a dedicated presentation queue was not requested, prefer a queue family that supports both graphics and presentation operations for improved performance.
+                    //  - Synchronous compute / transfer operations (requested by compute / transfer operation support) will be submitted to the graphics family. Asynchronous compute / transfer
+                    //    operations (requested by a dedicated compute / transfer queue) will submit operations to a separate queue family.
+                    
+                    if (has_presentation_support) {
+                        if (has_compute_support) {
+                            // Supported operations: GRAPHICS | PRESENTATION | COMPUTE | TRANSFER
+                            current_score = 6u;
+                        }
+                        else if (has_transfer_support) {
+                            // Supported operations: GRAPHICS | PRESENTATION | TRANSFER
+                            current_score = 5u;
+                        }
+                        else {
+                            // Supported operations: GRAPHICS | PRESENTATION
+                            current_score = 4u;
+                        }
+                    }
+                    else if (has_compute_support) {
+                        // Supported operations: GRAPHICS | COMPUTE | TRANSFER
+                        current_score = 3u;
                     }
                     else if (has_transfer_support) {
-                        // GRAPHICS | PRESENTATION | TRANSFER
-                        current_score = 5u;
+                        // Supported operations: GRAPHICS | TRANSFER
+                        current_score = 2u;
                     }
                     else {
-                        // GRAPHICS | PRESENTATION
-                        current_score = 4u;
+                        // Supported operations: GRAPHICS
+                        current_score = 0u;
+                    }
+                    
+                    if (current_score > highest_score) {
+                        // Found a more suitable graphics queue family.
+                        graphics_queue_family.index = static_cast<i32>(i);
+                        graphics_queue_family.has_presentation_support = has_presentation_support;
+                        graphics_queue_family.has_compute_support = has_compute_support;
+                        graphics_queue_family.has_transfer_support = has_transfer_support;
+                        graphics_queue_family.num_available_queues = family.queueCount;
                     }
                 }
-                else if (has_compute_support) {
-                    // GRAPHICS | COMPUTE | TRANSFER
-                    current_score = 3u;
-                }
-                else if (has_transfer_support) {
-                    // GRAPHICS | TRANSFER
-                    current_score = 2u;
-                }
-                else {
-                    // GRAPHICS
-                    current_score = 1u;
-                }
-            }
-        
-            if (current_score > highest_score) {
-                highest_score = current_score;
-                graphics_queue_family.index = static_cast<i32>(i);
-                graphics_queue_family.num_available_queues = family.queueCount;
-            }
-        }
-    
-        switch (highest_score) {
-            case 0u:
-            case 1u:
-                break;
-        
-            case 2u:
-                graphics_queue_family.has_transfer_support = true;
-                break;
-        
-            case 3u:
-                graphics_queue_family.has_compute_support = true;
-                graphics_queue_family.has_transfer_support = true;
-                break;
-        
-            case 4u:
-                graphics_queue_family.has_presentation_support = true;
-                break;
-        
-            case 5u:
-                graphics_queue_family.has_presentation_support = true;
-                graphics_queue_family.has_transfer_support = true;
-                break;
-        
-            case 6u:
-                graphics_queue_family.has_presentation_support = true;
-                graphics_queue_family.has_compute_support = true;
-                graphics_queue_family.has_transfer_support = true;
-                break;
-        }
+//            }
+//        }
+//            else if (compute_support_requested) {
+//                // A dedicated presentation queue was requested (will be handled later in the selection process), so presentation support is optional for the graphics family.
+//                if (transfer_support_requested) {
+//                    configuration = 1u;
+//
+//                    for (u32 i = 0u; i < queue_family_count; ++i) {
+//                        const VkQueueFamilyProperties& family = queue_families[i];
+//                        bool has_graphics_support = (family.queueFlags & VK_QUEUE_GRAPHICS_BIT) != 0;
+//                        bool has_compute_support = (family.queueFlags & VK_QUEUE_COMPUTE_BIT) != 0;
+//                        bool has_transfer_support = (family.queueFlags & VK_QUEUE_TRANSFER_BIT) != 0;
+//
+//                        #if defined(VKS_PLATFORM_WINDOWS)
+//                        bool has_presentation_support = static_cast<bool>(fp_vk_get_physical_device_presentation_support(device_handle, i));
+//                        #endif
+//
+//                        // Scoring of queue family based on supported operations:
+//                        // 3. GRAPHICS | COMPUTE | TRANSFER
+//                        // 2. GRAPHICS | TRANSFER
+//                        // 1. GRAPHICS
+//                        u32 current_score = 0u;
+//
+//                        if (!has_graphics_support) {
+//                            continue;
+//                        }
+//
+//                        if (has_compute_support) {
+//                            current_score = 3u;
+//                        }
+//                        else if (has_transfer_support) {
+//                            current_score = 2u;
+//                        }
+//                        else {
+//                            current_score = 1u;
+//                        }
+//
+//                        if (current_score > highest_score) {
+//                            // Found a more suitable graphics queue family.
+//                            graphics_queue_family.index = static_cast<i32>(i);
+//                            graphics_queue_family.has_presentation_support = has_presentation_support; // Optional.
+//                            graphics_queue_family.has_compute_support = has_compute_support;
+//                            graphics_queue_family.has_transfer_support = has_transfer_support;
+//                            graphics_queue_family.num_available_queues = family.queueCount;
+//                        }
+//                    }
+//                }
+//                else {
+//                    // Requested: GRAPHICS | COMPUTE
+//                    configuration = 2u;
+//
+//                    for (u32 i = 0u; i < queue_family_count; ++i) {
+//                        const VkQueueFamilyProperties& family = queue_families[i];
+//                        bool has_graphics_support = (family.queueFlags & VK_QUEUE_GRAPHICS_BIT) != 0;
+//                        bool has_compute_support = (family.queueFlags & VK_QUEUE_COMPUTE_BIT) != 0;
+//                        bool has_transfer_support = (family.queueFlags & VK_QUEUE_TRANSFER_BIT) != 0;
+//
+//                        #if defined(VKS_PLATFORM_WINDOWS)
+//                        bool has_presentation_support = static_cast<bool>(fp_vk_get_physical_device_presentation_support(device_handle, i));
+//                        #endif
+//
+//                        // Scoring of queue family based on supported operations:
+//                        // 3. GRAPHICS | COMPUTE | TRANSFER
+//                        // 2. GRAPHICS | TRANSFER
+//                        // 1. GRAPHICS
+//                        u32 current_score = 0u;
+//
+//                        if (!has_graphics_support) {
+//                            continue;
+//                        }
+//
+//                        if (has_compute_support) {
+//                            current_score = 3u;
+//                        }
+//                        else if (has_transfer_support) {
+//                            current_score = 2u;
+//                        }
+//                        else {
+//                            current_score = 1u;
+//                        }
+//
+//                        if (current_score > highest_score) {
+//                            // Found a more suitable graphics queue family.
+//                            graphics_queue_family.index = static_cast<i32>(i);
+//                            graphics_queue_family.has_presentation_support = has_presentation_support; // Optional.
+//                            graphics_queue_family.has_compute_support = has_compute_support;
+//                            graphics_queue_family.has_transfer_support = has_transfer_support;
+//                            graphics_queue_family.num_available_queues = family.queueCount;
+//                        }
+//                    }
+//                }
+//            }
+//            else if (transfer_support_requested) {
+//                // Requested: GRAPHICS | TRANSFER
+//            }
+//            else {
+//                // Requested: GRAPHICS
+//            }
+//        }
+//
+//
+//        if (graphics_support_requested) {
+//            // Select a queue family for graphics-related operations.
+//            for (u32 i = 0u; i < queue_families.size(); ++i) {
+//                const VkQueueFamilyProperties& family = queue_families[i];
+//                bool has_graphics_support = (family.queueFlags & VK_QUEUE_GRAPHICS_BIT) != 0;
+//                bool has_compute_support = (family.queueFlags & VK_QUEUE_COMPUTE_BIT) != 0;
+//                bool has_transfer_support = (family.queueFlags & VK_QUEUE_TRANSFER_BIT) != 0;
+//
+//                #if defined(VKS_PLATFORM_WINDOWS)
+//                    bool has_presentation_support = static_cast<bool>(fp_vk_get_physical_device_presentation_support(device_handle, i));
+//                #endif
+//
+//                if (!has_graphics_support) {
+//                    continue;
+//                }
+//
+//                if (presentation_support_requested && !dedicated_presentation_queue_requested) {
+//                    // If a dedicated presentation queue is requested, support for presentation operations is optional for the graphics family.
+//
+//                    if (compute_support_requested) {
+//                        // Transfer operations are implicitly supported on any family that supports graphics and compute operations.
+//
+//                        if (transfer_support_requested) {
+//                            // Scoring of graphics queue family (based on requested operations):
+//                            // 6. GRAPHICS | PRESENTATION | COMPUTE | TRANSFER
+//                            // 5. GRAPHICS | PRESENTATION | TRANSFER
+//                            // 4. GRAPHICS | PRESENTATION
+//                            // 3. GRAPHICS | COMPUTE | TRANSFER
+//                            // 2. GRAPHICS | TRANSFER
+//                            // 1. GRAPHICS
+//                            u32 current_score = 0u;
+//
+//                            // Note: TRANSFER operations are implicitly allowed on a queue that supports both GRAPHICS and COMPUTE operations.
+//                            if (has_graphics_support) {
+//                                if (has_presentation_support) {
+//                                    if (has_compute_support) {
+//                                        // GRAPHICS | PRESENTATION | COMPUTE | TRANSFER
+//                                        current_score = 6u;
+//                                    }
+//                                    else if (has_transfer_support) {
+//                                        // GRAPHICS | PRESENTATION | TRANSFER
+//                                        // Assume there exists another queue family that supports compute operations.
+//                                        current_score = 5u;
+//                                    }
+//                                    else {
+//                                        // GRAPHICS | PRESENTATION
+//                                        // Assume there exist other queue families that support both compute and transfer operations.
+//                                        current_score = 4u;
+//                                    }
+//                                }
+//                                else if (has_compute_support) {
+//                                    // GRAPHICS | COMPUTE | TRANSFER
+//                                    // Assume there exists a
+//                                    current_score = 3u;
+//                                }
+//                                else if (has_transfer_support) {
+//                                    // GRAPHICS | TRANSFER
+//                                    current_score = 2u;
+//                                }
+//                                else {
+//                                    // GRAPHICS
+//                                    current_score = 1u;
+//                                }
+//                            }
+//                        }
+//                        else {
+//
+//                        }
+//
+//                        if (has_presentation_support) {
+//                            if (has_compute_support) {
+//
+//                            }
+//                            else if (has_transfer_support) {
+//
+//                            }
+//                            else {
+//
+//                            }
+//                        }
+//
+//
+//
+//                    }
+//                    else if (transfer_support_requested) {
+//
+//                    }
+//                    else {
+//
+//                    }
+//                }
+//
+//                if (compute_support_requested) {
+//                    // Request for compute operation support implies synchronization between compute and graphics families, as they will be submitted to the same queue.
+//                    // Request for dedicated compute queue does not pertain to this family and will be handled later.
+//                }
+//
+//                if (transfer_support_requested) {
+//                    // Request for transfer operation support implies synchronization between the transfer and graphics families, as they will be submitted to the same queue.
+//                }
+//
+//
+//
+//                if (current_score > highest_score) {
+//                    highest_score = current_score;
+//                    graphics_queue_family.index = static_cast<i32>(i);
+//                    graphics_queue_family.num_available_queues = family.queueCount;
+//                }
+//            }
+//
+//            switch (highest_score) {
+//                case 0u:
+//                case 1u:
+//                    break;
+//
+//                case 2u:
+//                    graphics_queue_family.has_transfer_support = true;
+//                    break;
+//
+//                case 3u:
+//                    graphics_queue_family.has_compute_support = true;
+//                    graphics_queue_family.has_transfer_support = true;
+//                    break;
+//
+//                case 4u:
+//                    graphics_queue_family.has_presentation_support = true;
+//                    break;
+//
+//                case 5u:
+//                    graphics_queue_family.has_presentation_support = true;
+//                    graphics_queue_family.has_transfer_support = true;
+//                    break;
+//
+//                case 6u:
+//                    graphics_queue_family.has_presentation_support = true;
+//                    graphics_queue_family.has_compute_support = true;
+//                    graphics_queue_family.has_transfer_support = true;
+//                    break;
+//            }
+//        }
+ 
     
         ComputeQueueFamily compute_queue_family {
             .index = QueueFamilies::INVALID_QUEUE_FAMILY_INDEX,
@@ -1249,6 +1526,209 @@ namespace vks {
             .compute_queue_family = compute_queue_family,
             .transfer_queue_family = transfer_queue_family
         };
+    }
+    
+    VulkanDevice::Data::GraphicsQueueFamily VulkanDevice::Data::select_graphics_queue_family(const std::vector<VkQueueFamilyProperties>& queue_families) const {
+        GraphicsQueueFamily graphics_queue_family {
+            .index = QueueFamilies::INVALID_QUEUE_FAMILY_INDEX,
+            .num_available_queues = 0u,
+            .has_presentation_support = false,
+            .has_compute_support = false,
+            .has_transfer_support = false
+        };
+    
+        // Graphics queue will always be dedicated.
+        bool graphics_support_requested = test(m_supported_queues, VulkanQueue::Operation::GRAPHICS);
+
+        // It would be better for application performance to combine the graphics and presentation queue if a dedicated presentation queue is not requested.
+        bool presentation_support_requested = test(m_supported_queues, VulkanQueue::Operation::PRESENTATION) && test(m_dedicated_queues, VulkanQueue::Operation::PRESENTATION);
+
+        // Compute / transfer operations will be submitted synchronously to the graphics queue if a dedicated compute / transfer queue is not requested. Asynchronous operations require a dedicated compute / transfer queue.
+        bool compute_support_requested = test(m_supported_queues, VulkanQueue::Operation::COMPUTE);
+        bool transfer_support_requested = test(m_supported_queues, VulkanQueue::Operation::TRANSFER);
+        
+        if (!graphics_support_requested) {
+            return graphics_queue_family;
+        }
+        
+        u32 highest_score = 0u;
+        
+        for (u32 i = 0u; i < queue_families.size(); ++i) {
+            const VkQueueFamilyProperties& family = queue_families[i];
+            bool has_graphics_support = (family.queueFlags & VK_QUEUE_GRAPHICS_BIT) != 0;
+            bool has_compute_support = (family.queueFlags & VK_QUEUE_COMPUTE_BIT) != 0;
+            bool has_transfer_support = (family.queueFlags & VK_QUEUE_TRANSFER_BIT) != 0;
+    
+            #if defined(VKS_PLATFORM_WINDOWS)
+                bool has_presentation_support = static_cast<bool>(fp_vk_get_physical_device_presentation_support(device_handle, i));
+            #endif
+    
+            if (!has_graphics_support) {
+                continue;
+            }
+    
+            u32 current_score = 0u;
+            
+            // Note: transfer operations are implicitly supported on queue families where graphics and compute operations are supported.
+    
+            if (presentation_support_requested) {
+                if (compute_support_requested) {
+                    if (transfer_support_requested) {
+                        // Requested: GRAPHICS | PRESENTATION | COMPUTE | TRANSFER
+                        
+                        // Scoring of queue family based on supported operations:
+                        // 6. GRAPHICS | PRESENTATION | COMPUTE | TRANSFER
+                        // 5. GRAPHICS | PRESENTATION | TRANSFER
+                        // 4. GRAPHICS | PRESENTATION
+                        // 3. GRAPHICS | COMPUTE | TRANSFER
+                        // 2. GRAPHICS | TRANSFER
+                        // 1. GRAPHICS
+                        if (has_presentation_support) {
+                            if (has_compute_support) {
+                                current_score = 6u;
+                            }
+                            else if (has_transfer_support) {
+                                current_score = 5u;
+                            }
+                            else {
+                                current_score = 4u;
+                            }
+                        }
+                        else if (has_compute_support) {
+                            current_score = 3u;
+                        }
+                        else if (has_transfer_support) {
+                            current_score = 2u;
+                        }
+                        else {
+                            current_score = 1u;
+                        }
+                    }
+                    else {
+                        // Requested: GRAPHICS | PRESENTATION | COMPUTE
+                        
+                        // Scoring of queue family based on supported operations:
+                        // 4. GRAPHICS | PRESENTATION | COMPUTE | (TRANSFER)
+                        // 3. GRAPHICS | PRESENTATION or GRAPHICS | PRESENTATION | TRANSFER
+                        // 2. GRAPHICS | COMPUTE | (TRANSFER)
+                        // 1. GRAPHICS or GRAPHICS | TRANSFER
+                        if (has_presentation_support) {
+                            if (has_compute_support) {
+                                current_score = 4u;
+                            }
+                            else {
+                                current_score = 3u;
+                            }
+                        }
+                        else if (has_compute_support) {
+                            current_score = 2u;
+                        }
+                        else {
+                            current_score = 1u;
+                        }
+                    }
+                }
+                else if (transfer_support_requested) {
+                    // Requested: GRAPHICS | PRESENTATION | TRANSFER
+    
+                    // Scoring of queue family based on supported operations:
+                    // 4. GRAPHICS | PRESENTATION | COMPUTE | TRANSFER or GRAPHICS | PRESENTATION | TRANSFER
+                    // 3. GRAPHICS | PRESENTATION
+                    // 2. GRAPHICS | COMPUTE | TRANSFER or GRAPHICS | TRANSFER
+                    // 1. GRAPHICS
+                    if (has_presentation_support) {
+                        if (has_compute_support || has_transfer_support) {
+                            current_score = 4u;
+                        }
+                        else {
+                            current_score = 3u;
+                        }
+                    }
+                    else if (has_compute_support || has_transfer_support) {
+                        current_score = 2u;
+                    }
+                    else {
+                        current_score = 1u;
+                    }
+                }
+                else {
+                    // Requested: GRAPHICS | PRESENTATION
+    
+                    // Scoring of queue family based on supported operations:
+                    // 2. GRAPHICS | PRESENTATION | COMPUTE | TRANSFER or GRAPHICS | PRESENTATION | TRANSFER or GRAPHICS | PRESENTATION
+                    // 1. GRAPHICS | COMPUTE | TRANSFER or GRAPHICS | TRANSFER or GRAPHICS
+                    if (has_presentation_support) {
+                        current_score = 2u;
+                    }
+                    else {
+                        current_score = 1u;
+                    }
+                }
+            }
+            else if (compute_support_requested) {
+                if (transfer_support_requested) {
+                    // Requested: GRAPHICS | COMPUTE | TRANSFER
+    
+                    // Scoring of queue family based on supported operations:
+                    // 3. GRAPHICS | PRESENTATION | COMPUTE | TRANSFER or GRAPHICS | COMPUTE | TRANSFER
+                    // 2. GRAPHICS | PRESENTATION | TRANSFER or GRAPHICS | TRANSFER
+                    // 1. GRAPHICS | PRESENTATION or GRAPHICS
+                    if (has_compute_support) {
+                        if (has_transfer_support) {
+                            current_score = 3u;
+                        }
+                    }
+                    else if (has_transfer_support) {
+                        current_score = 2u;
+                    }
+                    else {
+                        current_score = 1u;
+                    }
+                }
+                else {
+                    // Requested: GRAPHICS | COMPUTE
+    
+                    // Scoring of queue family based on supported operations:
+                    // 2. GRAPHICS | PRESENTATION | COMPUTE | TRANSFER or GRAPHICS | COMPUTE | TRANSFER
+                    // 1. GRAPHICS | PRESENTATION | TRANSFER or GRAPHICS | PRESENTATION or GRAPHICS | TRANSFER or GRAPHICS
+                    if (has_compute_support) {
+                        current_score = 2u;
+                    }
+                    else {
+                        current_score = 1u;
+                    }
+                }
+            }
+            else if (transfer_support_requested) {
+                // Requested: GRAPHICS | TRANSFER
+    
+                // Scoring of queue family based on supported operations:
+                // 2. GRAPHICS | PRESENTATION | COMPUTE | TRANSFER or GRAPHICS | PRESENTATION | TRANSFER or GRAPHICS | COMPUTE | TRANSFER or GRAPHICS | TRANSFER
+                // 1. GRAPHICS | PRESENTATION or GRAPHICS
+                if (has_transfer_support) {
+                    current_score = 2u;
+                }
+                else {
+                    current_score = 1u;
+                }
+            }
+            else {
+                // Requested: GRAPHICS
+                current_score = 1u;
+            }
+            
+            if (current_score > highest_score) {
+                highest_score = current_score;
+                
+                graphics_queue_family.index = static_cast<i32>(i);
+                graphics_queue_family.has_presentation_support = has_presentation_support;
+                graphics_queue_family.has_compute_support = has_compute_support;
+                graphics_queue_family.has_transfer_support = has_transfer_support;
+                graphics_queue_family.num_available_queues = family.queueCount;
+            }
+        }
+        
+        return graphics_queue_family;
     }
     
     bool VulkanDevice::Data::verify_device_queue_family_support(const VulkanDevice::Data::QueueFamilies& queue_families) const {

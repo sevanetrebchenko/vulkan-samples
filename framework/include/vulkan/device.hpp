@@ -225,7 +225,6 @@ namespace vks {
             // Note: any enabled features must be supported by the device.
             Builder& with_features(const Features& features);
             
-            // By default, only GRAPHICS operations are required to be supported by the selected device.
             Builder& with_supported_queue(VulkanQueue::Operation operation);
             Builder& with_dedicated_queue(VulkanQueue::Operation operation);
             
