@@ -44,28 +44,7 @@ namespace vks {
     };
     
     VulkanInstance::Data::Data() : VulkanInstance(),
-                                   m_fp_vk_destroy_instance(nullptr), // Instance-level function.
-                                   m_handle(nullptr),
-                                   m_application_name("Vulkan Application"),
-                                   m_application_version({
-                                       .major = 1u,
-                                       .minor = 0u,
-                                       .patch = 0u
-                                   }),
-                                   m_engine_name("vulkan-samples"),
-                                   m_engine_version({
-                                       .major = 1u,
-                                       .minor = 0u,
-                                       .patch = 0u
-                                   }),
-                                   // Vulkan 1.0 by default...
-                                   m_runtime_version({
-                                       .major = 1u,
-                                       .minor = 0u,
-                                       .patch = 0u
-                                   }),
-                                   m_headless(false)
-                                   {
+    
     }
     
     VulkanInstance::Data::~Data() {

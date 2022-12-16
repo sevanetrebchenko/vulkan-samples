@@ -4,8 +4,8 @@
 #include <memory>
 
 #include "core/defines.hpp"
-#include "graphics/device.hpp"
-#include "graphics/window.hpp"
+#include "device.hpp"
+#include "window.hpp"
 
 namespace vks {
 
