@@ -3,19 +3,19 @@ project(framework)
 
 # Build framework as an object library.
 add_library(${PROJECT_NAME} OBJECT
-            # core
-            "${PROJECT_SOURCE_DIR}/src/core/entry_point.cpp"
-            "${PROJECT_SOURCE_DIR}/src/core/sample.cpp"
-            "${PROJECT_SOURCE_DIR}/src/core/debug.cpp"
+    # public
+    "${PROJECT_SOURCE_DIR}/public/src/framework.cpp"
 
-            # vulkan
-            "${PROJECT_SOURCE_DIR}/src/vulkan/window.cpp"
-            "${PROJECT_SOURCE_DIR}/src/vulkan/instance.cpp"
-            "${PROJECT_SOURCE_DIR}/src/vulkan/device.cpp"
-            "${PROJECT_SOURCE_DIR}/src/vulkan/loader.cpp"
-            "${PROJECT_SOURCE_DIR}/src/vulkan/types.cpp"
-            "${PROJECT_SOURCE_DIR}/src/vulkan/queue.cpp"
-        )
+    # graphics
+    "${PROJECT_SOURCE_DIR}/public/src/graphics/context.cpp"
+
+    # private
+    # graphics
+    # vulkan
+    "${PROJECT_SOURCE_DIR}/private/src/graphics/vulkan/context.cpp"
+    "${PROJECT_SOURCE_DIR}/private/src/graphics/vulkan/window.cpp"
+    "${PROJECT_SOURCE_DIR}/private/src/graphics/vulkan/device.cpp"
+)
 
 find_package(Vulkan REQUIRED)
 target_include_directories(${PROJECT_NAME} PUBLIC ${Vulkan_INCLUDE_DIRS})
@@ -23,7 +23,6 @@ target_link_libraries(${PROJECT_NAME} INTERFACE Vulkan::Vulkan)
 
 # Dynamically link against Vulkan.
 target_compile_definitions(${PROJECT_NAME} PRIVATE VK_NO_PROTOTYPES)
-# target_compile_definitions(${PROJECT_NAME} PRIVATE VK_ENABLE_BETA_EXTENSIONS)
 
-# External applications should only include 'framework/include/framework.hpp'.
-target_include_directories(${PROJECT_NAME} PUBLIC "${PROJECT_SOURCE_DIR}/include")
+target_include_directories(${PROJECT_NAME} PUBLIC "${PROJECT_SOURCE_DIR}/public/include")
+target_include_directories(${PROJECT_NAME} PRIVATE "${PROJECT_SOURCE_DIR}/private/include")

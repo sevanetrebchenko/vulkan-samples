@@ -12,8 +12,9 @@
 
 namespace vks {
     
-    // Forward declaration.
+    // Forward declarations.
     class VulkanInstance;
+    class VulkanDevice;
     
     class VulkanWindow {
         public:
@@ -27,10 +28,13 @@ namespace vks {
             };
             
             ~VulkanWindow();
+            
+            NODISCARD bool has_presentation_support(std::shared_ptr<VulkanQueue> queue, u32 queue_family_index);
         
         private:
-            VulkanWindow();
+            class Data;
             
+            VulkanWindow();
     };
     
     class VulkanWindow::Builder {
@@ -38,15 +42,18 @@ namespace vks {
             Builder(std::shared_ptr<VulkanInstance> instance);
             ~Builder();
             
-            VulkanWindow& build() const;
+            NODISCARD std::shared_ptr<VulkanWindow>& build() const;
             
-            Builder& with_name(const char* name);
+            Builder& with_debug_name(const char* name);
             
             // Dimensions.
             Builder& with_width(std::uint32_t width);
             Builder& with_height(std::uint32_t height);
             
         private:
+            std::shared_ptr<VulkanWindow> m_window;
+            
+            
             std::shared_ptr<VulkanInstance> m_instance;
         
             #if defined(VKS_PLATFORM_WINDOWS)

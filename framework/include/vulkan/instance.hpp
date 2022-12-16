@@ -15,16 +15,16 @@
 
 namespace vks {
     
-    class VulkanInstance : public ManagedObject<VulkanInstance> {
+    class VulkanInstance {
         public:
             class Builder;
             
-            ~VulkanInstance() override;
+            virtual ~VulkanInstance();
             
             operator VkInstance() const;
         
             NODISCARD VulkanWindow::Builder create_window();
-            NODISCARD VulkanDevice::Builder create_device();
+            NODISCARD VulkanDevice::Builder create_device(std::shared_ptr<VulkanWindow> window);
             
             NODISCARD bool is_headless() const;
             NODISCARD bool is_extension_enabled(const char* extension) const;

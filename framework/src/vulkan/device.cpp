@@ -66,6 +66,7 @@ namespace vks {
         NODISCARD bool verify_device_queue_family_support(const QueueFamilies& queue_families) const;
         
         std::shared_ptr<VulkanInstance> m_instance;
+        std::shared_ptr<VulkanWindow> m_window;
     
         VkPhysicalDevice m_device;
         VkDevice m_handle;
@@ -1558,7 +1559,8 @@ namespace vks {
             bool has_graphics_support = (family.queueFlags & VK_QUEUE_GRAPHICS_BIT) != 0;
             bool has_compute_support = (family.queueFlags & VK_QUEUE_COMPUTE_BIT) != 0;
             bool has_transfer_support = (family.queueFlags & VK_QUEUE_TRANSFER_BIT) != 0;
-    
+            bool has_presentation_support = m_window->has_presentation_support(shared_from_this())
+            
             #if defined(VKS_PLATFORM_WINDOWS)
                 bool has_presentation_support = static_cast<bool>(fp_vk_get_physical_device_presentation_support(device_handle, i));
             #endif

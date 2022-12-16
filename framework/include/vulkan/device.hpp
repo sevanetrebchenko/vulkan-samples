@@ -14,6 +14,7 @@ namespace vks {
     
     // Forward declarations.
     class VulkanInstance;
+    class VulkanWindow;
     
     class VulkanDevice : public ManagedObject<VulkanDevice> {
         public:
@@ -217,7 +218,7 @@ namespace vks {
     
     class VulkanDevice::Builder {
         public:
-            explicit Builder(std::shared_ptr<VulkanInstance> instance);
+            Builder(std::shared_ptr<VulkanInstance> instance, std::shared_ptr<VulkanWindow> window);
             ~Builder();
             
             NODISCARD std::shared_ptr<VulkanDevice> build();
