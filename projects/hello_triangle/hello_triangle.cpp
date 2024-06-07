@@ -4,6 +4,7 @@
 #include <iostream> // std::cout, std::endl
 
 int main() {
-    std::cout << "Hello, world!" << std::endl;
+    Sample sample("Hello Triangle");
+    sample.initialize_window();
     return 0;
 }

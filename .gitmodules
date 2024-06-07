@@ -1,3 +1,6 @@
 [submodule "framework/lib/glfw"]
 	path = framework/lib/glfw
 	url = git@github.com:glfw/glfw.git
+[submodule "framework/lib/glm"]
+	path = framework/lib/glm
+	url = git@github.com:g-truc/glm.git
