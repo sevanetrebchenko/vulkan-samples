@@ -2,8 +2,8 @@
 #ifndef SAMPLE_HPP
 #define SAMPLE_HPP
 
+#define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
-#include <vulkan/vulkan.h>
 #include <glm/glm.hpp>
 
 #include <vector> // std::vector
@@ -11,17 +11,30 @@
 
 class Sample {
     public:
-        Sample(const char* name);
+        Sample(const char* name = "My Vulkan Sample");
         ~Sample();
 
-        void initialize_window(int width = 1920, int height = 1080);
+        // Configuration
+        void set_dimensions(int width, int height);
+        void set_headless(bool headless);
         
-        void initialize_vulkan();
-
+        void set_debug_mode(bool enabled);
+        
+        void initialize();
         void render();
+
+        bool active() const;
         
     protected:
-        std::vector<const char*> get_supported_instance_extensions() const;
+        virtual void initialize_resources();
+        
+        virtual std::vector<const char*> request_instance_extensions() const;
+        
+        virtual std::vector<const char*> request_device_extensions() const;
+        virtual VkPhysicalDeviceFeatures request_device_features() const;
+        
+        // Application tries to find a dedicated queue of the specified type
+        virtual VkQueueFlags request_device_queues() const;
         
         void load_shader(const char* filepath);
 
@@ -33,10 +46,6 @@ class Sample {
         virtual void on_mouse_button_pressed(int button);
         virtual void on_mouse_moved(glm::vec2 position);
         virtual void on_mouse_scrolled(double distance);
-
-        // Map of state for both keyboard and mouse
-        // Everything starts out as false (inactive)
-        std::unordered_map<int, bool> input;
 
         bool is_key_down(int key) const;
         glm::vec2 get_mouse_position() const;
@@ -55,11 +64,14 @@ class Sample {
         VkPhysicalDeviceFeatures physical_device_features;
         VkPhysicalDeviceFeatures enabled_physical_device_features;
         
+        VkSurfaceKHR surface;
+        VkSurfaceCapabilitiesKHR surface_capabilities;
+        VkSurfaceFormatKHR surface_format;
+        
         // Section: Vulkan logical device
         VkDevice device;
-
-        VkQueue graphics_queue;
-
+        VkQueue queue;
+        
         VkCommandPool command_pool;
 
         // Section: Synchronization objects
@@ -67,19 +79,33 @@ class Sample {
         VkSemaphore is_rendering_complete;
         std::vector<VkFence> fences;
 
-        //
-        unsigned width;
-        unsigned height;
+        int width;
+        int height;
 
         GLFWwindow* window;
         const char* name;
 
         struct Settings {
+            Settings();
+            
             bool fullscreen;
+            bool headless;
             bool debug;
         } settings;
 
     private:
+        void initialize_glfw();
+        
+        void initialize_vulkan();
+        
+        void create_vulkan_instance();
+        void initialize_debugging();
+        void create_surface();
+        void select_physical_device();
+        void create_logical_device();
+        
+        void initialize_window();
+        
         // Event dispatch functions (hooked up to window callbacks)
         void on_window_resize(int width, int height);
         void on_key_press(int key);
@@ -87,15 +113,16 @@ class Sample {
         void on_mouse_move(double x, double y);
         void on_mouse_scroll(double distance);
         
-        void create_vulkan_instance();
-        void initialize_debugging();
+
 
         // Rendering loop
         void prepare();
         void submit();
         
         VkDebugUtilsMessengerEXT debug_messenger;
-
+        
+        bool initialized;
+        bool running;
 };
 
 #endif // SAMPLE_HPP

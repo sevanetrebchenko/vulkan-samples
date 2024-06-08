@@ -5,6 +5,10 @@
 
 int main() {
     Sample sample("Hello Triangle");
-    sample.initialize_window();
+    sample.initialize();
+    
+    while (sample.active()) {
+    }
+    
     return 0;
 }
