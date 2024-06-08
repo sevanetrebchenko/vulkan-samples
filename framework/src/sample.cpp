@@ -63,7 +63,11 @@ void Sample::initialize() {
     select_physical_device();
     create_logical_device();
     
+    initialize_resources();
+    
     initialized = true;
+    
+    running = true;
 }
 
 
@@ -110,7 +114,7 @@ VKAPI_ATTR VkBool32 VKAPI_CALL vulkan_debug_callback(VkDebugUtilsMessageSeverity
 }
 
 bool Sample::active() const {
-    return running || glfwWindowShouldClose(window);
+    return running && !glfwWindowShouldClose(window);
 }
 
 void Sample::initialize_glfw() {
@@ -424,7 +428,7 @@ void Sample::on_window_resize(int w, int h) {
 
 void Sample::on_key_press(int key) {
     if (key == GLFW_KEY_ESCAPE) {
-        glfwSetWindowShouldClose(window, true);
+        running = false;
     }
     
     on_key_pressed(key);
@@ -474,4 +478,8 @@ void Sample::on_mouse_moved(glm::vec2 position) {
 }
 
 void Sample::on_mouse_scrolled(double distance) {
+}
+
+void Sample::run() {
+    glfwPollEvents();
 }

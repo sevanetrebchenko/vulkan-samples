@@ -12,7 +12,7 @@
 class Sample {
     public:
         Sample(const char* name = "My Vulkan Sample");
-        ~Sample();
+        virtual ~Sample();
 
         // Configuration
         void set_dimensions(int width, int height);
@@ -21,7 +21,7 @@ class Sample {
         void set_debug_mode(bool enabled);
         
         void initialize();
-        void render();
+        void run();
 
         bool active() const;
         
