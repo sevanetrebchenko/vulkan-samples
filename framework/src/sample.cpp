@@ -14,7 +14,8 @@ Sample::Settings::Settings() : fullscreen(false),
                                {
 }
 
-Sample::Sample(const char* name) : instance(nullptr),
+Sample::Sample(const char* name) : num_frames_in_flight(3), // Increasing this number increases rendering latency by that many frames
+                                   instance(nullptr),
                                    enabled_instance_extensions(),
                                    physical_device(nullptr),
                                    enabled_device_extensions(),
@@ -44,6 +45,14 @@ void Sample::set_dimensions(int w, int h) {
     on_window_resize(w, h);
 }
 
+void Sample::set_headless(bool headless) {
+    settings.headless = headless;
+}
+
+void Sample::set_debug_mode(bool enabled) {
+    settings.debug = enabled;
+}
+
 void Sample::initialize() {
     if (initialized) {
         return;
@@ -65,15 +74,18 @@ void Sample::initialize() {
     create_logical_device();
     
     initialize_swapchain();
+    create_synchronization_objects();
     
+    // Initialize resources needed for the sample
     initialize_resources();
     
     initialized = true;
-    
     running = true;
 }
 
-
+void Sample::run() {
+    glfwPollEvents();
+}
 
 VKAPI_ATTR VkBool32 VKAPI_CALL vulkan_debug_callback(VkDebugUtilsMessageSeverityFlagBitsEXT severity, VkDebugUtilsMessageTypeFlagsEXT type, const VkDebugUtilsMessengerCallbackDataEXT* callback_data, void* user_data) {
     switch (severity) {
@@ -409,110 +421,6 @@ void Sample::create_logical_device() {
     //
 }
 
-void Sample::initialize_window() {
-    window = glfwCreateWindow(width, height, name, nullptr, nullptr);
-    assert(window);
-    
-    glfwSetWindowUserPointer(window, this);
-    
-    // Initialize window callbacks
-    glfwSetKeyCallback(window, [](GLFWwindow* win, int key, int, int action, int) {
-        Sample* sample = reinterpret_cast<Sample*>(glfwGetWindowUserPointer(win));
-        if (action == GLFW_PRESS || action == GLFW_REPEAT) {
-            sample->on_key_press(key);
-        }
-    });
-    
-    glfwSetMouseButtonCallback(window, [](GLFWwindow* win, int button, int action, int) {
-        Sample* sample = reinterpret_cast<Sample*>(glfwGetWindowUserPointer(win));
-        if (action == GLFW_PRESS || action == GLFW_REPEAT) {
-            sample->on_mouse_button_press(button);
-        }
-    });
-    
-    glfwSetScrollCallback(window, [](GLFWwindow* win, double x, double y) {
-        Sample* sample = reinterpret_cast<Sample*>(glfwGetWindowUserPointer(win));
-        sample->on_mouse_scroll(y);
-    });
-
-    glfwSetCursorPosCallback(window, [](GLFWwindow* win, double x, double y) {
-        Sample* sample = reinterpret_cast<Sample*>(glfwGetWindowUserPointer(win));
-        sample->on_mouse_move(x, y);
-    });
-
-    // glfwSetFramebufferSizeCallback(window, framebuffer_resized_callback);
-}
-
-void Sample::on_window_resize(int w, int h) {
-    width = w;
-    height = h;
-    
-    if (!initialized) {
-        // Initializing Vulkan will create the necessary resources at the specified window resolution
-        return;
-    }
-    
-    on_window_resized(w, h);
-}
-
-void Sample::on_key_press(int key) {
-    if (key == GLFW_KEY_ESCAPE) {
-        running = false;
-    }
-    
-    on_key_pressed(key);
-}
-
-void Sample::on_mouse_button_press(int button) {
-    on_mouse_button_pressed(button);
-}
-
-void Sample::on_mouse_move(double x, double y) {
-    on_mouse_moved(glm::vec2(x, y));
-}
-
-void Sample::on_mouse_scroll(double distance) {
-    on_mouse_scrolled(distance);
-}
-
-void Sample::initialize_resources() {
-}
-
-std::vector<const char*> Sample::request_instance_extensions() const {
-    return { };
-}
-
-std::vector<const char*> Sample::request_device_extensions() const {
-    return { };
-}
-
-VkPhysicalDeviceFeatures Sample::request_device_features() const {
-    return { };
-}
-
-VkQueueFlags Sample::request_device_queues() const {
-    return { };
-}
-
-void Sample::on_window_resized(int w, int h) {
-}
-
-void Sample::on_key_pressed(int key) {
-}
-
-void Sample::on_mouse_button_pressed(int button) {
-}
-
-void Sample::on_mouse_moved(glm::vec2 position) {
-}
-
-void Sample::on_mouse_scrolled(double distance) {
-}
-
-void Sample::run() {
-    glfwPollEvents();
-}
-
 void Sample::initialize_swapchain() {
     VkSwapchainCreateInfoKHR swapchain_create_info { };
     swapchain_create_info.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
@@ -582,7 +490,7 @@ void Sample::initialize_swapchain() {
     
     // Select Vulkan surface presentation model
     // VK_PRESENT_MODE_IMMEDIATE_KHR - images are transferred to the screen right away (may result in visual tearing if the previous frame is still being drawn as a new one arrives)
-    // VK_PRESENT_MODE_FIFO_KHR - display takes an image from the front of a FIFO queue when the display is refreshed, program adds rendered frames to the back (vsync, guaranteed to be available)
+    // VK_PRESENT_MODE_FIFO_KHR - display takes an image from the front of a FIFO queue when the display is refreshed, program adds rendered frames to the back but has to wait when the queue is full (vsync)
     // VK_PRESENT_MODE_FIFO_RELAXED_KHR - different only when the program is too slow to present a new frame before the next vertical blank, in which case the image gets transferred immediately upon arrival instead of waiting for a new blank (may result in tearing)
     // VK_PRESENT_MODE_MAILBOX_KHR - triple buffering, older images that are already queued get replaced by newer ones (no tearing, less latency)
     unsigned supported_presentation_mode_count = 0u;
@@ -618,4 +526,142 @@ void Sample::initialize_swapchain() {
     for (unsigned i = 0u; i < swapchain_image_count; ++i) {
         create_image_view(device, swapchain_images[i], surface_format.format, VK_IMAGE_ASPECT_COLOR_BIT, 1, swapchain_image_views[i]);
     }
+}
+
+void Sample::create_synchronization_objects() {
+    // Semaphore: CPU - GPU synchronization (notify the GPU to kick off the next queued operation)
+    // A semaphore is used to add explicit ordering between queue operations. Queue operations refer to work submitted to queues, either through command buffers or from function calls
+    // Ordering queue operations involves signaling the semaphore in one queue operation and waiting on it in another queue operation. The first operation will signal the semaphore when it finishes, which will kick off the next operation
+    // Signal semaphores: once queue operation A on the GPU is completed, it signals the semaphore to begin executing queue operation B that was waiting on the semaphore
+    // Wait semaphore: queue operation B waits on the semaphore while queue operation A gets executed
+
+    // Fence: CPU - CPU synchronization (notify the host when the GPU has finished executing a command)
+    // Most Vulkan operations are asynchronous, and a fence is used to add a guarantee that whatever work was enqueued before the fence will be completed when the fence is signaled.
+    // Fences must be manually reset to unsignal them.
+
+    is_presentation_complete.resize(num_frames_in_flight);
+    is_rendering_complete.resize(num_frames_in_flight);
+    fences.resize(num_frames_in_flight);
+
+    for (int i = 0; i < num_frames_in_flight; ++i) {
+        VkSemaphoreCreateInfo semaphore_create_info { };
+        semaphore_create_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+
+        if (vkCreateSemaphore(device, &semaphore_create_info, nullptr, &is_presentation_complete[i]) != VK_SUCCESS) {
+            throw std::runtime_error("failed to create semaphore (is_presentation_complete)");
+        }
+
+        if (vkCreateSemaphore(device, &semaphore_create_info, nullptr, &is_rendering_complete[i]) != VK_SUCCESS) {
+            throw std::runtime_error("failed to create semaphore (is_rendering_complete)");
+        }
+
+        VkFenceCreateInfo fence_create_info { };
+        fence_create_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+        fence_create_info.flags = VK_FENCE_CREATE_SIGNALED_BIT; // Create the fence in the signaled state so that waiting on the fence during the first frame returns immediately
+
+        if (vkCreateFence(device, &fence_create_info, nullptr, &fences[i]) != VK_SUCCESS) {
+            throw std::runtime_error("failed to create fence");
+        }
+    }
+}
+
+void Sample::initialize_window() {
+    window = glfwCreateWindow(width, height, name, nullptr, nullptr);
+    assert(window);
+    
+    glfwSetWindowUserPointer(window, this);
+    
+    // Initialize window callbacks
+    glfwSetKeyCallback(window, [](GLFWwindow* win, int key, int, int action, int) {
+        Sample* sample = reinterpret_cast<Sample*>(glfwGetWindowUserPointer(win));
+        if (action == GLFW_PRESS || action == GLFW_REPEAT) {
+            sample->on_key_press(key);
+        }
+    });
+    
+    glfwSetMouseButtonCallback(window, [](GLFWwindow* win, int button, int action, int) {
+        Sample* sample = reinterpret_cast<Sample*>(glfwGetWindowUserPointer(win));
+        if (action == GLFW_PRESS || action == GLFW_REPEAT) {
+            sample->on_mouse_button_press(button);
+        }
+    });
+    
+    glfwSetScrollCallback(window, [](GLFWwindow* win, double x, double y) {
+        Sample* sample = reinterpret_cast<Sample*>(glfwGetWindowUserPointer(win));
+        sample->on_mouse_scroll(y);
+    });
+
+    glfwSetCursorPosCallback(window, [](GLFWwindow* win, double x, double y) {
+        Sample* sample = reinterpret_cast<Sample*>(glfwGetWindowUserPointer(win));
+        sample->on_mouse_move(x, y);
+    });
+
+    // glfwSetFramebufferSizeCallback(window, framebuffer_resized_callback);
+}
+
+void Sample::on_window_resize(int w, int h) {
+    // TODO: this needs to account for swapchain limits
+    width = w;
+    height = h;
+    
+    if (!initialized) {
+        // Initializing Vulkan will create the necessary resources at the specified window resolution
+        return;
+    }
+    
+    on_window_resized(w, h);
+}
+
+void Sample::on_key_press(int key) {
+    if (key == GLFW_KEY_ESCAPE) {
+        running = false;
+    }
+    
+    on_key_pressed(key);
+}
+
+void Sample::on_mouse_button_press(int button) {
+    on_mouse_button_pressed(button);
+}
+
+void Sample::on_mouse_move(double x, double y) {
+    on_mouse_moved(glm::vec2(x, y));
+}
+
+void Sample::on_mouse_scroll(double distance) {
+    on_mouse_scrolled(distance);
+}
+
+void Sample::initialize_resources() {
+}
+
+std::vector<const char*> Sample::request_instance_extensions() const {
+    return { };
+}
+
+std::vector<const char*> Sample::request_device_extensions() const {
+    return { };
+}
+
+VkPhysicalDeviceFeatures Sample::request_device_features() const {
+    return { };
+}
+
+VkQueueFlags Sample::request_device_queues() const {
+    return { };
+}
+
+void Sample::on_window_resized(int w, int h) {
+}
+
+void Sample::on_key_pressed(int key) {
+}
+
+void Sample::on_mouse_button_pressed(int button) {
+}
+
+void Sample::on_mouse_moved(glm::vec2 position) {
+}
+
+void Sample::on_mouse_scrolled(double distance) {
 }

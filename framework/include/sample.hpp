@@ -50,6 +50,8 @@ class Sample {
         bool is_key_down(int key) const;
         glm::vec2 get_mouse_position() const;
 
+        int num_frames_in_flight;
+        
         // Section: Vulkan instance
         VkInstance instance;
         std::vector<const char*> enabled_instance_extensions;
@@ -89,7 +91,12 @@ class Sample {
         VkPresentModeKHR swapchain_present_mode;
         
         std::vector<VkFramebuffer> swapchain_framebuffers;
-
+        
+        // Section: synchronization
+        std::vector<VkSemaphore> is_presentation_complete;
+        std::vector<VkSemaphore> is_rendering_complete;
+        std::vector<VkFence> fences;
+        
         struct Settings {
             Settings();
             
@@ -101,8 +108,6 @@ class Sample {
     private:
         void initialize_glfw();
         
-        void initialize_vulkan();
-        
         void create_vulkan_instance();
         void initialize_debugging();
         void create_surface();
@@ -110,6 +115,8 @@ class Sample {
         void create_logical_device();
         
         void initialize_swapchain();
+        
+        void create_synchronization_objects();
         
         void initialize_window();
         
@@ -119,8 +126,6 @@ class Sample {
         void on_mouse_button_press(int button);
         void on_mouse_move(double x, double y);
         void on_mouse_scroll(double distance);
-        
-
 
         // Rendering loop
         void prepare();
