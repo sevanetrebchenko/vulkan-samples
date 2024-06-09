@@ -63,6 +63,8 @@ void Sample::initialize() {
     select_physical_device();
     create_logical_device();
     
+    initialize_swapchain();
+    
     initialize_resources();
     
     initialized = true;
@@ -301,13 +303,23 @@ void Sample::create_logical_device() {
     device_create_info.pEnabledFeatures = &enabled_features;
     
     // Device extensions
-    std::vector<const char*> extensions = request_device_extensions();
+    std::vector<const char*> extensions;
+    
+    if (!settings.headless) {
+        // VK_KHR_swapchain is the extension for swapchain support
+        // The swapchain is primarily used for presentation operations and is not required for headless applications
+        extensions.emplace_back("VK_KHR_swapchain");
+    }
+    
+    std::vector<const char*> requested_extesions = request_device_extensions();
+    extensions.insert(extensions.end(), requested_extesions.begin(), requested_extesions.end());
+    
     device_create_info.enabledExtensionCount = static_cast<unsigned>(extensions.size());
     device_create_info.ppEnabledExtensionNames = extensions.data();
     
     // Initialize queue requirements and retrieve queue family indices
     VkQueueFlags requested_queue_types = request_device_queues();
-    bool graphics_support_requested = requested_queue_types & VK_QUEUE_GRAPHICS_BIT;
+    bool graphics_support_requested = !settings.headless || requested_queue_types & VK_QUEUE_GRAPHICS_BIT;
     bool compute_support_requested = requested_queue_types & VK_QUEUE_COMPUTE_BIT;
     bool transfer_support_requested = requested_queue_types & VK_QUEUE_TRANSFER_BIT;
     bool presentation_support_requested = !settings.headless; // Headless applications do not need presentation support
@@ -378,6 +390,22 @@ void Sample::create_logical_device() {
     
     // Retrieve device queues
     vkGetDeviceQueue(device, queue_family_index, 0u, &queue);
+    
+    // Command pools are used to allocate / store command buffers
+    VkCommandPoolCreateInfo command_pool_create_info { };
+    command_pool_create_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    command_pool_create_info.queueFamilyIndex = queue_family_index; // Each command pool can only allocate command buffers that are submitted on a single type of queue
+
+    // Two options for command allocation strategy:
+    //  - VK_COMMAND_POOL_CREATE_TRANSIENT_BIT: command buffers allocated from this pool are short-lived and will be reset/freed in a short amount of time
+    //  - VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT: command buffers allocated from this pool have longer lifetimes and can be individually reset by calling vkResetCommandBuffer or vkBeginCommandBuffer
+    command_pool_create_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+
+    if (vkCreateCommandPool(device, &command_pool_create_info, nullptr, &command_pool) != VK_SUCCESS) {
+        throw std::runtime_error("failed to allocate command pool");
+    }
+    
+    //
 }
 
 void Sample::initialize_window() {
@@ -482,4 +510,101 @@ void Sample::on_mouse_scrolled(double distance) {
 
 void Sample::run() {
     glfwPollEvents();
+}
+
+void Sample::initialize_swapchain() {
+    VkSwapchainCreateInfoKHR swapchain_create_info { };
+    swapchain_create_info.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+    swapchain_create_info.surface = surface;
+    
+    // Surface format is initialized when physical device is selected
+    swapchain_create_info.imageFormat = surface_format.format;
+    swapchain_create_info.imageColorSpace = surface_format.colorSpace;
+    swapchain_create_info.imageArrayLayers = 1; // The number of layers an image consists of (more than 1 for stereoscopic 3D applications)
+    
+    swapchain_create_info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR; // Do not blend with other windows in the window system
+    
+    swapchain_create_info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT; // Color attachments (render targets)
+    // TODO: transfer src/dst if supported?
+//    if (surface_capabilities.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_SRC_BIT) {
+//		swapchain_create_info.imageUsage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+//	}
+//	if (surface_capabilities.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_DST_BIT) {
+//		swapchain_create_info.imageUsage |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+//	}
+    
+    // VK_SHARING_MODE_EXCLUSIVE — ownership has to be explicitly transferred between queue families (has the highest performance)
+    // VK_SHARING_MODE_CONCURRENT — images can be used across multiple families and do not have to be explicitly transferred
+    // Since this application is build with only one queue family in mind, this is not (yet) supported
+    swapchain_create_info.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+    // This function is called on initialization where there is no existing swapchain defined
+    // TODO: use old swapchain on resize to reuse resources and still being able to present already acquired images
+    swapchain_create_info.oldSwapchain = nullptr;
+
+    // minImageCount represents the minimum number of images required for the swapchain to function with the given present mode
+    // Request +1 image to avoid wasting cycles waiting on driver internals to retrieve a new image to render to
+    // Note that the number of requested images must not exceed the maximum supported number of swapchain images
+    unsigned swapchain_image_count = surface_capabilities.minImageCount + 1;
+
+    // Image count of 0 means there is no maximum
+    if (surface_capabilities.maxImageCount > 0 && swapchain_image_count > surface_capabilities.maxImageCount) {
+        swapchain_image_count = surface_capabilities.maxImageCount;
+    }
+    swapchain_create_info.minImageCount = swapchain_image_count;
+    
+    // Performs global transform to swapchain images before presentation
+    VkSurfaceTransformFlagsKHR surface_transform = surface_capabilities.currentTransform;
+    if (surface_capabilities.supportedTransforms & VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR) {
+        // Prefer an identity transform (noop)
+        surface_transform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
+    }
+    swapchain_create_info.preTransform = (VkSurfaceTransformFlagBitsKHR)surface_transform;
+    
+    // Vulkan wants the swap extent to match the resolution of the window
+    // However, high density displays have screen resolutions that don't correspond to pixel data
+    // Some window managers set the currentExtent value to (u32)-1 to indicate that the application window size is determined by the swap chain size
+    if (surface_capabilities.currentExtent.width == std::numeric_limits<unsigned>::max() || surface_capabilities.currentExtent.height == std::numeric_limits<unsigned>::max()) {
+        // Need to pick a resolution that best matches the window within minImageExtent and maxImageExtent bounds
+        // Note: resolution must be specified in pixels, not GLFW screen coordinates
+        int w;
+        int h;
+        glfwGetFramebufferSize(window, &w, &h);
+
+        swapchain_extent.width = glm::clamp(static_cast<unsigned>(w), surface_capabilities.minImageExtent.width, surface_capabilities.maxImageExtent.width);
+        swapchain_extent.height = glm::clamp(static_cast<unsigned>(h), surface_capabilities.minImageExtent.height, surface_capabilities.maxImageExtent.height);
+    }
+    else {
+        swapchain_extent = surface_capabilities.currentExtent;
+    }
+    swapchain_create_info.imageExtent = swapchain_extent;
+    
+    // Select Vulkan surface presentation model
+    // VK_PRESENT_MODE_IMMEDIATE_KHR - images are transferred to the screen right away (may result in visual tearing if the previous frame is still being drawn as a new one arrives)
+    // VK_PRESENT_MODE_FIFO_KHR - display takes an image from the front of a FIFO queue when the display is refreshed, program adds rendered frames to the back (vsync, guaranteed to be available)
+    // VK_PRESENT_MODE_FIFO_RELAXED_KHR - different only when the program is too slow to present a new frame before the next vertical blank, in which case the image gets transferred immediately upon arrival instead of waiting for a new blank (may result in tearing)
+    // VK_PRESENT_MODE_MAILBOX_KHR - triple buffering, older images that are already queued get replaced by newer ones (no tearing, less latency)
+    unsigned supported_presentation_mode_count = 0u;
+    vkGetPhysicalDeviceSurfacePresentModesKHR(physical_device, surface, &supported_presentation_mode_count, nullptr);
+
+    std::vector<VkPresentModeKHR> supported_presentation_modes(supported_presentation_mode_count);
+    vkGetPhysicalDeviceSurfacePresentModesKHR(physical_device, surface, &supported_presentation_mode_count, supported_presentation_modes.data());
+
+    swapchain_present_mode = VK_PRESENT_MODE_FIFO_KHR; // Standard option, guaranteed to be available
+    for (const VkPresentModeKHR& presentation_mode : supported_presentation_modes) {
+        if (presentation_mode == VK_PRESENT_MODE_MAILBOX_KHR) {
+            // Prefer triple buffering
+            swapchain_present_mode = presentation_mode;
+        }
+    }
+    swapchain_create_info.presentMode = swapchain_present_mode;
+    
+    if (vkCreateSwapchainKHR(device, &swapchain_create_info, nullptr, &swapchain) != VK_SUCCESS) {
+        throw std::runtime_error("failed to create swapchain!");
+    }
+    
+    // TODO: if an existing (old) swapchain exists, it must be cleaned up here
+    
+    // Retrieve swapchain images and image views
+    
 }

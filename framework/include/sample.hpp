@@ -64,26 +64,30 @@ class Sample {
         VkPhysicalDeviceFeatures physical_device_features;
         VkPhysicalDeviceFeatures enabled_physical_device_features;
         
-        VkSurfaceKHR surface;
-        VkSurfaceCapabilitiesKHR surface_capabilities;
-        VkSurfaceFormatKHR surface_format;
-        
         // Section: Vulkan logical device
         VkDevice device;
+        
+        VkCommandPool command_pool; // Command buffers are allocated from here
         VkQueue queue;
         
-        VkCommandPool command_pool;
-
-        // Section: Synchronization objects
-        VkSemaphore is_presentation_complete;
-        VkSemaphore is_rendering_complete;
-        std::vector<VkFence> fences;
-
+        // Section: Windowing
         int width;
         int height;
 
         GLFWwindow* window;
         const char* name;
+        
+        VkSurfaceKHR surface;
+        VkSurfaceCapabilitiesKHR surface_capabilities;
+        VkSurfaceFormatKHR surface_format;
+        
+        // Section: Vulkan swapchain
+        VkSwapchainKHR swapchain;
+        std::vector<VkImage> swapchain_images;
+        std::vector<VkImageView> swapchain_image_views;
+        VkExtent2D swapchain_extent;
+        VkPresentModeKHR swapchain_present_mode;
+        std::vector<VkFramebuffer> swapchain_framebuffers;
 
         struct Settings {
             Settings();
@@ -103,6 +107,8 @@ class Sample {
         void create_surface();
         void select_physical_device();
         void create_logical_device();
+        
+        void initialize_swapchain();
         
         void initialize_window();
         

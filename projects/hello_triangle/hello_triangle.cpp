@@ -12,7 +12,7 @@ class HelloTriangle final : public Sample {
         }
         
     private:
-    
+        
 };
 
 
