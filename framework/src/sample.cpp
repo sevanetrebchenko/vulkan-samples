@@ -1,5 +1,6 @@
 
 #include "sample.hpp"
+#include "helpers.hpp"
 #include <stdexcept> // std::runtime_error
 #include <iostream> // std::cout, std::endl;
 
@@ -605,6 +606,16 @@ void Sample::initialize_swapchain() {
     
     // TODO: if an existing (old) swapchain exists, it must be cleaned up here
     
-    // Retrieve swapchain images and image views
-    
+    // Retrieve handles to swapchain images
+    vkGetSwapchainImagesKHR(device, swapchain, &swapchain_image_count, nullptr);
+
+    swapchain_images.resize(swapchain_image_count);
+    vkGetSwapchainImagesKHR(device, swapchain, &swapchain_image_count, swapchain_images.data());
+
+    // Image views describe how to access the image and which part of the image to access
+    swapchain_image_views.resize(swapchain_image_count);
+
+    for (unsigned i = 0u; i < swapchain_image_count; ++i) {
+        create_image_view(device, swapchain_images[i], surface_format.format, VK_IMAGE_ASPECT_COLOR_BIT, 1, swapchain_image_views[i]);
+    }
 }

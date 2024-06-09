@@ -4,6 +4,7 @@ project(framework)
 # Build as a static library
 add_library(${PROJECT_NAME} STATIC
     "${PROJECT_SOURCE_DIR}/src/sample.cpp"
+    "${PROJECT_SOURCE_DIR}/src/helpers.cpp"
 )
 
 # Vulkan

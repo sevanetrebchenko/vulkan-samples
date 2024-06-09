@@ -87,6 +87,7 @@ class Sample {
         std::vector<VkImageView> swapchain_image_views;
         VkExtent2D swapchain_extent;
         VkPresentModeKHR swapchain_present_mode;
+        
         std::vector<VkFramebuffer> swapchain_framebuffers;
 
         struct Settings {
