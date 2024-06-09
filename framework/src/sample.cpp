@@ -308,7 +308,7 @@ void Sample::create_logical_device() {
     if (!settings.headless) {
         // VK_KHR_swapchain is the extension for swapchain support
         // The swapchain is primarily used for presentation operations and is not required for headless applications
-        extensions.emplace_back("VK_KHR_swapchain");
+        extensions.emplace_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
     }
     
     std::vector<const char*> requested_extesions = request_device_extensions();
