@@ -61,7 +61,6 @@ class Sample {
         std::vector<const char*> enabled_device_extensions;
         
         VkPhysicalDeviceProperties physical_device_properties;
-        VkPhysicalDeviceMemoryProperties physical_device_memory_properties;
         
         VkPhysicalDeviceFeatures physical_device_features;
         VkPhysicalDeviceFeatures enabled_physical_device_features;
@@ -70,7 +69,9 @@ class Sample {
         VkDevice device;
         
         VkCommandPool command_pool; // Command buffers are allocated from here
+        unsigned queue_family_index;
         VkQueue queue;
+        VkRenderPass render_pass;
         
         // Section: Windowing
         int width;
@@ -90,7 +91,15 @@ class Sample {
         VkExtent2D swapchain_extent;
         VkPresentModeKHR swapchain_present_mode;
         
-        std::vector<VkFramebuffer> swapchain_framebuffers;
+        // Section: depth buffer
+        VkImage depth_buffer;
+        VkImageView depth_buffer_view;
+        VkDeviceMemory depth_buffer_memory;
+        
+        unsigned current_frame; // Index of the current image
+        
+        // Framebuffers for final rendering output
+        std::vector<VkFramebuffer> framebuffers;
         
         // Section: synchronization
         std::vector<VkSemaphore> is_presentation_complete;
@@ -113,11 +122,11 @@ class Sample {
         void create_surface();
         void select_physical_device();
         void create_logical_device();
-        
+        void create_command_buffer();
+        void create_depth_buffer();
         void initialize_swapchain();
-        
         void create_synchronization_objects();
-        
+        void create_render_pass();
         void initialize_window();
         
         // Event dispatch functions (hooked up to window callbacks)

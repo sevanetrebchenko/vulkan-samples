@@ -20,7 +20,6 @@ Sample::Sample(const char* name) : num_frames_in_flight(3), // Increasing this n
                                    physical_device(nullptr),
                                    enabled_device_extensions(),
                                    physical_device_properties({ }),
-                                   physical_device_memory_properties({ }),
                                    physical_device_features({ }),
                                    enabled_physical_device_features({ }),
                                    surface(nullptr),
@@ -75,6 +74,9 @@ void Sample::initialize() {
     
     initialize_swapchain();
     create_synchronization_objects();
+    
+    create_command_buffer();
+    create_depth_buffer();
     
     // Initialize resources needed for the sample
     initialize_resources();
@@ -279,7 +281,6 @@ void Sample::select_physical_device() {
     // Retrieve physical device properties, features, and memory limits
     vkGetPhysicalDeviceProperties(physical_device, &physical_device_properties);
 	vkGetPhysicalDeviceFeatures(physical_device, &physical_device_features);
-	vkGetPhysicalDeviceMemoryProperties(physical_device, &physical_device_memory_properties);
     
     // Retrieve surface format, color space, and capabilities
     // Because of this step, the physical device selection must happen after the surface is initialized (surface properties are queried on the device itself)
@@ -348,7 +349,7 @@ void Sample::create_logical_device() {
     std::vector<VkQueueFamilyProperties> queue_families(queue_family_count);
     vkGetPhysicalDeviceQueueFamilyProperties(physical_device, &queue_family_count, queue_families.data());
     
-    unsigned queue_family_index = queue_family_count; // Invalid index
+    queue_family_index = queue_family_count; // Invalid index
     
     for (unsigned i = 0u; i < queue_family_count; ++i) {
         bool has_graphics_support = queue_families[i].queueFlags & VK_QUEUE_GRAPHICS_BIT;
@@ -417,8 +418,6 @@ void Sample::create_logical_device() {
     if (vkCreateCommandPool(device, &command_pool_create_info, nullptr, &command_pool) != VK_SUCCESS) {
         throw std::runtime_error("failed to allocate command pool");
     }
-    
-    //
 }
 
 void Sample::initialize_swapchain() {
@@ -565,6 +564,9 @@ void Sample::create_synchronization_objects() {
     }
 }
 
+void Sample::create_render_pass() {
+}
+
 void Sample::initialize_window() {
     window = glfwCreateWindow(width, height, name, nullptr, nullptr);
     assert(window);
@@ -664,4 +666,67 @@ void Sample::on_mouse_moved(glm::vec2 position) {
 }
 
 void Sample::on_mouse_scrolled(double distance) {
+}
+
+void Sample::create_command_buffer() {
+    // Command pools are used to allocate / store command buffers
+    VkCommandPoolCreateInfo command_pool_ci { };
+    command_pool_ci.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    command_pool_ci.queueFamilyIndex = queue_family_index; // Each command pool can only allocate command buffers that are submitted on a single type of queue
+
+    // Two options for command allocation strategy:
+    //  - VK_COMMAND_POOL_CREATE_TRANSIENT_BIT: command buffers allocated from this pool are short-lived and will be reset/freed in a short amount of time
+    //  - VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT: command buffers allocated from this pool have longer lifetimes and can be individually reset by calling vkResetCommandBuffer or vkBeginCommandBuffer
+    command_pool_ci.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+
+    if (vkCreateCommandPool(device, &command_pool_ci, nullptr, &command_pool) != VK_SUCCESS) {
+        throw std::runtime_error("failed to allocate command pool!");
+    }
+    
+    // TODO: no transient command buffer support (yet)
+}
+
+void Sample::create_depth_buffer() {
+    // Formats that contain a depth component, ordered from best to worst
+    std::vector<VkFormat> formats { VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT };
+    VkImageTiling tiling = VK_IMAGE_TILING_OPTIMAL; // Must be one of VK_IMAGE_TILING_OPTIMAL or VK_IMAGE_TILING_LINEAR
+    VkFormatFeatureFlags depth_image_features = VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT; // Want the depth texture to act as an attachment
+    
+    VkFormat image_format = VK_FORMAT_UNDEFINED;
+    
+    // Ensure that the selected physical device supports the requested depth format
+    for (VkFormat format : formats) {
+        VkFormatProperties physical_device_format_properties { };
+        vkGetPhysicalDeviceFormatProperties(physical_device, format, &physical_device_format_properties);
+        
+        if (tiling == VK_IMAGE_TILING_OPTIMAL) {
+            if ((physical_device_format_properties.optimalTilingFeatures & depth_image_features) == depth_image_features) {
+                image_format = format;
+            }
+        }
+        else if (tiling == VK_IMAGE_TILING_LINEAR) {
+            if ((physical_device_format_properties.linearTilingFeatures & depth_image_features) == depth_image_features) {
+                image_format = format;
+            }
+        }
+    }
+    
+    if (image_format == VK_FORMAT_UNDEFINED) {
+        throw std::runtime_error("physical device does not support desired depth format!");
+    }
+    
+    unsigned mip_levels = 1;
+    
+    create_image(physical_device, device,
+                 swapchain_extent.width, swapchain_extent.height, // Depth image needs to be the same size as any other framebuffer attachment
+                 mip_levels,
+                 VK_SAMPLE_COUNT_1_BIT, // TODO: this assumes 1 sample per pixel, which is not the case for multisampling (this method should be virtual)
+                 image_format,
+                 VK_IMAGE_TILING_OPTIMAL,
+                 VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, // The most optimal memory type for GPU reads is VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT (meant for device read, not accessible by the CPU)
+                 depth_buffer, depth_buffer_memory);
+    vkBindImageMemory(device, depth_buffer, depth_buffer_memory, 0); // Associate memory buffer with image
+    
+    create_image_view(device, depth_buffer, image_format, VK_IMAGE_ASPECT_DEPTH_BIT, mip_levels, depth_buffer_view);
 }
