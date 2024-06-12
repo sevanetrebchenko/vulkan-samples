@@ -7,7 +7,23 @@
 #include <glm/glm.hpp>
 
 #include <vector> // std::vector
+#include <array> // std::array
 #include <unordered_map> // std::unordered_map
+
+
+// To make writing Vulkan applications easier, the Sample base class aims to set up a lot of the boilerplate for the user
+// Currently, the Sample is responsible for:
+//   - Initializing the Vulkan instance
+//   - Initializing Vulkan debugging
+//   - Selecting a physical device
+//      - Overrides for extensions + enabled device features
+//   - Creating the logical device
+//   - Initializing the window
+//   - Initializing the swapchain + retrieving swapchain images
+//   - Allocating command buffers, one per swapchain image, to record final rendering commands to
+//   - Creating and initializing the scene depth buffer
+//   - Allocating basic synchronization primitives to aid in presentation
+
 
 class Sample {
     public:
@@ -22,6 +38,7 @@ class Sample {
         
         void initialize();
         void run();
+        void shutdown();
 
         bool active() const;
         
@@ -36,7 +53,12 @@ class Sample {
         // Application tries to find a dedicated queue of the specified type
         virtual VkQueueFlags request_device_queues() const;
         
-        void load_shader(const char* filepath);
+        // Detects shader module type from extension
+        // .vert - vertex
+        // .frag - fragment
+        // .comp - compute
+        // TODO: more shader types
+        VkShaderModule load_shader(const char* filepath);
 
         // Section: input
         virtual void on_window_resized(int width, int height);
@@ -50,7 +72,7 @@ class Sample {
         bool is_key_down(int key) const;
         glm::vec2 get_mouse_position() const;
 
-        int num_frames_in_flight;
+        static constexpr int NUM_FRAMES_IN_FLIGHT = 3; // Increasing this number increases rendering latency by that many frames
         
         // Section: Vulkan instance
         VkInstance instance;
@@ -69,6 +91,7 @@ class Sample {
         VkDevice device;
         
         VkCommandPool command_pool; // Command buffers are allocated from here
+        std::array<VkCommandBuffer, NUM_FRAMES_IN_FLIGHT> command_buffers;
         unsigned queue_family_index;
         VkQueue queue;
         VkRenderPass render_pass;
@@ -86,25 +109,28 @@ class Sample {
         
         // Section: Vulkan swapchain
         VkSwapchainKHR swapchain;
-        std::vector<VkImage> swapchain_images;
-        std::vector<VkImageView> swapchain_image_views;
+        std::array<VkImage, NUM_FRAMES_IN_FLIGHT> swapchain_images;
+        std::array<VkImageView, NUM_FRAMES_IN_FLIGHT> swapchain_image_views;
         VkExtent2D swapchain_extent;
         VkPresentModeKHR swapchain_present_mode;
         
+        VkSampleCountFlags sample_count; // TODO
+        
         // Section: depth buffer
         VkImage depth_buffer;
+        VkFormat depth_buffer_format;
         VkImageView depth_buffer_view;
         VkDeviceMemory depth_buffer_memory;
         
-        unsigned current_frame; // Index of the current image
+        unsigned current_frame; // Index of the current swapchain image
         
         // Framebuffers for final rendering output
-        std::vector<VkFramebuffer> framebuffers;
+        std::array<VkFramebuffer, NUM_FRAMES_IN_FLIGHT> framebuffers;
         
         // Section: synchronization
-        std::vector<VkSemaphore> is_presentation_complete;
-        std::vector<VkSemaphore> is_rendering_complete;
-        std::vector<VkFence> fences;
+        std::array<VkSemaphore, NUM_FRAMES_IN_FLIGHT> is_presentation_complete;
+        std::array<VkSemaphore, NUM_FRAMES_IN_FLIGHT> is_rendering_complete;
+        std::array<VkFence, NUM_FRAMES_IN_FLIGHT> fences;
         
         struct Settings {
             Settings();
@@ -119,15 +145,39 @@ class Sample {
         
         void create_vulkan_instance();
         void initialize_debugging();
-        void create_surface();
-        void select_physical_device();
-        void create_logical_device();
-        void create_command_buffer();
-        void create_depth_buffer();
-        void initialize_swapchain();
-        void create_synchronization_objects();
-        void create_render_pass();
+        
         void initialize_window();
+        void create_surface();
+        
+        // Selecting a suitable physical device depends on a number of different criteria, including:
+        //   - supported device features
+        //   - available queue family types and count
+        //   - available surface formats / properties
+        void select_physical_device();
+        
+        // Initializing a logical device consists of:
+        //   - enabling device extensions
+        //   - enabling device features (verified during physical device selection)
+        //   - retrieving queue families + creating queues
+        void create_logical_device();
+        
+        // Things like command pools / command buffers, pipelines, framebuffers, and synchronization objects are used once the logical device is created
+        
+        void initialize_swapchain();
+        
+        void create_command_pool(); // Must happen after device queues are selected
+        void allocate_command_buffers(); // Allocates command buffers for swapchain images
+        virtual void record_command_buffers() = 0; // Samples do all the work on how to present to the screen
+        void deallocate_command_buffers();
+        
+        void create_synchronization_objects();
+        
+        void create_depth_buffer();
+
+        // Things for the Sample to do
+        virtual void initialize_pipelines() = 0;
+        virtual void initialize_render_passes() = 0;
+        virtual void initialize_framebuffers() = 0;
         
         // Event dispatch functions (hooked up to window callbacks)
         void on_window_resize(int width, int height);
@@ -145,5 +195,18 @@ class Sample {
         bool initialized;
         bool running;
 };
+
+#define DEFINE_SAMPLE_MAIN(TYPE)        \
+int main() {                     \
+    Sample* sample = new TYPE(); \
+    sample->initialize();        \
+    while (sample->active()) {   \
+        sample->run();           \
+    }                            \
+    sample->shutdown();          \
+    delete sample;               \
+    return 0;                    \
+}
+
 
 #endif // SAMPLE_HPP

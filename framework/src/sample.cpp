@@ -14,8 +14,7 @@ Sample::Settings::Settings() : fullscreen(false),
                                {
 }
 
-Sample::Sample(const char* name) : num_frames_in_flight(3), // Increasing this number increases rendering latency by that many frames
-                                   instance(nullptr),
+Sample::Sample(const char* name) : instance(nullptr),
                                    enabled_instance_extensions(),
                                    physical_device(nullptr),
                                    enabled_device_extensions(),
@@ -69,13 +68,19 @@ void Sample::initialize() {
     }
     
     create_surface();
+    
     select_physical_device();
     create_logical_device();
     
     initialize_swapchain();
+    
+    
+    
     create_synchronization_objects();
     
-    create_command_buffer();
+    create_command_pool();
+    allocate_command_buffers();
+    
     create_depth_buffer();
     
     // Initialize resources needed for the sample
@@ -87,6 +92,12 @@ void Sample::initialize() {
 
 void Sample::run() {
     glfwPollEvents();
+    
+    // Command buffers are recorded once all other resources exist, so this operation should be done last
+    initialize_command_buffers();
+}
+
+void Sample::shutdown() {
 }
 
 VKAPI_ATTR VkBool32 VKAPI_CALL vulkan_debug_callback(VkDebugUtilsMessageSeverityFlagBitsEXT severity, VkDebugUtilsMessageTypeFlagsEXT type, const VkDebugUtilsMessengerCallbackDataEXT* callback_data, void* user_data) {
@@ -140,6 +151,9 @@ void Sample::initialize_glfw() {
 }
 
 void Sample::create_vulkan_instance() {
+    VkInstanceCreateInfo instance_ci { };
+    instance_ci.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+    
     // A Vulkan instance represents the connection between the Vulkan API context and the application
     VkApplicationInfo application_info { };
     application_info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
@@ -148,12 +162,10 @@ void Sample::create_vulkan_instance() {
     application_info.pEngineName = "";
     application_info.engineVersion = VK_MAKE_API_VERSION(0, 1, 0, 0);
     application_info.apiVersion = VK_MAKE_API_VERSION(0, 1, 0, 0);
+    instance_ci.pApplicationInfo = &application_info;
 
-    // Tells the Vulkan driver which global extensions and validation layers are in use
-    VkInstanceCreateInfo instance_create_info { };
-    instance_create_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-    instance_create_info.pApplicationInfo = &application_info;
-
+    // Tell the Vulkan driver which global extensions and validation layers are in use
+    
     // 'VK_LAYER_KHRONOS_validation' validation layer contains all validation functionality
     const char* validation_layer = "VK_LAYER_KHRONOS_validation";
     
@@ -168,8 +180,8 @@ void Sample::create_vulkan_instance() {
         if (strcmp(validation_layer, supported.layerName) == 0) {
             found = true;
             
-            instance_create_info.ppEnabledLayerNames = &validation_layer;
-            instance_create_info.enabledLayerCount = 1u;
+            instance_ci.ppEnabledLayerNames = &validation_layer;
+            instance_ci.enabledLayerCount = 1u;
             
             break;
         }
@@ -221,12 +233,12 @@ void Sample::create_vulkan_instance() {
             std::cerr << "extension '" << requested << "' is not supported" << std::endl;
         }
     }
-
-    instance_create_info.enabledExtensionCount = static_cast<std::uint32_t>(extensions.size());
-    instance_create_info.ppEnabledExtensionNames = extensions.data();
+    
+    instance_ci.enabledExtensionCount = static_cast<std::uint32_t>(extensions.size());
+    instance_ci.ppEnabledExtensionNames = extensions.data();
     
     // Create Vulkan instance
-    if (vkCreateInstance(&instance_create_info, nullptr, &instance) != VK_SUCCESS) {
+    if (vkCreateInstance(&instance_ci, nullptr, &instance) != VK_SUCCESS) {
         throw std::runtime_error("failed to create Vulkan instance!");
     }
 }
@@ -309,12 +321,12 @@ void Sample::select_physical_device() {
 }
 
 void Sample::create_logical_device() {
-    VkDeviceCreateInfo device_create_info = { };
-    device_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+    VkDeviceCreateInfo device_ci = { };
+    device_ci.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
     
     // Select enabled device features
     VkPhysicalDeviceFeatures enabled_features = request_device_features();
-    device_create_info.pEnabledFeatures = &enabled_features;
+    device_ci.pEnabledFeatures = &enabled_features;
     
     // Device extensions
     std::vector<const char*> extensions;
@@ -328,8 +340,8 @@ void Sample::create_logical_device() {
     std::vector<const char*> requested_extesions = request_device_extensions();
     extensions.insert(extensions.end(), requested_extesions.begin(), requested_extesions.end());
     
-    device_create_info.enabledExtensionCount = static_cast<unsigned>(extensions.size());
-    device_create_info.ppEnabledExtensionNames = extensions.data();
+    device_ci.enabledExtensionCount = static_cast<unsigned>(extensions.size());
+    device_ci.ppEnabledExtensionNames = extensions.data();
     
     // Initialize queue requirements and retrieve queue family indices
     VkQueueFlags requested_queue_types = request_device_queues();
@@ -395,10 +407,10 @@ void Sample::create_logical_device() {
         throw std::runtime_error("unable to find queue family that satisfies application requirements");
     }
     
-    device_create_info.queueCreateInfoCount = static_cast<unsigned>(queue_create_infos.size());
-    device_create_info.pQueueCreateInfos = queue_create_infos.data();
+    device_ci.queueCreateInfoCount = static_cast<unsigned>(queue_create_infos.size());
+    device_ci.pQueueCreateInfos = queue_create_infos.data();
     
-    if (vkCreateDevice(physical_device, &device_create_info, nullptr, &device) != VK_SUCCESS) {
+    if (vkCreateDevice(physical_device, &device_ci, nullptr, &device) != VK_SUCCESS) {
         throw std::runtime_error("failed to create logical device!");
     }
     
@@ -421,18 +433,18 @@ void Sample::create_logical_device() {
 }
 
 void Sample::initialize_swapchain() {
-    VkSwapchainCreateInfoKHR swapchain_create_info { };
-    swapchain_create_info.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
-    swapchain_create_info.surface = surface;
+    VkSwapchainCreateInfoKHR swapchain_ci { };
+    swapchain_ci.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+    swapchain_ci.surface = surface;
     
     // Surface format is initialized when physical device is selected
-    swapchain_create_info.imageFormat = surface_format.format;
-    swapchain_create_info.imageColorSpace = surface_format.colorSpace;
-    swapchain_create_info.imageArrayLayers = 1; // The number of layers an image consists of (more than 1 for stereoscopic 3D applications)
+    swapchain_ci.imageFormat = surface_format.format;
+    swapchain_ci.imageColorSpace = surface_format.colorSpace;
+    swapchain_ci.imageArrayLayers = 1; // The number of layers an image consists of (more than 1 for stereoscopic 3D applications)
     
-    swapchain_create_info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR; // Do not blend with other windows in the window system
+    swapchain_ci.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR; // Do not blend with other windows in the window system
     
-    swapchain_create_info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT; // Color attachments (render targets)
+    swapchain_ci.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT; // Color attachments (render targets)
     // TODO: transfer src/dst if supported?
 //    if (surface_capabilities.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_SRC_BIT) {
 //		swapchain_create_info.imageUsage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
@@ -444,11 +456,11 @@ void Sample::initialize_swapchain() {
     // VK_SHARING_MODE_EXCLUSIVE — ownership has to be explicitly transferred between queue families (has the highest performance)
     // VK_SHARING_MODE_CONCURRENT — images can be used across multiple families and do not have to be explicitly transferred
     // Since this application is build with only one queue family in mind, this is not (yet) supported
-    swapchain_create_info.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    swapchain_ci.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
     // This function is called on initialization where there is no existing swapchain defined
     // TODO: use old swapchain on resize to reuse resources and still being able to present already acquired images
-    swapchain_create_info.oldSwapchain = nullptr;
+    swapchain_ci.oldSwapchain = nullptr;
 
     // minImageCount represents the minimum number of images required for the swapchain to function with the given present mode
     // Request +1 image to avoid wasting cycles waiting on driver internals to retrieve a new image to render to
@@ -459,7 +471,7 @@ void Sample::initialize_swapchain() {
     if (surface_capabilities.maxImageCount > 0 && swapchain_image_count > surface_capabilities.maxImageCount) {
         swapchain_image_count = surface_capabilities.maxImageCount;
     }
-    swapchain_create_info.minImageCount = swapchain_image_count;
+    swapchain_ci.minImageCount = swapchain_image_count;
     
     // Performs global transform to swapchain images before presentation
     VkSurfaceTransformFlagsKHR surface_transform = surface_capabilities.currentTransform;
@@ -467,7 +479,7 @@ void Sample::initialize_swapchain() {
         // Prefer an identity transform (noop)
         surface_transform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
     }
-    swapchain_create_info.preTransform = (VkSurfaceTransformFlagBitsKHR)surface_transform;
+    swapchain_ci.preTransform = (VkSurfaceTransformFlagBitsKHR)surface_transform;
     
     // Vulkan wants the swap extent to match the resolution of the window
     // However, high density displays have screen resolutions that don't correspond to pixel data
@@ -485,7 +497,7 @@ void Sample::initialize_swapchain() {
     else {
         swapchain_extent = surface_capabilities.currentExtent;
     }
-    swapchain_create_info.imageExtent = swapchain_extent;
+    swapchain_ci.imageExtent = swapchain_extent;
     
     // Select Vulkan surface presentation model
     // VK_PRESENT_MODE_IMMEDIATE_KHR - images are transferred to the screen right away (may result in visual tearing if the previous frame is still being drawn as a new one arrives)
@@ -505,9 +517,9 @@ void Sample::initialize_swapchain() {
             swapchain_present_mode = presentation_mode;
         }
     }
-    swapchain_create_info.presentMode = swapchain_present_mode;
+    swapchain_ci.presentMode = swapchain_present_mode;
     
-    if (vkCreateSwapchainKHR(device, &swapchain_create_info, nullptr, &swapchain) != VK_SUCCESS) {
+    if (vkCreateSwapchainKHR(device, &swapchain_ci, nullptr, &swapchain) != VK_SUCCESS) {
         throw std::runtime_error("failed to create swapchain!");
     }
     
@@ -515,13 +527,10 @@ void Sample::initialize_swapchain() {
     
     // Retrieve handles to swapchain images
     vkGetSwapchainImagesKHR(device, swapchain, &swapchain_image_count, nullptr);
-
-    swapchain_images.resize(swapchain_image_count);
     vkGetSwapchainImagesKHR(device, swapchain, &swapchain_image_count, swapchain_images.data());
 
+    // Retrieve swapchain image views
     // Image views describe how to access the image and which part of the image to access
-    swapchain_image_views.resize(swapchain_image_count);
-
     for (unsigned i = 0u; i < swapchain_image_count; ++i) {
         create_image_view(device, swapchain_images[i], surface_format.format, VK_IMAGE_ASPECT_COLOR_BIT, 1, swapchain_image_views[i]);
     }
@@ -538,33 +547,243 @@ void Sample::create_synchronization_objects() {
     // Most Vulkan operations are asynchronous, and a fence is used to add a guarantee that whatever work was enqueued before the fence will be completed when the fence is signaled.
     // Fences must be manually reset to unsignal them.
 
-    is_presentation_complete.resize(num_frames_in_flight);
-    is_rendering_complete.resize(num_frames_in_flight);
-    fences.resize(num_frames_in_flight);
+    for (int i = 0; i < NUM_FRAMES_IN_FLIGHT; ++i) {
+        VkSemaphoreCreateInfo semaphore_ci { };
+        semaphore_ci.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
 
-    for (int i = 0; i < num_frames_in_flight; ++i) {
-        VkSemaphoreCreateInfo semaphore_create_info { };
-        semaphore_create_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-
-        if (vkCreateSemaphore(device, &semaphore_create_info, nullptr, &is_presentation_complete[i]) != VK_SUCCESS) {
+        if (vkCreateSemaphore(device, &semaphore_ci, nullptr, &is_presentation_complete[i]) != VK_SUCCESS) {
             throw std::runtime_error("failed to create semaphore (is_presentation_complete)");
         }
 
-        if (vkCreateSemaphore(device, &semaphore_create_info, nullptr, &is_rendering_complete[i]) != VK_SUCCESS) {
+        if (vkCreateSemaphore(device, &semaphore_ci, nullptr, &is_rendering_complete[i]) != VK_SUCCESS) {
             throw std::runtime_error("failed to create semaphore (is_rendering_complete)");
         }
 
-        VkFenceCreateInfo fence_create_info { };
-        fence_create_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-        fence_create_info.flags = VK_FENCE_CREATE_SIGNALED_BIT; // Create the fence in the signaled state so that waiting on the fence during the first frame returns immediately
+        VkFenceCreateInfo fence_ci { };
+        fence_ci.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+        fence_ci.flags = VK_FENCE_CREATE_SIGNALED_BIT; // Create the fence in the signaled state so that waiting on the fence during the first frame returns immediately
 
-        if (vkCreateFence(device, &fence_create_info, nullptr, &fences[i]) != VK_SUCCESS) {
+        if (vkCreateFence(device, &fence_ci, nullptr, &fences[i]) != VK_SUCCESS) {
             throw std::runtime_error("failed to create fence");
         }
     }
 }
 
 void Sample::create_render_pass() {
+    // https://registry.khronos.org/vulkan/specs/1.2-khr-extensions/html/chap8.html#renderpass-objects
+    // A render pass specifies how attachments should be handled at various stages of the render pass (load, store, and layout transitions)
+    // Render passes minimize the need for explicit synchronization and memory barriers by using subpass dependencies and attachment descriptions
+    // A render pass is (mainly) composed of attachment description(s), subpasses, and subpass dependencies
+
+    // An attachment description describes:
+    //   - The format of the attachment (color, depth, stencil)
+    //   - The number of samples, used for multisampling
+    //   - Load + store operations, what should happen to the attachment at the beginning (load) and end (store) of the render pass
+    //   - The initial (before the render pass begins) and final (after the render pass ends) layouts of the attachment
+    
+    std::vector<VkAttachmentDescription> attachment_descriptions;
+
+    VkAttachmentDescription color_attachment_description { };
+    
+        // Format: color attachment (format of a swapchain image)
+        color_attachment_description.format = surface_format.format;
+        
+        // Number of samples
+        color_attachment_description.samples = VK_SAMPLE_COUNT_1_BIT; // TODO: expose for samples to set
+    
+        // What to do with the attachment data before the render pass:
+        //   - VK_ATTACHMENT_LOAD_OP_LOAD - preserve the existing contents of the attachment
+        //   - VK_ATTACHMENT_LOAD_OP_CLEAR - clear the values to a constant at the start
+        //   - VK_ATTACHMENT_LOAD_OP_DONT_CARE - existing contents are undefined
+        color_attachment_description.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    
+        // What to do with the attachment data after the render pass:
+        //   - VK_ATTACHMENT_STORE_OP_STORE - rendered contents will be stored in memory and can be read later
+        //   - VK_ATTACHMENT_STORE_OP_DONT_CARE - contents of the framebuffer will be undefined after the rendering operation
+        color_attachment_description.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    
+        // TODO: stencil buffer load / store configurations
+        color_attachment_description.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        color_attachment_description.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    
+        // Render pass images need to be transitioned to specific layouts that are suitable for the next operation
+        //   - VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL - images used as color attachment
+        //   - VK_IMAGE_LAYOUT_PRESENT_SRC_KHR - images to be presented in the swap chain
+        //   - VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL - images to be used as destination for a memory copy operation
+    
+        // Layout the image before the start of the render pass
+        color_attachment_description.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    
+        // Layout of the image transitioned to the end of the render pass
+        color_attachment_description.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    
+    attachment_descriptions.emplace_back(color_attachment_description);
+    
+    // Depth attachment
+    VkAttachmentDescription depth_attachment_description { };
+    
+        depth_attachment_description.format = depth_buffer_format;
+        depth_attachment_description.samples = VK_SAMPLE_COUNT_1_BIT; // TODO: multisampled depth buffer for multisampling support
+        depth_attachment_description.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        depth_attachment_description.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE; // Depth information will not be used after drawing is finished
+        depth_attachment_description.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        depth_attachment_description.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        depth_attachment_description.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        depth_attachment_description.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+        
+    attachment_descriptions.emplace_back(depth_attachment_description);
+    
+    // TODO: attachment for resolving multisampled images
+//    VkAttachmentDescription color_resolve_attachment_description { };
+    //    color_resolve_attachment_description.format = surface_format.format;
+    //    color_resolve_attachment_description.samples = VK_SAMPLE_COUNT_1_BIT; // Final image must be 1 spp.
+    //    color_resolve_attachment_description.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    //    color_resolve_attachment_description.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    //    color_resolve_attachment_description.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    //    color_resolve_attachment_description.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    //    color_resolve_attachment_description.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    //    color_resolve_attachment_description.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+//    attachment_descriptions.emplace_back(color_resolve_attachment_description);
+
+    // A subpass describes:
+    //   - Which attachments are being read from within the subpass, typically assigned as inputs to fragment shaders (such as for deferred rendering, where the output from one subpass is used as input for another)
+    //   - Attachments that will be used as color outputs
+    //   - Attachments that will be used to resolve multisampled color attachments (only used when multisampling is enabled)
+    //   - Attachments that will store depth / stencil information
+    //   - Attachments that are not used but preserved throughout the pass
+    
+    std::vector<VkAttachmentReference> color_attachments;
+    
+    // Color attachment
+    VkAttachmentReference color_attachment { };
+
+        // The 'attachment' index is referenced by the layout(location = 0) out vec4 outColor line in the fragment shader
+        // Note: this must also align with the first element in the attachment_descriptions array initialized above (order of attachment descriptions and attachment references matters), as this specifies which attachment is being referenced
+        color_attachment.attachment = 0;
+        
+        // Layout of the attachment when used during the subpass
+        color_attachment.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    
+    color_attachments.emplace_back(color_attachment);
+    
+    // Depth attachment
+    VkAttachmentReference depth_attachment { };
+    
+        depth_attachment.attachment = 1;
+        depth_attachment.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+    
+    // TODO: attachment reference for resolving multisampled attachments
+//    VkAttachmentReference color_resolve_attachment { };
+//    color_resolve_attachment.attachment = 2;
+//    color_resolve_attachment.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    
+    // Define subpass
+    VkSubpassDescription subpass { };
+    subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    subpass.colorAttachmentCount = color_attachments.size();
+    subpass.pColorAttachments = color_attachments.data();
+    subpass.pDepthStencilAttachment = &depth_attachment; // Attachments to perform depth testing on (can only have 1 depth attachment bound at one time)
+    subpass.pResolveAttachments = nullptr;
+    subpass.inputAttachmentCount = 0;
+    subpass.pInputAttachments = nullptr;
+    subpass.preserveAttachmentCount = 0;
+    subpass.pPreserveAttachments = nullptr;
+
+    // TODO: understand subpass dependencies
+//    // Define subpass dependencies
+//    // Images in a render pass need to be transitioned to the proper image layout
+//    // This is automatically handled by subpasses through the use of subpass depedencies, which specify memory and execution dependencies and ensure correct ordering and access synchronization of memory reads / writes between subpasses
+//    // Even with a single subpass, operations right before and right after count as subpasses implicitly, and need to be transitioned accordingly
+//    std::vector<VkSubpassDependency> subpass_dependencies;
+//
+//    // Subpass dependency for transitioning the color attachment
+//
+//    VkSubpassDependency subpass_dependency { };
+//
+//    // Depth subpass dependency
+//    subpass_dependency.srcSubpass = VK_SUBPASS_EXTERNAL; // Subpass
+//    subpass_dependency.dstSubpass = 0; //
+    
+    // https://registry.khronos.org/vulkan/specs/1.2-khr-extensions/html/chap8.html#renderpass-store-operations
+    // LOAD operations define the initial values of an attachment at the start of a render pass
+    //   For attachments with a depth/stencil format, LOAD operations execute during the VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT pipeline stage
+    //   For attachments with a color format, LOAD operations execute during the VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT pipeline stage
+    
+    // LOAD operations that can be used for a render pass:
+    //   - VK_ATTACHMENT_LOAD_OP_LOAD      - previous attachment contents will be preserved as initial values
+    //                                     - memory access type: VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT (depth/stencil), VK_ACCESS_COLOR_ATTACHMENT_READ_BIT (color)
+    //   - VK_ATTACHMENT_LOAD_OP_CLEAR     - previous attachment contents will be cleared to a uniform value
+    //                                     - memory access type: VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT (depth/stencil), VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT (color)
+    //   - VK_ATTACHMENT_LOAD_OP_DONT_CARE - previous attachment contents will not be preserved or cleared (undefined)
+    //                                     - memory access type: VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT (depth/stencil), VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT (color)
+    //   - VK_ATTACHMENT_LOAD_OP_NONE_KHR  - previous attachment is not used
+    //                                     - memory access type: N/A
+    
+    // https://registry.khronos.org/vulkan/specs/1.2-khr-extensions/html/chap8.html#renderpass-store-operations
+    // STORE operations define how the values written to an attachment during a render pass are stored in memory
+    //   For attachments with a depth/stencil format, STORE operations execute during the VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT pipeline stage
+    //   For attachments with a color format, STORE operations execute during the VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT pipeline stage
+    
+    // STORE operations that can be used for a render pass:
+    //   - VK_ATTACHMENT_STORE_OP_STORE - attachment contents generated during the render pass are written to memory
+    //                                  - memory access type: VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT (depth/stencil), VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT (color)
+    //   - VK_ATTACHMENT_STORE_OP_DONT_CARE - attachment contents are not needed after the render pass, and may be discarded (undefined)
+    //                                      - memory access type: VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT (depth/stencil), VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT (color)
+    //   - VK_ATTACHMENT_STORE_OP_NONE - attachment contents are not referenced by the STORE operation as long as no values are written (*otherwise same as VK_ATTACHMENT_STORE_OP_DONT_CARE)
+    //                                 - memory access type: *N/A
+    
+    
+
+    
+    // https://registry.khronos.org/vulkan/specs/1.2-khr-extensions/html/chap7.html#VkPipelineStageFlagBits
+    // https://registry.khronos.org/vulkan/specs/1.2-khr-extensions/html/chap7.html#VkAccessFlagBits
+
+//    // Subpass automatically transitions image to the desired format
+//
+//    auto LOAD = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+//    auto STORE = VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+//
+//    // Subpass dependency for ordering writes to the depth buffer
+//    subpass_dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
+//    subpass_dependency.dstSubpass = 0;
+//
+//    // Depth buffer will be read from to see if a fragment is visible during VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT and written to when a new fragment is drawn during VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT
+//
+//    // Wait for both early and late fragment testing to complete before proceeding with clearing the depth buffer
+//    subpass_dependency.srcStageMask = LOAD | STORE;
+//    subpass_dependency.dstStageMask = LOAD | STORE;
+//
+//    subpass_dependency.srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+//	subpass_dependency.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
+//
+//
+//    subpass_dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
+//    subpass_dependency.dstSubpass = 0;
+//
+//    // srcStageMask specifies that pipeline stages that must be completed before
+//    // Wait on the output from the color attachment itself (wait for the swapchain to finish reading from the source image before accessing it).
+//
+//    subpass_dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT ;
+//    subpass_dependency.srcAccessMask = 0;
+//
+//    // Wait on the color attachment stage to perform color writing operations to the attachment.
+//    // Wait on the depth attachment stage to perform depth write operations to the depth attachment.
+//    // This ensures the image is transitioned only when the render pass is ready to write color/depth data to it.
+//    subpass_dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+//    subpass_dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    
+    VkRenderPassCreateInfo render_pass_create_info { };
+    render_pass_create_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+    render_pass_create_info.attachmentCount = attachment_descriptions.size();
+    render_pass_create_info.pAttachments = attachment_descriptions.data();
+    render_pass_create_info.subpassCount = 1;
+    render_pass_create_info.pSubpasses = &subpass;
+    render_pass_create_info.dependencyCount = 0;
+    render_pass_create_info.pDependencies = nullptr;
+
+    if (vkCreateRenderPass(device, &render_pass_create_info, nullptr, &render_pass) != VK_SUCCESS) {
+        throw std::runtime_error("failed to create render pass!");
+    }
 }
 
 void Sample::initialize_window() {
@@ -668,24 +887,6 @@ void Sample::on_mouse_moved(glm::vec2 position) {
 void Sample::on_mouse_scrolled(double distance) {
 }
 
-void Sample::create_command_buffer() {
-    // Command pools are used to allocate / store command buffers
-    VkCommandPoolCreateInfo command_pool_ci { };
-    command_pool_ci.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-    command_pool_ci.queueFamilyIndex = queue_family_index; // Each command pool can only allocate command buffers that are submitted on a single type of queue
-
-    // Two options for command allocation strategy:
-    //  - VK_COMMAND_POOL_CREATE_TRANSIENT_BIT: command buffers allocated from this pool are short-lived and will be reset/freed in a short amount of time
-    //  - VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT: command buffers allocated from this pool have longer lifetimes and can be individually reset by calling vkResetCommandBuffer or vkBeginCommandBuffer
-    command_pool_ci.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-
-    if (vkCreateCommandPool(device, &command_pool_ci, nullptr, &command_pool) != VK_SUCCESS) {
-        throw std::runtime_error("failed to allocate command pool!");
-    }
-    
-    // TODO: no transient command buffer support (yet)
-}
-
 void Sample::create_depth_buffer() {
     // Formats that contain a depth component, ordered from best to worst
     std::vector<VkFormat> formats { VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT };
@@ -715,18 +916,65 @@ void Sample::create_depth_buffer() {
         throw std::runtime_error("physical device does not support desired depth format!");
     }
     
-    unsigned mip_levels = 1;
+    depth_buffer_format = image_format;
+    unsigned depth_mip_levels = 1;
     
     create_image(physical_device, device,
                  swapchain_extent.width, swapchain_extent.height, // Depth image needs to be the same size as any other framebuffer attachment
-                 mip_levels,
+                 depth_mip_levels,
                  VK_SAMPLE_COUNT_1_BIT, // TODO: this assumes 1 sample per pixel, which is not the case for multisampling (this method should be virtual)
-                 image_format,
+                 // Depth buffers do not require a separate resolve step and can be used directly in render passes for resolving to a single sample / presentation
+                 depth_buffer_format,
                  VK_IMAGE_TILING_OPTIMAL,
                  VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
                  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, // The most optimal memory type for GPU reads is VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT (meant for device read, not accessible by the CPU)
                  depth_buffer, depth_buffer_memory);
     vkBindImageMemory(device, depth_buffer, depth_buffer_memory, 0); // Associate memory buffer with image
     
-    create_image_view(device, depth_buffer, image_format, VK_IMAGE_ASPECT_DEPTH_BIT, mip_levels, depth_buffer_view);
+    create_image_view(device, depth_buffer, image_format, VK_IMAGE_ASPECT_DEPTH_BIT, depth_mip_levels, depth_buffer_view);
 }
+
+void Sample::create_command_pool() {
+    // This function must be called after queue families are selected, since commands are submitted to a specific type of queue
+    
+    // Command pools are used to allocate / store command buffers
+    VkCommandPoolCreateInfo command_pool_ci { };
+    command_pool_ci.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    command_pool_ci.queueFamilyIndex = queue_family_index;
+
+    // Two options for command buffer allocation strategy:
+    //  - VK_COMMAND_POOL_CREATE_TRANSIENT_BIT: command buffers allocated from this pool are short-lived and will be reset/freed in a short amount of time
+    //  - VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT: command buffers allocated from this pool have longer lifetimes and can be individually reset by calling vkResetCommandBuffer or vkBeginCommandBuffer
+    command_pool_ci.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+
+    if (vkCreateCommandPool(device, &command_pool_ci, nullptr, &command_pool) != VK_SUCCESS) {
+        throw std::runtime_error("failed to allocate command pool!");
+    }
+
+    // TODO: initialize transient command pool / command buffers
+}
+
+void Sample::allocate_command_buffers() {
+    // This function must be called after the command pool is initialized
+    
+    VkCommandBufferAllocateInfo command_buffer_ai { };
+    command_buffer_ai.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    command_buffer_ai.commandPool = command_pool;
+    
+    // Two options for command buffer level:
+    //   - VK_COMMAND_BUFFER_LEVEL_PRIMARY: command buffers of this type are used for the main rendering or compute operations, and can be submitted to a queue for execution
+    //   - VK_COMMAND_BUFFER_LEVEL_SECONDARY: command buffers of this type are used to bundle reusable sets of rendering / compute commands that can be included into one or more primary command buffers using vkCmdExecuteCommands
+    command_buffer_ai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    
+    // Allocate a command buffer per swapchain image
+    command_buffer_ai.commandBufferCount = NUM_FRAMES_IN_FLIGHT;
+    
+    if (vkAllocateCommandBuffers(device, &command_buffer_ai, command_buffers.data()) != VK_SUCCESS) {
+        throw std::runtime_error("failed to allocate command buffers!");
+    }
+}
+
+void Sample::deallocate_command_buffers() {
+    vkFreeCommandBuffers(device, command_pool, NUM_FRAMES_IN_FLIGHT, command_buffers.data());
+}
+
