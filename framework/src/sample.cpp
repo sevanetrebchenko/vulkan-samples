@@ -93,8 +93,31 @@ void Sample::initialize() {
 void Sample::run() {
     glfwPollEvents();
     
-    // Command buffers are recorded once all other resources exist, so this operation should be done last
-    initialize_command_buffers();
+    // TODO: frame time
+    
+    // Fences are used when the CPU needs to know when the GPU has finished executing some work
+    // We can optionally attach a fence to work submitted to the GPU that gets signaled when the work is completed
+    // Command buffers are re-recorded at the start of every frame, and it is important to not overwrite the current contents of the command buffer while it is still in use for rendering on the GPU
+    
+    vkWaitForFences(device, 1, &is_frame_in_flight[frame_index], VK_TRUE, std::numeric_limits<std::uint64_t>::max()); // Blocks CPU execution (fence is created in the signaled state so that the first pass through this function doesn't block execution indefinitely)
+    vkResetFences(device, 1, &is_frame_in_flight[frame_index]);
+    
+    render();
+    
+    // Present to the screen
+    VkPresentInfoKHR present_info { };
+    present_info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+    present_info.waitSemaphoreCount = 1;
+    present_info.pWaitSemaphores = &is_rendering_complete[frame_index]; // Presenting the image must wait for rendering to complete
+    present_info.swapchainCount = 1;
+    present_info.pSwapchains = &swapchain;
+    present_info.pImageIndices = &frame_index;
+
+    // Presentation queue family is mixed in with graphics / compute / transfer families
+    vkQueuePresentKHR(queue, &present_info);
+    
+    // Advance frame
+    frame_index = (frame_index + 1) & NUM_FRAMES_IN_FLIGHT;
 }
 
 void Sample::shutdown() {
@@ -563,7 +586,7 @@ void Sample::create_synchronization_objects() {
         fence_ci.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
         fence_ci.flags = VK_FENCE_CREATE_SIGNALED_BIT; // Create the fence in the signaled state so that waiting on the fence during the first frame returns immediately
 
-        if (vkCreateFence(device, &fence_ci, nullptr, &fences[i]) != VK_SUCCESS) {
+        if (vkCreateFence(device, &fence_ci, nullptr, &is_frame_in_flight[i]) != VK_SUCCESS) {
             throw std::runtime_error("failed to create fence");
         }
     }

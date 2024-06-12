@@ -45,6 +45,8 @@ class Sample {
     protected:
         virtual void initialize_resources();
         
+        virtual void render() = 0;
+        
         virtual std::vector<const char*> request_instance_extensions() const;
         
         virtual std::vector<const char*> request_device_extensions() const;
@@ -122,7 +124,7 @@ class Sample {
         VkImageView depth_buffer_view;
         VkDeviceMemory depth_buffer_memory;
         
-        unsigned current_frame; // Index of the current swapchain image
+        unsigned frame_index; // Index of the current swapchain image
         
         // Framebuffers for final rendering output
         std::array<VkFramebuffer, NUM_FRAMES_IN_FLIGHT> framebuffers;
@@ -130,7 +132,7 @@ class Sample {
         // Section: synchronization
         std::array<VkSemaphore, NUM_FRAMES_IN_FLIGHT> is_presentation_complete;
         std::array<VkSemaphore, NUM_FRAMES_IN_FLIGHT> is_rendering_complete;
-        std::array<VkFence, NUM_FRAMES_IN_FLIGHT> fences;
+        std::array<VkFence, NUM_FRAMES_IN_FLIGHT> is_frame_in_flight;
         
         struct Settings {
             Settings();
