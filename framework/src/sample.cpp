@@ -3,14 +3,16 @@
 #include "helpers.hpp"
 #include <stdexcept> // std::runtime_error
 #include <iostream> // std::cout, std::endl;
+#include <fstream> // std::ifstream
 
 Sample::Settings::Settings() : fullscreen(false),
                                headless(false),
                                #ifndef NDEBUG
-                                   debug(true)
+                                   debug(true),
                                #else
-                                   debug(false)
+                                   debug(false),
                                #endif
+                               use_depth_buffer(true)
                                {
 }
 
@@ -21,15 +23,33 @@ Sample::Sample(const char* name) : instance(nullptr),
                                    physical_device_properties({ }),
                                    physical_device_features({ }),
                                    enabled_physical_device_features({ }),
-                                   surface(nullptr),
-                                   surface_capabilities({ }),
-                                   surface_format({ }),
                                    device(nullptr),
+                                   command_pool(nullptr),
+                                   command_buffers({ }),
+                                   queue_family_index(-1),
                                    queue(nullptr),
+                                   render_pass(nullptr),
                                    width(1920),
                                    height(1080),
                                    window(nullptr),
                                    name(name),
+                                   surface(nullptr),
+                                   surface_capabilities({ }),
+                                   surface_format({ }),
+                                   swapchain(nullptr),
+                                   swapchain_images({ }),
+                                   swapchain_image_views({ }),
+                                   swapchain_extent(),
+                                   swapchain_present_mode(),
+                                   depth_buffer(nullptr),
+                                   depth_buffer_format(),
+                                   depth_buffer_view(),
+                                   depth_buffer_memory(),
+                                   frame_index(0u),
+                                   framebuffers({ }),
+                                   is_presentation_complete({ }),
+                                   is_rendering_complete({ }),
+                                   is_frame_in_flight({ }),
                                    settings(),
                                    debug_messenger(nullptr),
                                    initialized(false),
@@ -81,7 +101,10 @@ void Sample::initialize() {
     create_command_pool();
     allocate_command_buffers();
     
-    create_depth_buffer();
+    // Some samples do not require the use of the depth buffer
+    if (settings.use_depth_buffer) {
+        create_depth_buffer();
+    }
     
     // Initialize resources needed for the sample
     initialize_resources();
@@ -592,222 +615,222 @@ void Sample::create_synchronization_objects() {
     }
 }
 
-void Sample::create_render_pass() {
-    // https://registry.khronos.org/vulkan/specs/1.2-khr-extensions/html/chap8.html#renderpass-objects
-    // A render pass specifies how attachments should be handled at various stages of the render pass (load, store, and layout transitions)
-    // Render passes minimize the need for explicit synchronization and memory barriers by using subpass dependencies and attachment descriptions
-    // A render pass is (mainly) composed of attachment description(s), subpasses, and subpass dependencies
-
-    // An attachment description describes:
-    //   - The format of the attachment (color, depth, stencil)
-    //   - The number of samples, used for multisampling
-    //   - Load + store operations, what should happen to the attachment at the beginning (load) and end (store) of the render pass
-    //   - The initial (before the render pass begins) and final (after the render pass ends) layouts of the attachment
-    
-    std::vector<VkAttachmentDescription> attachment_descriptions;
-
-    VkAttachmentDescription color_attachment_description { };
-    
-        // Format: color attachment (format of a swapchain image)
-        color_attachment_description.format = surface_format.format;
-        
-        // Number of samples
-        color_attachment_description.samples = VK_SAMPLE_COUNT_1_BIT; // TODO: expose for samples to set
-    
-        // What to do with the attachment data before the render pass:
-        //   - VK_ATTACHMENT_LOAD_OP_LOAD - preserve the existing contents of the attachment
-        //   - VK_ATTACHMENT_LOAD_OP_CLEAR - clear the values to a constant at the start
-        //   - VK_ATTACHMENT_LOAD_OP_DONT_CARE - existing contents are undefined
-        color_attachment_description.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    
-        // What to do with the attachment data after the render pass:
-        //   - VK_ATTACHMENT_STORE_OP_STORE - rendered contents will be stored in memory and can be read later
-        //   - VK_ATTACHMENT_STORE_OP_DONT_CARE - contents of the framebuffer will be undefined after the rendering operation
-        color_attachment_description.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    
-        // TODO: stencil buffer load / store configurations
-        color_attachment_description.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-        color_attachment_description.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    
-        // Render pass images need to be transitioned to specific layouts that are suitable for the next operation
-        //   - VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL - images used as color attachment
-        //   - VK_IMAGE_LAYOUT_PRESENT_SRC_KHR - images to be presented in the swap chain
-        //   - VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL - images to be used as destination for a memory copy operation
-    
-        // Layout the image before the start of the render pass
-        color_attachment_description.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    
-        // Layout of the image transitioned to the end of the render pass
-        color_attachment_description.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-    
-    attachment_descriptions.emplace_back(color_attachment_description);
-    
-    // Depth attachment
-    VkAttachmentDescription depth_attachment_description { };
-    
-        depth_attachment_description.format = depth_buffer_format;
-        depth_attachment_description.samples = VK_SAMPLE_COUNT_1_BIT; // TODO: multisampled depth buffer for multisampling support
-        depth_attachment_description.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-        depth_attachment_description.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE; // Depth information will not be used after drawing is finished
-        depth_attachment_description.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-        depth_attachment_description.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-        depth_attachment_description.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        depth_attachment_description.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-        
-    attachment_descriptions.emplace_back(depth_attachment_description);
-    
-    // TODO: attachment for resolving multisampled images
-//    VkAttachmentDescription color_resolve_attachment_description { };
-    //    color_resolve_attachment_description.format = surface_format.format;
-    //    color_resolve_attachment_description.samples = VK_SAMPLE_COUNT_1_BIT; // Final image must be 1 spp.
-    //    color_resolve_attachment_description.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    //    color_resolve_attachment_description.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    //    color_resolve_attachment_description.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    //    color_resolve_attachment_description.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    //    color_resolve_attachment_description.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    //    color_resolve_attachment_description.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-//    attachment_descriptions.emplace_back(color_resolve_attachment_description);
-
-    // A subpass describes:
-    //   - Which attachments are being read from within the subpass, typically assigned as inputs to fragment shaders (such as for deferred rendering, where the output from one subpass is used as input for another)
-    //   - Attachments that will be used as color outputs
-    //   - Attachments that will be used to resolve multisampled color attachments (only used when multisampling is enabled)
-    //   - Attachments that will store depth / stencil information
-    //   - Attachments that are not used but preserved throughout the pass
-    
-    std::vector<VkAttachmentReference> color_attachments;
-    
-    // Color attachment
-    VkAttachmentReference color_attachment { };
-
-        // The 'attachment' index is referenced by the layout(location = 0) out vec4 outColor line in the fragment shader
-        // Note: this must also align with the first element in the attachment_descriptions array initialized above (order of attachment descriptions and attachment references matters), as this specifies which attachment is being referenced
-        color_attachment.attachment = 0;
-        
-        // Layout of the attachment when used during the subpass
-        color_attachment.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    
-    color_attachments.emplace_back(color_attachment);
-    
-    // Depth attachment
-    VkAttachmentReference depth_attachment { };
-    
-        depth_attachment.attachment = 1;
-        depth_attachment.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-    
-    // TODO: attachment reference for resolving multisampled attachments
-//    VkAttachmentReference color_resolve_attachment { };
-//    color_resolve_attachment.attachment = 2;
-//    color_resolve_attachment.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    
-    // Define subpass
-    VkSubpassDescription subpass { };
-    subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-    subpass.colorAttachmentCount = color_attachments.size();
-    subpass.pColorAttachments = color_attachments.data();
-    subpass.pDepthStencilAttachment = &depth_attachment; // Attachments to perform depth testing on (can only have 1 depth attachment bound at one time)
-    subpass.pResolveAttachments = nullptr;
-    subpass.inputAttachmentCount = 0;
-    subpass.pInputAttachments = nullptr;
-    subpass.preserveAttachmentCount = 0;
-    subpass.pPreserveAttachments = nullptr;
-
-    // TODO: understand subpass dependencies
-//    // Define subpass dependencies
-//    // Images in a render pass need to be transitioned to the proper image layout
-//    // This is automatically handled by subpasses through the use of subpass depedencies, which specify memory and execution dependencies and ensure correct ordering and access synchronization of memory reads / writes between subpasses
-//    // Even with a single subpass, operations right before and right after count as subpasses implicitly, and need to be transitioned accordingly
-//    std::vector<VkSubpassDependency> subpass_dependencies;
+//void Sample::create_render_pass() {
+//    // https://registry.khronos.org/vulkan/specs/1.2-khr-extensions/html/chap8.html#renderpass-objects
+//    // A render pass specifies how attachments should be handled at various stages of the render pass (load, store, and layout transitions)
+//    // Render passes minimize the need for explicit synchronization and memory barriers by using subpass dependencies and attachment descriptions
+//    // A render pass is (mainly) composed of attachment description(s), subpasses, and subpass dependencies
 //
-//    // Subpass dependency for transitioning the color attachment
+//    // An attachment description describes:
+//    //   - The format of the attachment (color, depth, stencil)
+//    //   - The number of samples, used for multisampling
+//    //   - Load + store operations, what should happen to the attachment at the beginning (load) and end (store) of the render pass
+//    //   - The initial (before the render pass begins) and final (after the render pass ends) layouts of the attachment
 //
-//    VkSubpassDependency subpass_dependency { };
+//    std::vector<VkAttachmentDescription> attachment_descriptions;
 //
-//    // Depth subpass dependency
-//    subpass_dependency.srcSubpass = VK_SUBPASS_EXTERNAL; // Subpass
-//    subpass_dependency.dstSubpass = 0; //
-    
-    // https://registry.khronos.org/vulkan/specs/1.2-khr-extensions/html/chap8.html#renderpass-store-operations
-    // LOAD operations define the initial values of an attachment at the start of a render pass
-    //   For attachments with a depth/stencil format, LOAD operations execute during the VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT pipeline stage
-    //   For attachments with a color format, LOAD operations execute during the VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT pipeline stage
-    
-    // LOAD operations that can be used for a render pass:
-    //   - VK_ATTACHMENT_LOAD_OP_LOAD      - previous attachment contents will be preserved as initial values
-    //                                     - memory access type: VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT (depth/stencil), VK_ACCESS_COLOR_ATTACHMENT_READ_BIT (color)
-    //   - VK_ATTACHMENT_LOAD_OP_CLEAR     - previous attachment contents will be cleared to a uniform value
-    //                                     - memory access type: VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT (depth/stencil), VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT (color)
-    //   - VK_ATTACHMENT_LOAD_OP_DONT_CARE - previous attachment contents will not be preserved or cleared (undefined)
-    //                                     - memory access type: VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT (depth/stencil), VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT (color)
-    //   - VK_ATTACHMENT_LOAD_OP_NONE_KHR  - previous attachment is not used
-    //                                     - memory access type: N/A
-    
-    // https://registry.khronos.org/vulkan/specs/1.2-khr-extensions/html/chap8.html#renderpass-store-operations
-    // STORE operations define how the values written to an attachment during a render pass are stored in memory
-    //   For attachments with a depth/stencil format, STORE operations execute during the VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT pipeline stage
-    //   For attachments with a color format, STORE operations execute during the VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT pipeline stage
-    
-    // STORE operations that can be used for a render pass:
-    //   - VK_ATTACHMENT_STORE_OP_STORE - attachment contents generated during the render pass are written to memory
-    //                                  - memory access type: VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT (depth/stencil), VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT (color)
-    //   - VK_ATTACHMENT_STORE_OP_DONT_CARE - attachment contents are not needed after the render pass, and may be discarded (undefined)
-    //                                      - memory access type: VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT (depth/stencil), VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT (color)
-    //   - VK_ATTACHMENT_STORE_OP_NONE - attachment contents are not referenced by the STORE operation as long as no values are written (*otherwise same as VK_ATTACHMENT_STORE_OP_DONT_CARE)
-    //                                 - memory access type: *N/A
-    
-    
-
-    
-    // https://registry.khronos.org/vulkan/specs/1.2-khr-extensions/html/chap7.html#VkPipelineStageFlagBits
-    // https://registry.khronos.org/vulkan/specs/1.2-khr-extensions/html/chap7.html#VkAccessFlagBits
-
-//    // Subpass automatically transitions image to the desired format
+//    VkAttachmentDescription color_attachment_description { };
 //
-//    auto LOAD = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-//    auto STORE = VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+//        // Format: color attachment (format of a swapchain image)
+//        color_attachment_description.format = surface_format.format;
 //
-//    // Subpass dependency for ordering writes to the depth buffer
-//    subpass_dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
-//    subpass_dependency.dstSubpass = 0;
+//        // Number of samples
+//        color_attachment_description.samples = VK_SAMPLE_COUNT_1_BIT; // TODO: expose for samples to set
 //
-//    // Depth buffer will be read from to see if a fragment is visible during VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT and written to when a new fragment is drawn during VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT
+//        // What to do with the attachment data before the render pass:
+//        //   - VK_ATTACHMENT_LOAD_OP_LOAD - preserve the existing contents of the attachment
+//        //   - VK_ATTACHMENT_LOAD_OP_CLEAR - clear the values to a constant at the start
+//        //   - VK_ATTACHMENT_LOAD_OP_DONT_CARE - existing contents are undefined
+//        color_attachment_description.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 //
-//    // Wait for both early and late fragment testing to complete before proceeding with clearing the depth buffer
-//    subpass_dependency.srcStageMask = LOAD | STORE;
-//    subpass_dependency.dstStageMask = LOAD | STORE;
+//        // What to do with the attachment data after the render pass:
+//        //   - VK_ATTACHMENT_STORE_OP_STORE - rendered contents will be stored in memory and can be read later
+//        //   - VK_ATTACHMENT_STORE_OP_DONT_CARE - contents of the framebuffer will be undefined after the rendering operation
+//        color_attachment_description.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 //
-//    subpass_dependency.srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-//	subpass_dependency.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
+//        // TODO: stencil buffer load / store configurations
+//        color_attachment_description.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+//        color_attachment_description.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+//
+//        // Render pass images need to be transitioned to specific layouts that are suitable for the next operation
+//        //   - VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL - images used as color attachment
+//        //   - VK_IMAGE_LAYOUT_PRESENT_SRC_KHR - images to be presented in the swap chain
+//        //   - VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL - images to be used as destination for a memory copy operation
+//
+//        // Layout the image before the start of the render pass
+//        color_attachment_description.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+//
+//        // Layout of the image transitioned to the end of the render pass
+//        color_attachment_description.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+//
+//    attachment_descriptions.emplace_back(color_attachment_description);
+//
+//    // Depth attachment
+//    VkAttachmentDescription depth_attachment_description { };
+//
+//        depth_attachment_description.format = depth_buffer_format;
+//        depth_attachment_description.samples = VK_SAMPLE_COUNT_1_BIT; // TODO: multisampled depth buffer for multisampling support
+//        depth_attachment_description.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+//        depth_attachment_description.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE; // Depth information will not be used after drawing is finished
+//        depth_attachment_description.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+//        depth_attachment_description.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+//        depth_attachment_description.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+//        depth_attachment_description.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+//
+//    attachment_descriptions.emplace_back(depth_attachment_description);
+//
+//    // TODO: attachment for resolving multisampled images
+////    VkAttachmentDescription color_resolve_attachment_description { };
+//    //    color_resolve_attachment_description.format = surface_format.format;
+//    //    color_resolve_attachment_description.samples = VK_SAMPLE_COUNT_1_BIT; // Final image must be 1 spp.
+//    //    color_resolve_attachment_description.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+//    //    color_resolve_attachment_description.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+//    //    color_resolve_attachment_description.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+//    //    color_resolve_attachment_description.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+//    //    color_resolve_attachment_description.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+//    //    color_resolve_attachment_description.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+////    attachment_descriptions.emplace_back(color_resolve_attachment_description);
+//
+//    // A subpass describes:
+//    //   - Which attachments are being read from within the subpass, typically assigned as inputs to fragment shaders (such as for deferred rendering, where the output from one subpass is used as input for another)
+//    //   - Attachments that will be used as color outputs
+//    //   - Attachments that will be used to resolve multisampled color attachments (only used when multisampling is enabled)
+//    //   - Attachments that will store depth / stencil information
+//    //   - Attachments that are not used but preserved throughout the pass
+//
+//    std::vector<VkAttachmentReference> color_attachments;
+//
+//    // Color attachment
+//    VkAttachmentReference color_attachment { };
+//
+//        // The 'attachment' index is referenced by the layout(location = 0) out vec4 outColor line in the fragment shader
+//        // Note: this must also align with the first element in the attachment_descriptions array initialized above (order of attachment descriptions and attachment references matters), as this specifies which attachment is being referenced
+//        color_attachment.attachment = 0;
+//
+//        // Layout of the attachment when used during the subpass
+//        color_attachment.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+//
+//    color_attachments.emplace_back(color_attachment);
+//
+//    // Depth attachment
+//    VkAttachmentReference depth_attachment { };
+//
+//        depth_attachment.attachment = 1;
+//        depth_attachment.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+//
+//    // TODO: attachment reference for resolving multisampled attachments
+////    VkAttachmentReference color_resolve_attachment { };
+////    color_resolve_attachment.attachment = 2;
+////    color_resolve_attachment.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+//
+//    // Define subpass
+//    VkSubpassDescription subpass { };
+//    subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+//    subpass.colorAttachmentCount = color_attachments.size();
+//    subpass.pColorAttachments = color_attachments.data();
+//    subpass.pDepthStencilAttachment = &depth_attachment; // Attachments to perform depth testing on (can only have 1 depth attachment bound at one time)
+//    subpass.pResolveAttachments = nullptr;
+//    subpass.inputAttachmentCount = 0;
+//    subpass.pInputAttachments = nullptr;
+//    subpass.preserveAttachmentCount = 0;
+//    subpass.pPreserveAttachments = nullptr;
+//
+//    // TODO: understand subpass dependencies
+////    // Define subpass dependencies
+////    // Images in a render pass need to be transitioned to the proper image layout
+////    // This is automatically handled by subpasses through the use of subpass depedencies, which specify memory and execution dependencies and ensure correct ordering and access synchronization of memory reads / writes between subpasses
+////    // Even with a single subpass, operations right before and right after count as subpasses implicitly, and need to be transitioned accordingly
+////    std::vector<VkSubpassDependency> subpass_dependencies;
+////
+////    // Subpass dependency for transitioning the color attachment
+////
+////    VkSubpassDependency subpass_dependency { };
+////
+////    // Depth subpass dependency
+////    subpass_dependency.srcSubpass = VK_SUBPASS_EXTERNAL; // Subpass
+////    subpass_dependency.dstSubpass = 0; //
+//
+//    // https://registry.khronos.org/vulkan/specs/1.2-khr-extensions/html/chap8.html#renderpass-store-operations
+//    // LOAD operations define the initial values of an attachment at the start of a render pass
+//    //   For attachments with a depth/stencil format, LOAD operations execute during the VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT pipeline stage
+//    //   For attachments with a color format, LOAD operations execute during the VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT pipeline stage
+//
+//    // LOAD operations that can be used for a render pass:
+//    //   - VK_ATTACHMENT_LOAD_OP_LOAD      - previous attachment contents will be preserved as initial values
+//    //                                     - memory access type: VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT (depth/stencil), VK_ACCESS_COLOR_ATTACHMENT_READ_BIT (color)
+//    //   - VK_ATTACHMENT_LOAD_OP_CLEAR     - previous attachment contents will be cleared to a uniform value
+//    //                                     - memory access type: VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT (depth/stencil), VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT (color)
+//    //   - VK_ATTACHMENT_LOAD_OP_DONT_CARE - previous attachment contents will not be preserved or cleared (undefined)
+//    //                                     - memory access type: VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT (depth/stencil), VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT (color)
+//    //   - VK_ATTACHMENT_LOAD_OP_NONE_KHR  - previous attachment is not used
+//    //                                     - memory access type: N/A
+//
+//    // https://registry.khronos.org/vulkan/specs/1.2-khr-extensions/html/chap8.html#renderpass-store-operations
+//    // STORE operations define how the values written to an attachment during a render pass are stored in memory
+//    //   For attachments with a depth/stencil format, STORE operations execute during the VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT pipeline stage
+//    //   For attachments with a color format, STORE operations execute during the VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT pipeline stage
+//
+//    // STORE operations that can be used for a render pass:
+//    //   - VK_ATTACHMENT_STORE_OP_STORE - attachment contents generated during the render pass are written to memory
+//    //                                  - memory access type: VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT (depth/stencil), VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT (color)
+//    //   - VK_ATTACHMENT_STORE_OP_DONT_CARE - attachment contents are not needed after the render pass, and may be discarded (undefined)
+//    //                                      - memory access type: VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT (depth/stencil), VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT (color)
+//    //   - VK_ATTACHMENT_STORE_OP_NONE - attachment contents are not referenced by the STORE operation as long as no values are written (*otherwise same as VK_ATTACHMENT_STORE_OP_DONT_CARE)
+//    //                                 - memory access type: *N/A
 //
 //
-//    subpass_dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
-//    subpass_dependency.dstSubpass = 0;
 //
-//    // srcStageMask specifies that pipeline stages that must be completed before
-//    // Wait on the output from the color attachment itself (wait for the swapchain to finish reading from the source image before accessing it).
 //
-//    subpass_dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT ;
-//    subpass_dependency.srcAccessMask = 0;
+//    // https://registry.khronos.org/vulkan/specs/1.2-khr-extensions/html/chap7.html#VkPipelineStageFlagBits
+//    // https://registry.khronos.org/vulkan/specs/1.2-khr-extensions/html/chap7.html#VkAccessFlagBits
 //
-//    // Wait on the color attachment stage to perform color writing operations to the attachment.
-//    // Wait on the depth attachment stage to perform depth write operations to the depth attachment.
-//    // This ensures the image is transitioned only when the render pass is ready to write color/depth data to it.
-//    subpass_dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-//    subpass_dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-    
-    VkRenderPassCreateInfo render_pass_create_info { };
-    render_pass_create_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-    render_pass_create_info.attachmentCount = attachment_descriptions.size();
-    render_pass_create_info.pAttachments = attachment_descriptions.data();
-    render_pass_create_info.subpassCount = 1;
-    render_pass_create_info.pSubpasses = &subpass;
-    render_pass_create_info.dependencyCount = 0;
-    render_pass_create_info.pDependencies = nullptr;
-
-    if (vkCreateRenderPass(device, &render_pass_create_info, nullptr, &render_pass) != VK_SUCCESS) {
-        throw std::runtime_error("failed to create render pass!");
-    }
-}
+////    // Subpass automatically transitions image to the desired format
+////
+////    auto LOAD = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+////    auto STORE = VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+////
+////    // Subpass dependency for ordering writes to the depth buffer
+////    subpass_dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
+////    subpass_dependency.dstSubpass = 0;
+////
+////    // Depth buffer will be read from to see if a fragment is visible during VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT and written to when a new fragment is drawn during VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT
+////
+////    // Wait for both early and late fragment testing to complete before proceeding with clearing the depth buffer
+////    subpass_dependency.srcStageMask = LOAD | STORE;
+////    subpass_dependency.dstStageMask = LOAD | STORE;
+////
+////    subpass_dependency.srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+////	subpass_dependency.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
+////
+////
+////    subpass_dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
+////    subpass_dependency.dstSubpass = 0;
+////
+////    // srcStageMask specifies that pipeline stages that must be completed before
+////    // Wait on the output from the color attachment itself (wait for the swapchain to finish reading from the source image before accessing it).
+////
+////    subpass_dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT ;
+////    subpass_dependency.srcAccessMask = 0;
+////
+////    // Wait on the color attachment stage to perform color writing operations to the attachment.
+////    // Wait on the depth attachment stage to perform depth write operations to the depth attachment.
+////    // This ensures the image is transitioned only when the render pass is ready to write color/depth data to it.
+////    subpass_dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+////    subpass_dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+//
+//    VkRenderPassCreateInfo render_pass_create_info { };
+//    render_pass_create_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+//    render_pass_create_info.attachmentCount = attachment_descriptions.size();
+//    render_pass_create_info.pAttachments = attachment_descriptions.data();
+//    render_pass_create_info.subpassCount = 1;
+//    render_pass_create_info.pSubpasses = &subpass;
+//    render_pass_create_info.dependencyCount = 0;
+//    render_pass_create_info.pDependencies = nullptr;
+//
+//    if (vkCreateRenderPass(device, &render_pass_create_info, nullptr, &render_pass) != VK_SUCCESS) {
+//        throw std::runtime_error("failed to create render pass!");
+//    }
+//}
 
 void Sample::initialize_window() {
     window = glfwCreateWindow(width, height, name, nullptr, nullptr);
@@ -999,5 +1022,32 @@ void Sample::allocate_command_buffers() {
 
 void Sample::deallocate_command_buffers() {
     vkFreeCommandBuffers(device, command_pool, NUM_FRAMES_IN_FLIGHT, command_buffers.data());
+}
+
+VkShaderModule Sample::load_shader(const char* filepath) {
+    std::ifstream file(filepath, std::ios::ate | std::ios::binary);
+    if (!file.is_open()) {
+        throw std::runtime_error("failed to open shader: " + std::string(filepath));
+    }
+
+    std::streamsize file_size = file.tellg();
+    std::vector<char> source(file_size);
+
+    // Read data
+    file.seekg(0);
+    file.read(source.data(), file_size);
+    file.close();
+    
+    VkShaderModuleCreateInfo shader_module_create_info { };
+    shader_module_create_info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+    shader_module_create_info.codeSize = source.size();
+    shader_module_create_info.pCode = reinterpret_cast<unsigned*>(source.data());
+    
+    VkShaderModule shader_module { };
+    if (vkCreateShaderModule(device, &shader_module_create_info, nullptr, &shader_module) != VK_SUCCESS) {
+        throw std::runtime_error("failed to create shader module!");
+    }
+    
+    return shader_module;
 }
 

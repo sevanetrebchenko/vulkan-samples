@@ -116,8 +116,6 @@ class Sample {
         VkExtent2D swapchain_extent;
         VkPresentModeKHR swapchain_present_mode;
         
-        VkSampleCountFlags sample_count; // TODO
-        
         // Section: depth buffer
         VkImage depth_buffer;
         VkFormat depth_buffer_format;
@@ -140,6 +138,9 @@ class Sample {
             bool fullscreen;
             bool headless;
             bool debug;
+            
+            // Runtime settings
+            bool use_depth_buffer;
         } settings;
 
     private:
@@ -198,7 +199,7 @@ class Sample {
         bool running;
 };
 
-#define DEFINE_SAMPLE_MAIN(TYPE)        \
+#define DEFINE_SAMPLE_MAIN(TYPE) \
 int main() {                     \
     Sample* sample = new TYPE(); \
     sample->initialize();        \

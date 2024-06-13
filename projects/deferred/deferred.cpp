@@ -14,4 +14,4 @@ class Deferred final : public Sample {
         }
 };
 
-DEFINE_SAMPLE_MAIN(Deferred);
+//DEFINE_SAMPLE_MAIN(Deferred);
