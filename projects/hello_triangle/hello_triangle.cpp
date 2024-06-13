@@ -145,6 +145,10 @@ class HelloTriangle final : public Sample {
             // Setting srcSubpass to VK_SUBPASS_EXTERNAL means creating a dependency on the first implicit subpass (commands that need to be completed are those that happened before the start of the render pass)
             // Setting dstSubpass to VK_SUBPASS_EXTERNAL means creating a dependency on the third implicit subpass (commands that need to be completed are those that will happen after the end of the render pass)
             
+            // The main purpose of external subpass dependencies is to deal with initial and final layouts of an attachment reference
+            // If initialLayout is not the layout used in the first subpass, the external subpass performs the transition
+            // If nothing else is specified, the layout transition will wait on nothing before it performs the transition (VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT) - this is problematic because the render pass may proceed without waiting for the swapchain image to be available (potentially resulting in writes to a swapchain image that is still being presented)
+            
             VkSubpassDependency subpass_dependency { };
 
             // The first color attachment refers to an image retrieved from the swapchain (call to vkAcquireNextImageKHR)
@@ -152,12 +156,10 @@ class HelloTriangle final : public Sample {
             // LOAD operations for color attachments happen in the VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT pipeline stage, so this is a good stage to wait on to guarantee that the swapchain image is ready for color output
             //   ref: https://registry.khronos.org/vulkan/specs/1.2-khr-extensions/html/chap8.html#renderpass-load-operations
             
-            // We need to be explicit about waiting on this stage, as otherwise the render pass may proceed without waiting for the swapchain image to be available (potentially resulting in writes to a swapchain image that is still being presented)
-            // Keeping in mind the implicit subpass dependency automatically provided by Vulkan between the start of the render pass and the first subpass, this also means that somewhere before the color output stage the attachment will be transitioned into the layout specified by the first subpass
-            
             subpass_dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
             subpass_dependency.dstSubpass = 0;
 
+            // Somewhere between the start of the pipeline and the color write stage (VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT), the attachment will be transitioned from the initial layout into the layout for the first subpass
             subpass_dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
             subpass_dependency.srcAccessMask = 0;
         
