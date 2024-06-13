@@ -174,6 +174,33 @@ class HelloTriangle final : public Sample {
             }
         }
         
+        void initialize_framebuffers() override {
+            // Render passes operate in conjunction with framebuffers
+            // A framebuffer object represents the collection of attachments that a render pass instance uses
+            
+            // The image that we use for the color attachment of the render pass (initialized above) depends on the image returned by the swapchain
+            // Hence, initialize a framebuffer per swapchain image and use the one that corresponds to the returned image when rendering
+            for (unsigned i = 0u; i < NUM_FRAMES_IN_FLIGHT; ++i) {
+                // The attachment index must match what is used in the render pass
+                
+                VkFramebufferCreateInfo framebuffer_create_info { };
+                framebuffer_create_info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+                framebuffer_create_info.renderPass = render_pass;
+                
+                // This sample uses a single color attachment that is presented to the swapchain at the end of the render pass
+                framebuffer_create_info.attachmentCount = 1;
+                framebuffer_create_info.pAttachments = &swapchain_image_views[i];
+                
+                framebuffer_create_info.width = swapchain_extent.width;
+                framebuffer_create_info.height = swapchain_extent.height;
+                framebuffer_create_info.layers = 1; // Number of layers in the swapchain images
+                
+                if (vkCreateFramebuffer(device, &framebuffer_create_info, nullptr, &framebuffers[i]) != VK_SUCCESS) {
+                    throw std::runtime_error("failed to create framebuffer!");
+                }
+            }
+        }
+        
         void render() override {
             // The base sample uses multiple frames in flight to avoid forcing the CPU to wait on the GPU to finish rendering the previous frame to start rendering a new one
             // With multiple frames in flight, the GPU can be rendering one frame while the CPU is recording commands for rendering another
@@ -226,7 +253,6 @@ class HelloTriangle final : public Sample {
                 throw std::runtime_error("failed to submit draw command buffer!");
             }
         }
-        
         
 };
 
