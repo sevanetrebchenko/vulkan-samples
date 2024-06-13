@@ -43,8 +43,6 @@ class Sample {
         bool active() const;
         
     protected:
-        virtual void initialize_resources();
-        
         virtual void render() = 0;
         
         virtual std::vector<const char*> request_instance_extensions() const;
@@ -199,16 +197,22 @@ class Sample {
         bool running;
 };
 
-#define DEFINE_SAMPLE_MAIN(TYPE) \
-int main() {                     \
-    Sample* sample = new TYPE(); \
-    sample->initialize();        \
-    while (sample->active()) {   \
-        sample->run();           \
-    }                            \
-    sample->shutdown();          \
-    delete sample;               \
-    return 0;                    \
+#define DEFINE_SAMPLE_MAIN(TYPE)            \
+int main() {                                \
+    Sample* sample = new TYPE();            \
+    try {                                   \
+        sample->initialize();               \
+    }                                       \
+    catch (std::runtime_error& e) {         \
+        std::cerr << e.what() << std::endl; \
+        return 1;                           \
+    }                                       \
+    while (sample->active()) {              \
+        sample->run();                      \
+    }                                       \
+    sample->shutdown();                     \
+    delete sample;                          \
+    return 0;                               \
 }
 
 

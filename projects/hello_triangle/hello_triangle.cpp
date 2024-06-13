@@ -213,8 +213,8 @@ class HelloTriangle final : public Sample {
         
         void initialize_pipelines() override {
             // Load shaders
-            VkShaderModule vertex_shader_module = load_shader("");
-            VkShaderModule fragment_shader_module = load_shader("");
+            VkShaderModule vertex_shader_module = load_shader("shaders/triangle.vert");
+            VkShaderModule fragment_shader_module = load_shader("shaders/triangle.frag");
             
             // Bundle shader stages
             VkPipelineShaderStageCreateInfo vertex_shader_stage_create_info { };

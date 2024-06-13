@@ -1,7 +1,9 @@
 
 #include "sample.hpp"
 #include "helpers.hpp"
+#include <shaderc/shaderc.hpp>
 #include <stdexcept> // std::runtime_error
+#include <filesystem> // std::filesystem
 #include <iostream> // std::cout, std::endl;
 #include <fstream> // std::ifstream
 
@@ -107,7 +109,9 @@ void Sample::initialize() {
     }
     
     // Initialize resources needed for the sample
-    initialize_resources();
+    initialize_render_passes();
+    initialize_framebuffers();
+    initialize_pipelines();
     
     initialized = true;
     running = true;
@@ -899,9 +903,6 @@ void Sample::on_mouse_scroll(double distance) {
     on_mouse_scrolled(distance);
 }
 
-void Sample::initialize_resources() {
-}
-
 std::vector<const char*> Sample::request_instance_extensions() const {
     return { };
 }
@@ -1025,23 +1026,54 @@ void Sample::deallocate_command_buffers() {
 }
 
 VkShaderModule Sample::load_shader(const char* filepath) {
+    // Read shader into memory
     std::ifstream file(filepath, std::ios::ate | std::ios::binary);
     if (!file.is_open()) {
         throw std::runtime_error("failed to open shader: " + std::string(filepath));
     }
 
     std::streamsize file_size = file.tellg();
-    std::vector<char> source(file_size);
+    std::string source;
+    source.resize(file_size);
 
     // Read data
     file.seekg(0);
     file.read(source.data(), file_size);
     file.close();
+
+    shaderc::CompileOptions options { };
     
+    // TODO: configure shader defines
+
+    // TODO: support multiple shader languages
+    shaderc_shader_kind type;
+    std::filesystem::path path = std::filesystem::path(filepath);
+    std::filesystem::path extension = path.extension();
+    if (extension == ".vert") {
+        type = shaderc_glsl_vertex_shader;
+    }
+    else if (extension == ".frag") {
+        type = shaderc_glsl_fragment_shader;
+    }
+    else {
+        throw std::runtime_error("unknown shader type!");
+    }
+    
+    shaderc::Compiler compiler { };
+    std::string filename = path.stem().u8string(); // Convert from wchar_t
+    
+    // Function assumes entry point is 'main'
+    shaderc::SpvCompilationResult result = compiler.CompileGlslToSpv(source, type, filename.c_str());
+    
+    if (result.GetCompilationStatus() != shaderc_compilation_status_success) {
+        throw std::runtime_error("failed to compile shader: " + result.GetErrorMessage());
+    }
+    
+    std::vector<unsigned> spirv = { result.cbegin(), result.cend() };
     VkShaderModuleCreateInfo shader_module_create_info { };
     shader_module_create_info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-    shader_module_create_info.codeSize = source.size();
-    shader_module_create_info.pCode = reinterpret_cast<unsigned*>(source.data());
+    shader_module_create_info.codeSize = spirv.size() * sizeof(unsigned); // Bytes
+    shader_module_create_info.pCode = spirv.data();
     
     VkShaderModule shader_module { };
     if (vkCreateShaderModule(device, &shader_module_create_info, nullptr, &shader_module) != VK_SUCCESS) {
