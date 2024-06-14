@@ -96,8 +96,6 @@ void Sample::initialize() {
     
     initialize_swapchain();
     
-    
-    
     create_synchronization_objects();
     
     create_command_pool();
@@ -112,6 +110,8 @@ void Sample::initialize() {
     initialize_render_passes();
     initialize_framebuffers();
     initialize_pipelines();
+    
+    initialize_resources();
     
     initialized = true;
     running = true;
@@ -144,7 +144,7 @@ void Sample::run() {
     vkQueuePresentKHR(queue, &present_info);
     
     // Advance frame
-    frame_index = (frame_index + 1) & NUM_FRAMES_IN_FLIGHT;
+    frame_index = (frame_index + 1) % NUM_FRAMES_IN_FLIGHT;
 }
 
 void Sample::shutdown() {
@@ -598,22 +598,22 @@ void Sample::create_synchronization_objects() {
     // Fences must be manually reset to unsignal them.
 
     for (int i = 0; i < NUM_FRAMES_IN_FLIGHT; ++i) {
-        VkSemaphoreCreateInfo semaphore_ci { };
-        semaphore_ci.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+        VkSemaphoreCreateInfo semaphore_create_info { };
+        semaphore_create_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
 
-        if (vkCreateSemaphore(device, &semaphore_ci, nullptr, &is_presentation_complete[i]) != VK_SUCCESS) {
+        if (vkCreateSemaphore(device, &semaphore_create_info, nullptr, &is_presentation_complete[i]) != VK_SUCCESS) {
             throw std::runtime_error("failed to create semaphore (is_presentation_complete)");
         }
 
-        if (vkCreateSemaphore(device, &semaphore_ci, nullptr, &is_rendering_complete[i]) != VK_SUCCESS) {
+        if (vkCreateSemaphore(device, &semaphore_create_info, nullptr, &is_rendering_complete[i]) != VK_SUCCESS) {
             throw std::runtime_error("failed to create semaphore (is_rendering_complete)");
         }
 
-        VkFenceCreateInfo fence_ci { };
-        fence_ci.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-        fence_ci.flags = VK_FENCE_CREATE_SIGNALED_BIT; // Create the fence in the signaled state so that waiting on the fence during the first frame returns immediately
+        VkFenceCreateInfo fence_create_info { };
+        fence_create_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+        fence_create_info.flags = VK_FENCE_CREATE_SIGNALED_BIT; // Create the fence in the signaled state so that waiting on the fence during the first frame returns immediately
 
-        if (vkCreateFence(device, &fence_ci, nullptr, &is_frame_in_flight[i]) != VK_SUCCESS) {
+        if (vkCreateFence(device, &fence_create_info, nullptr, &is_frame_in_flight[i]) != VK_SUCCESS) {
             throw std::runtime_error("failed to create fence");
         }
     }

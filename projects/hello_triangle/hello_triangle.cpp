@@ -1,5 +1,6 @@
 
 #include "sample.hpp"
+#include "helpers.hpp"
 #include <iostream> // std::cout, std::endl
 
 struct Vertex {
@@ -11,7 +12,9 @@ class HelloTriangle final : public Sample {
     public:
         HelloTriangle() : Sample("Hello Triangle"),
                           pipeline_layout(nullptr),
-                          pipeline(nullptr) {
+                          pipeline(nullptr),
+                          vertex_buffer(nullptr),
+                          vertex_buffer_memory(nullptr) {
             settings.use_depth_buffer = false;
         }
         
@@ -22,7 +25,70 @@ class HelloTriangle final : public Sample {
         VkPipelineLayout pipeline_layout;
         VkPipeline pipeline;
         
-        void record_command_buffers() override {
+        VkBuffer vertex_buffer;
+        VkDeviceMemory vertex_buffer_memory;
+        
+        void record_command_buffers(unsigned image_index) override {
+            VkCommandBuffer command_buffer = command_buffers[frame_index];
+            
+            VkCommandBufferBeginInfo command_buffer_begin_info { };
+            command_buffer_begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+            
+             // VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT: the command buffer is intended for a one-time use only (recorded and submitted once, without reuse), often used for setting up resources or transitioning operations at the start of a frame
+             // VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT: for secondary command buffers that will be used entirely within a render pass that is already in progress, used for more efficient recording/reuse of secondary buffers within the context of a render pass
+             // VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT: this command buffer can have commands added or be submitted by multiple threads while it is still in use by the GPU (requires manual synchronization)
+            command_buffer_begin_info.flags = 0;
+        
+            // vkBeginCommandBuffer implicitly resets the command buffer if it has already been recorded
+            if (vkBeginCommandBuffer(command_buffer, &command_buffer_begin_info) != VK_SUCCESS) {
+                throw std::runtime_error("failed to begin command buffer recording!");
+            }
+        
+            VkRenderPassBeginInfo render_pass_info { };
+            render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+            render_pass_info.renderPass = render_pass;
+            render_pass_info.framebuffer = framebuffers[image_index]; // Bind the framebuffer for the swapchain image being rendered to
+        
+            // Specify render area and offset
+            render_pass_info.renderArea.offset.x = 0;
+            render_pass_info.renderArea.offset.y = 0;
+            render_pass_info.renderArea.extent = swapchain_extent;
+        
+            // Define values to clear the color attachment to during the VK_ATTACHMENT_LOAD_OP_CLEAR load operation
+            // The order of this array is required to be the same as the order of the color attachments used in the render pass
+            VkClearValue color_attachment_clear_color { };
+            color_attachment_clear_color.color = {{ 0.0f, 0.0f, 0.0f, 1.0f }};
+            
+            render_pass_info.clearValueCount = 1;
+            render_pass_info.pClearValues = &color_attachment_clear_color;
+        
+            // Record command for starting the render pass.
+            //   - VK_SUBPASS_CONTENTS_INLINE: render subpass commands will all be embedded into the primary command buffer, with no secondary command buffers
+            //   - VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS: the primary command buffer will reference one or more secondary command buffers instead of containing render / compute commands directly
+            //                                                    secondary command buffers can encapsulate complex rendering operations or subpass-specific commands and then be reused in multiple primary command buffers within a given render pass
+            vkCmdBeginRenderPass(command_buffer, &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
+            
+                // Bind graphics pipeline
+                vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+                
+                // This is where dynamic state from the initialize_pipeline function (viewport size, line width, blend constants, etc...) should be specified
+                // As this sample does not use dynamic state, there is nothing here to specify
+                
+                // Bind vertex buffer
+                VkBuffer buffers[] = { vertex_buffer };
+                VkDeviceSize offsets[] = { 0 };
+                vkCmdBindVertexBuffers(command_buffer, 0, 1, buffers, offsets);
+            
+                // Issue a draw command for the triangle
+                // Draw 3 vertices which make up 1 instance starting at vertex index 0 and instance index 0
+                vkCmdDraw(command_buffer, 3, 1, 0, 0);
+        
+            // Finish recording the command buffer
+            vkCmdEndRenderPass(command_buffer);
+            
+            if (vkEndCommandBuffer(command_buffer) != VK_SUCCESS) {
+                throw std::runtime_error("failed to record command buffer!");
+            }
         }
         
         void initialize_render_passes() override {
@@ -276,16 +342,15 @@ class HelloTriangle final : public Sample {
             // If a format that is smaller (has fewer channels) than the input shader type is specified, the remaining components will use default values (0.0 for color, 1.0 for alpha)
             // An example of this would be specifying the vertex color has format VK_FORMAT_R32G32_SFLOAT, when the shader expects the format of a vec3 (the G32 component will contain the default color value 0.0)
             vertex_attribute_descriptions[0].format = VK_FORMAT_R32G32_SFLOAT;
-            
             vertex_attribute_descriptions[0].offset = 0; // Offset of the vertex position relative to the start of a Vertex struct
         
             // Describe how to retrieve the vertex color from the vertex buffer
             vertex_attribute_descriptions[1].binding = 0;
             vertex_attribute_descriptions[1].location = 1; // layout (location = 1)
-            vertex_attribute_descriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT; // vec3
-            vertex_attribute_descriptions[0].offset = sizeof(glm::vec2); // Attribute data is interleaved in the buffer and reads to access vertex color must be offset from the start of the Vertex
+            vertex_attribute_descriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT; // vec3
+            vertex_attribute_descriptions[1].offset = sizeof(glm::vec2); // Attribute data is interleaved in the buffer and reads to access vertex color must be offset from the start of the Vertex
         
-            vertex_input_create_info.vertexAttributeDescriptionCount = 1;
+            vertex_input_create_info.vertexAttributeDescriptionCount = 2;
             vertex_input_create_info.pVertexAttributeDescriptions = vertex_attribute_descriptions.data();
         
             // Input assembly describes what kind of geometry is being drawn (topology) and if primitive restart is enabled (primitiveRestartEnable), which allows breaking up STRIP topology modes
@@ -442,6 +507,34 @@ class HelloTriangle final : public Sample {
             vkDestroyShaderModule(device, vertex_shader_module, nullptr);
         }
         
+        void initialize_resources() override {
+            // Initialize vertex buffer
+            Vertex vertices[3] = {
+                { glm::vec2(0.0f, -0.5f), glm::vec3(1.0f, 0.0f, 0.0f) },
+                { glm::vec2(-0.5f, 0.5f), glm::vec3(0.0f, 0.0f, 1.0f) },
+                { glm::vec2(0.5f, 0.5f), glm::vec3(0.0f, 1.0f, 0.0f) },
+            };
+            
+            std::size_t size = sizeof(vertices);
+            
+            // Vertex buffer is created using VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT (buffer is visible from the CPU) and VK_MEMORY_PROPERTY_HOST_COHERENT_BIT (buffer is allocated from a memory coherent heap, meaning writes are visible on the GPU before the next call to vkQueueSubmit)
+            // Submitting batches of command buffers to a queue defines a memory dependency will all prior host operations (host operations MUST complete before the commands are executed)
+            //   ref: https://registry.khronos.org/vulkan/specs/1.3-extensions/html/chap7.html#synchronization-submission-host-writes
+            // This synchronization is automatically handled by Vulkan
+            
+            // An alternative to the above is using vkFlushMappedMemoryRanges after the memory has been written, which ensures that any modifications made to mapped memory (to the memory ranges specified in the function call) from the CPU are made visible to the GPU (should be done after writing to the mapped memory region)
+            // Note that the reverse of the above operation can also be done using vkInvalidateMappedMemoryRanges, which ensures that any modifications made to mapped memory from the GPU are made visible to the CPU (should be done before reading from the mapped memory region)
+            
+            // Note that this type of buffer usage is not guaranteed to be the most optimal for GPU reads
+            create_buffer(physical_device, device, size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, vertex_buffer, vertex_buffer_memory);
+            
+            // Upload vertex data into vertex buffer
+            void* data;
+            vkMapMemory(device, vertex_buffer_memory, 0, size, 0, &data);
+                memcpy(data, &vertices, size);
+            vkUnmapMemory(device, vertex_buffer_memory);
+        }
+        
         void render() override {
             // The base sample uses multiple frames in flight to avoid forcing the CPU to wait on the GPU to finish rendering the previous frame to start rendering a new one
             // With multiple frames in flight, the GPU can be rendering one frame while the CPU is recording commands for rendering another
@@ -462,9 +555,7 @@ class HelloTriangle final : public Sample {
     
             // Record command buffer(s)
             vkResetCommandBuffer(command_buffer, 0);
-            
-            // TODO:
-            // record_command_buffers(image_index);
+            record_command_buffers(image_index);
     
             VkSubmitInfo submit_info { };
             submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -491,7 +582,7 @@ class HelloTriangle final : public Sample {
     
             // Submit
             if (vkQueueSubmit(queue, 1, &submit_info, is_frame_in_flight[frame_index]) != VK_SUCCESS) {
-                throw std::runtime_error("failed to submit draw command buffer!");
+                throw std::runtime_error("failed to submit command buffer!");
             }
         }
         

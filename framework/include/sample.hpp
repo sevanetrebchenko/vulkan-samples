@@ -168,7 +168,7 @@ class Sample {
         
         void create_command_pool(); // Must happen after device queues are selected
         void allocate_command_buffers(); // Allocates command buffers for swapchain images
-        virtual void record_command_buffers() = 0; // Samples do all the work on how to present to the screen
+        virtual void record_command_buffers(unsigned image_index) = 0; // Samples do all the work on how to present to the screen
         void deallocate_command_buffers();
         
         void create_synchronization_objects();
@@ -179,6 +179,9 @@ class Sample {
         virtual void initialize_pipelines() = 0;
         virtual void initialize_render_passes() = 0;
         virtual void initialize_framebuffers() = 0;
+        
+        // For things like vertex buffers, index buffers, etc.
+        virtual void initialize_resources() = 0;
         
         // Event dispatch functions (hooked up to window callbacks)
         void on_window_resize(int width, int height);

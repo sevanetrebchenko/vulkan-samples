@@ -2,6 +2,32 @@
 #include "helpers.hpp"
 #include <stdexcept> // std::runtime_error
 
+unsigned get_memory_type_index(VkPhysicalDevice physical_device, VkMemoryRequirements memory_requirements, VkMemoryPropertyFlags desired_memory_properties) {
+    // Returns the index of the memory
+    // TODO: physical device memory properties can be cached to prevent repeat calls to vkGetPhysicalDeviceMemoryProperties
+    VkPhysicalDeviceMemoryProperties physical_device_memory_properties;
+    vkGetPhysicalDeviceMemoryProperties(physical_device, &physical_device_memory_properties);
+    
+    unsigned selected_memory_type = physical_device_memory_properties.memoryTypeCount;
+    
+    for (unsigned i = 0; i < physical_device_memory_properties.memoryTypeCount; ++i) {
+        if (memory_requirements.memoryTypeBits & (1 << i)) {
+            // Memory type was requested, check to see if it is supported by the selected physical device
+            if ((physical_device_memory_properties.memoryTypes[i].propertyFlags & desired_memory_properties) == desired_memory_properties) {
+                // Memory supports all desired features
+                selected_memory_type = i;
+                break;
+            }
+        }
+    }
+    
+    if (selected_memory_type == physical_device_memory_properties.memoryTypeCount) {
+        throw std::runtime_error("failed to find suitable memory type for resource!");
+    }
+    
+    return selected_memory_type;
+}
+
 void create_image_view(VkDevice device, VkImage image, VkFormat format, VkImageAspectFlags aspect, unsigned mip_levels, VkImageView& image_view) {
     VkImageViewCreateInfo image_view_ci { };
     image_view_ci.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
@@ -59,7 +85,7 @@ void create_image(VkPhysicalDevice physical_device, VkDevice device, unsigned im
     image_ci.flags = 0; // TODO: look into sparse 3D textures for something like voxel terrain (allows avoiding allocations for large chunks of 'air' voxels)
     
     if (vkCreateImage(device, &image_ci, nullptr, &image) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create image.");
+        throw std::runtime_error("failed to create image!");
     }
     
     // Query image memory requirements
@@ -69,31 +95,38 @@ void create_image(VkPhysicalDevice physical_device, VkDevice device, unsigned im
     VkMemoryAllocateInfo memory_allocate_info { };
     memory_allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
     memory_allocate_info.allocationSize = image_memory_requirements.size;
-    
-    // TODO: physical device memory properties can be cached to prevent repeat calls to vkGetPhysicalDeviceMemoryProperties
-    VkPhysicalDeviceMemoryProperties physical_device_memory_properties;
-    vkGetPhysicalDeviceMemoryProperties(physical_device, &physical_device_memory_properties);
-    
-    unsigned selected_memory_type = physical_device_memory_properties.memoryTypeCount;
-    
-    for (unsigned i = 0; i < physical_device_memory_properties.memoryTypeCount; ++i) {
-        if (image_memory_requirements.memoryTypeBits & (1 << i)) {
-            // Memory type was requested, check to see if it is supported by the selected physical device
-            if ((physical_device_memory_properties.memoryTypes[i].propertyFlags & desired_memory_properties) == desired_memory_properties) {
-                // Memory supports all desired features
-                selected_memory_type = i;
-                break;
-            }
-        }
-    }
-    
-    if (selected_memory_type == physical_device_memory_properties.memoryTypeCount) {
-        throw std::runtime_error("failed to find suitable memory type for image!");
-    }
-    
-    memory_allocate_info.memoryTypeIndex = selected_memory_type;
+    memory_allocate_info.memoryTypeIndex = get_memory_type_index(physical_device, image_memory_requirements, desired_memory_properties);
     
     if (vkAllocateMemory(device, &memory_allocate_info, nullptr, &memory) != VK_SUCCESS) {
         throw std::runtime_error("failed to allocate memory for image!");
     }
+}
+
+void create_buffer(VkPhysicalDevice physical_device, VkDevice device, VkDeviceSize allocation_size, VkBufferUsageFlags buffer_usage, VkMemoryPropertyFlags desired_properties, VkBuffer& buffer, VkDeviceMemory& buffer_memory) {
+    VkBufferCreateInfo buffer_create_info { };
+    buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    buffer_create_info.size = allocation_size;
+    buffer_create_info.usage = buffer_usage; // Indicates the purpose(s) for which the data in the buffer will be used
+    buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    if (vkCreateBuffer(device, &buffer_create_info, nullptr, &buffer) != VK_SUCCESS) {
+        throw std::runtime_error("failed to create buffer object!");
+    }
+
+    // Query buffer memory requirements
+    VkMemoryRequirements memory_requirements { };
+    vkGetBufferMemoryRequirements(device, buffer, &memory_requirements);
+
+    // Graphics cards have different types of memory (such as VRAM and RAM swap space) that varies in terms of permitted operations and performance
+    // Buffer usage requirements must be considered when finding the right type of memory to use
+    VkMemoryAllocateInfo memory_allocate_info { };
+    memory_allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    memory_allocate_info.allocationSize = memory_requirements.size;
+    memory_allocate_info.memoryTypeIndex = get_memory_type_index(physical_device, memory_requirements, desired_properties);
+
+    if (vkAllocateMemory(device, &memory_allocate_info, nullptr, &buffer_memory) != VK_SUCCESS) {
+        throw std::runtime_error("failed to allocate memory for buffer!");
+    }
+    
+    // Associate the memory with the buffer
+    vkBindBufferMemory(device, buffer, buffer_memory, 0);
 }
