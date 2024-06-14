@@ -145,8 +145,6 @@ class Sample {
         void initialize_glfw();
         
         void create_vulkan_instance();
-        void initialize_debugging();
-        
         void initialize_window();
         void create_surface();
         
@@ -198,6 +196,11 @@ class Sample {
         
         bool initialized;
         bool running;
+        
+        double dt;
+        double last_frame_time;
+        double frame_time_accumulator;
+        std::size_t frame_count;
 };
 
 #define DEFINE_SAMPLE_MAIN(TYPE)            \

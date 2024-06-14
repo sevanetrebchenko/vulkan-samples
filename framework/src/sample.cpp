@@ -84,11 +84,6 @@ void Sample::initialize() {
     }
     
     create_vulkan_instance();
-
-    if (settings.debug) {
-        initialize_debugging();
-    }
-    
     create_surface();
     
     select_physical_device();
@@ -120,7 +115,22 @@ void Sample::initialize() {
 void Sample::run() {
     glfwPollEvents();
     
-    // TODO: frame time
+    // Show FPS in window title
+    double current_frame_time = glfwGetTime();
+    dt = current_frame_time - last_frame_time;
+    last_frame_time = current_frame_time;
+
+    frame_time_accumulator += dt;
+    ++frame_count;
+
+    if (frame_time_accumulator > 1.0) {
+        char title[256u] = { '\0' };
+        snprintf(title, sizeof(title) / sizeof(title[0]) - 1, "%s - %zu fps", name, frame_count);
+        glfwSetWindowTitle(window, title);
+
+        frame_count = 0u;
+        frame_time_accumulator -= 1.0;
+    }
     
     // Fences are used when the CPU needs to know when the GPU has finished executing some work
     // We can optionally attach a fence to work submitted to the GPU that gets signaled when the work is completed
@@ -201,8 +211,8 @@ void Sample::initialize_glfw() {
 }
 
 void Sample::create_vulkan_instance() {
-    VkInstanceCreateInfo instance_ci { };
-    instance_ci.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+    VkInstanceCreateInfo instance_create_info { };
+    instance_create_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
     
     // A Vulkan instance represents the connection between the Vulkan API context and the application
     VkApplicationInfo application_info { };
@@ -212,7 +222,7 @@ void Sample::create_vulkan_instance() {
     application_info.pEngineName = "";
     application_info.engineVersion = VK_MAKE_API_VERSION(0, 1, 0, 0);
     application_info.apiVersion = VK_MAKE_API_VERSION(0, 1, 0, 0);
-    instance_ci.pApplicationInfo = &application_info;
+    instance_create_info.pApplicationInfo = &application_info;
 
     // Tell the Vulkan driver which global extensions and validation layers are in use
     
@@ -230,8 +240,8 @@ void Sample::create_vulkan_instance() {
         if (strcmp(validation_layer, supported.layerName) == 0) {
             found = true;
             
-            instance_ci.ppEnabledLayerNames = &validation_layer;
-            instance_ci.enabledLayerCount = 1u;
+            instance_create_info.ppEnabledLayerNames = &validation_layer;
+            instance_create_info.enabledLayerCount = 1u;
             
             break;
         }
@@ -284,32 +294,43 @@ void Sample::create_vulkan_instance() {
         }
     }
     
-    instance_ci.enabledExtensionCount = static_cast<std::uint32_t>(extensions.size());
-    instance_ci.ppEnabledExtensionNames = extensions.data();
+    instance_create_info.enabledExtensionCount = static_cast<std::uint32_t>(extensions.size());
+    instance_create_info.ppEnabledExtensionNames = extensions.data();
     
-    // Create Vulkan instance
-    if (vkCreateInstance(&instance_ci, nullptr, &instance) != VK_SUCCESS) {
-        throw std::runtime_error("failed to create Vulkan instance!");
+    if (settings.debug) {
+        VkDebugUtilsMessengerCreateInfoEXT debug_callback_create_info { };
+        debug_callback_create_info.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
+        debug_callback_create_info.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+        debug_callback_create_info.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+        debug_callback_create_info.pfnUserCallback = vulkan_debug_callback;
+        debug_callback_create_info.pUserData = nullptr;
+        
+        // In order to debug instance creation and destruction, pass VkDebugUtilsMessengerCreateInfoEXT into the pNext chain of VkInstanceCreateInfo
+        // This debug messenger is attached to the instance and will get cleaned up alongside it
+        instance_create_info.pNext = &debug_callback_create_info;
+        
+        // Create Vulkan instance
+        if (vkCreateInstance(&instance_create_info, nullptr, &instance) != VK_SUCCESS) {
+            throw std::runtime_error("failed to create Vulkan instance!");
+        }
+        
+        // Creating debug messenger requires a valid instance
+        
+        // Load vkCreateDebugUtilsMessengerEXT function
+        static auto vkCreateDebugUtilsMessengerEXT = (PFN_vkCreateDebugUtilsMessengerEXT) vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT");
+        if (!vkCreateDebugUtilsMessengerEXT) {
+            throw std::runtime_error("failed to load debug messenger create function (is the VK_EXT_debug_utils extension enabled?)");
+        }
+    
+        if (vkCreateDebugUtilsMessengerEXT(instance, &debug_callback_create_info, nullptr, &debug_messenger) != VK_SUCCESS) {
+            throw std::runtime_error("failed to create debug messenger!");
+        }
     }
-}
-
-void Sample::initialize_debugging() {
-    // Configure Vulkan debug callback
-    VkDebugUtilsMessengerCreateInfoEXT debug_callback_create_info { };
-    debug_callback_create_info.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
-    debug_callback_create_info.messageSeverity = /* VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT | */ VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
-    debug_callback_create_info.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
-    debug_callback_create_info.pfnUserCallback = vulkan_debug_callback;
-    debug_callback_create_info.pUserData = nullptr;
-
-    // Load vkCreateDebugUtilsMessengerEXT function
-    static auto vkCreateDebugUtilsMessengerEXT = (PFN_vkCreateDebugUtilsMessengerEXT) vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT");
-    if (!vkCreateDebugUtilsMessengerEXT) {
-        throw std::runtime_error("failed to load debug messenger create function");
-    }
-
-    if (vkCreateDebugUtilsMessengerEXT(instance, &debug_callback_create_info, nullptr, &debug_messenger) != VK_SUCCESS) {
-        throw std::runtime_error("failed to create debug messenger");
+    else {
+        // Create Vulkan instance
+        if (vkCreateInstance(&instance_create_info, nullptr, &instance) != VK_SUCCESS) {
+            throw std::runtime_error("failed to create Vulkan instance!");
+        }
     }
 }
 
