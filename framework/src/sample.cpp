@@ -158,6 +158,43 @@ void Sample::run() {
 }
 
 void Sample::shutdown() {
+    if (!initialized) {
+        return;
+    }
+    
+    // Wait until the logical device finishes all operations currently in flight before shutting down
+    vkDeviceWaitIdle(device);
+    
+    // Destroy any sample-specific resources
+    destroy_resources();
+    
+    // Main pipeline, render pass, and framebuffer resources are owned by the base Sample
+    destroy_pipelines();
+    destroy_framebuffers();
+    destroy_render_passes();
+    
+    // Some samples do not require the use of the depth buffer
+    if (settings.use_depth_buffer) {
+        destroy_depth_buffer();
+    }
+    
+    // deallocate_command_buffers();
+    destroy_command_pool(); // Command buffers are automatically deallocated with the destruction of the command pool they were allocated from
+    
+    destroy_synchronization_objects();
+    
+    destroy_swapchain();
+    
+    destroy_logical_device();
+    destroy_physical_device();
+    
+    destroy_surface();
+    destroy_vulkan_instance();
+    
+    if (!settings.headless) {
+        destroy_window();
+        shutdown_glfw();
+    }
 }
 
 VKAPI_ATTR VkBool32 VKAPI_CALL vulkan_debug_callback(VkDebugUtilsMessageSeverityFlagBitsEXT severity, VkDebugUtilsMessageTypeFlagsEXT type, const VkDebugUtilsMessengerCallbackDataEXT* callback_data, void* user_data) {
@@ -208,6 +245,10 @@ bool Sample::active() const {
 void Sample::initialize_glfw() {
     glfwInit();
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API); // Create a surface for Vulkan
+}
+
+void Sample::shutdown_glfw() {
+    glfwTerminate();
 }
 
 void Sample::create_vulkan_instance() {
@@ -300,7 +341,7 @@ void Sample::create_vulkan_instance() {
     if (settings.debug) {
         VkDebugUtilsMessengerCreateInfoEXT debug_callback_create_info { };
         debug_callback_create_info.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
-        debug_callback_create_info.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+        debug_callback_create_info.messageSeverity =  VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
         debug_callback_create_info.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
         debug_callback_create_info.pfnUserCallback = vulkan_debug_callback;
         debug_callback_create_info.pUserData = nullptr;
@@ -1043,7 +1084,7 @@ void Sample::allocate_command_buffers() {
 }
 
 void Sample::deallocate_command_buffers() {
-    vkFreeCommandBuffers(device, command_pool, NUM_FRAMES_IN_FLIGHT, command_buffers.data());
+    // vkFreeCommandBuffers(device, command_pool, NUM_FRAMES_IN_FLIGHT, command_buffers.data());
 }
 
 VkShaderModule Sample::load_shader(const char* filepath) {
@@ -1104,3 +1145,73 @@ VkShaderModule Sample::load_shader(const char* filepath) {
     return shader_module;
 }
 
+void Sample::destroy_vulkan_instance() {
+    if (settings.debug) {
+        static auto vkDestroyDebugUtilsMessengerEXT = (PFN_vkDestroyDebugUtilsMessengerEXT) vkGetInstanceProcAddr(instance, "vkDestroyDebugUtilsMessengerEXT");
+        if (vkDestroyDebugUtilsMessengerEXT) {
+            vkDestroyDebugUtilsMessengerEXT(instance, debug_messenger, nullptr);
+        }
+    }
+    
+    vkDestroyInstance(instance, nullptr);
+}
+
+void Sample::destroy_window() {
+    glfwDestroyWindow(window);
+}
+
+void Sample::destroy_physical_device() {
+    // Physical device gets shutdown when the Vulkan instance is destroyed
+}
+
+void Sample::destroy_logical_device() {
+    // Device queues get automatically cleaned up when the logical device is destroyed
+    vkDestroyDevice(device, nullptr);
+}
+
+void Sample::destroy_surface() {
+    vkDestroySurfaceKHR(instance, surface, nullptr);
+}
+
+void Sample::destroy_swapchain() {
+    // Destroy swapchain image views
+    for (std::size_t i = 0u; i < NUM_FRAMES_IN_FLIGHT; ++i) {
+        vkDestroyImageView(device, swapchain_image_views[i], nullptr);
+    }
+
+    // Swapchain images are owned by the swapchain
+    // Validation layer message : vkDestroyImage(): VkImage is a presentable image and it is controlled by the implementation and is destroyed with vkDestroySwapchainKHR
+    
+    vkDestroySwapchainKHR(device, swapchain, nullptr);
+}
+
+void Sample::destroy_command_pool() {
+    vkDestroyCommandPool(device, command_pool, nullptr);
+}
+
+void Sample::destroy_synchronization_objects() {
+    for (std::size_t i = 0u; i < NUM_FRAMES_IN_FLIGHT; ++i) {
+        vkDestroySemaphore(device, is_rendering_complete[i], nullptr);
+    }
+    
+    for (std::size_t i = 0u; i < NUM_FRAMES_IN_FLIGHT; ++i) {
+        vkDestroySemaphore(device, is_presentation_complete[i], nullptr);
+    }
+    
+    for (std::size_t i = 0u; i < NUM_FRAMES_IN_FLIGHT; ++i) {
+        vkDestroyFence(device, is_frame_in_flight[i], nullptr);
+    }
+}
+
+void Sample::destroy_depth_buffer() {
+    // Depth buffer consists of the image, image view, and allocated device memory
+    vkDestroyImageView(device, depth_buffer_view, nullptr);
+    vkFreeMemory(device, depth_buffer_memory, nullptr);
+    vkDestroyImage(device, depth_buffer, nullptr);
+}
+
+void Sample::destroy_framebuffers() {
+    for (std::size_t i = 0u; i < NUM_FRAMES_IN_FLIGHT; ++i) {
+        vkDestroyFramebuffer(device, framebuffers[i], nullptr);
+    }
+}

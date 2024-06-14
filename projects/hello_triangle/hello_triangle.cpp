@@ -250,6 +250,10 @@ class HelloTriangle final : public Sample {
             }
         }
         
+        void destroy_render_passes() override {
+            vkDestroyRenderPass(device, render_pass, nullptr);
+        }
+        
         void initialize_framebuffers() override {
             // Render passes operate in conjunction with framebuffers
             // A framebuffer object represents the collection of attachments that a render pass instance uses
@@ -507,6 +511,11 @@ class HelloTriangle final : public Sample {
             vkDestroyShaderModule(device, vertex_shader_module, nullptr);
         }
         
+        void destroy_pipelines() override {
+            vkDestroyPipelineLayout(device, pipeline_layout, nullptr);
+            vkDestroyPipeline(device, pipeline, nullptr);
+        }
+        
         void initialize_resources() override {
             // Initialize vertex buffer
             Vertex vertices[3] = {
@@ -533,6 +542,11 @@ class HelloTriangle final : public Sample {
             vkMapMemory(device, vertex_buffer_memory, 0, size, 0, &data);
                 memcpy(data, &vertices, size);
             vkUnmapMemory(device, vertex_buffer_memory);
+        }
+        
+        void destroy_resources() override {
+            vkFreeMemory(device, vertex_buffer_memory, nullptr);
+            vkDestroyBuffer(device, vertex_buffer, nullptr);
         }
         
         void render() override {

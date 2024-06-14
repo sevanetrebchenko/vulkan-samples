@@ -143,43 +143,59 @@ class Sample {
 
     private:
         void initialize_glfw();
+        void shutdown_glfw();
         
         void create_vulkan_instance();
+        void destroy_vulkan_instance();
+        
         void initialize_window();
+        void destroy_window();
+        
         void create_surface();
+        void destroy_surface();
         
         // Selecting a suitable physical device depends on a number of different criteria, including:
         //   - supported device features
         //   - available queue family types and count
         //   - available surface formats / properties
         void select_physical_device();
+        void destroy_physical_device();
         
         // Initializing a logical device consists of:
         //   - enabling device extensions
         //   - enabling device features (verified during physical device selection)
         //   - retrieving queue families + creating queues
         void create_logical_device();
+        void destroy_logical_device();
         
         // Things like command pools / command buffers, pipelines, framebuffers, and synchronization objects are used once the logical device is created
         
         void initialize_swapchain();
+        void destroy_swapchain();
         
         void create_command_pool(); // Must happen after device queues are selected
         void allocate_command_buffers(); // Allocates command buffers for swapchain images
         virtual void record_command_buffers(unsigned image_index) = 0; // Samples do all the work on how to present to the screen
         void deallocate_command_buffers();
+        void destroy_command_pool();
         
         void create_synchronization_objects();
+        void destroy_synchronization_objects();
         
         void create_depth_buffer();
+        void destroy_depth_buffer();
 
         // Things for the Sample to do
         virtual void initialize_pipelines() = 0;
+        virtual void destroy_pipelines() = 0;
         virtual void initialize_render_passes() = 0;
+        virtual void destroy_render_passes() = 0;
         virtual void initialize_framebuffers() = 0;
+        void destroy_framebuffers(); // Framebuffers are owned by the base Sample
         
         // For things like vertex buffers, index buffers, etc.
         virtual void initialize_resources() = 0;
+        virtual void destroy_resources() = 0;
         
         // Event dispatch functions (hooked up to window callbacks)
         void on_window_resize(int width, int height);
@@ -188,10 +204,6 @@ class Sample {
         void on_mouse_move(double x, double y);
         void on_mouse_scroll(double distance);
 
-        // Rendering loop
-        void prepare();
-        void submit();
-        
         VkDebugUtilsMessengerEXT debug_messenger;
         
         bool initialized;
