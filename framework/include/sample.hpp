@@ -9,7 +9,8 @@
 #include <vector> // std::vector
 #include <array> // std::array
 #include <unordered_map> // std::unordered_map
-
+#include <stdexcept> // std::runtime_error
+#include <iostream> // std::cout, std::endl
 
 // To make writing Vulkan applications easier, the Sample base class aims to set up a lot of the boilerplate for the user
 // Currently, the Sample is responsible for:

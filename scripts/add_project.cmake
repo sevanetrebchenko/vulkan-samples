@@ -79,13 +79,18 @@ function(add_project)
 
     target_link_libraries(${PROJECT_NAME} PRIVATE framework) # Always link project with the 'framework' object library
 
-    # TODO: copy shared shaders / models directory along with this
-
     # Copy project-specific shaders
-    add_custom_target(${PROJECT_NAME}_copy_resources ALL
+    add_custom_target(${PROJECT_NAME}_copy_shaders ALL
         COMMAND "${CMAKE_COMMAND}" -E copy_directory "${PROJECT_SOURCE_DIR}/shaders" "${PROJECT_BINARY_DIR}/shaders"
         COMMENT "Copying project shaders into binary directory"
     )
-    add_dependencies(${PROJECT_NAME} ${PROJECT_NAME}_copy_resources)
+    add_dependencies(${PROJECT_NAME} ${PROJECT_NAME}_copy_shaders)
+
+    # Copy shared project assets
+    add_custom_target(${PROJECT_NAME}_copy_assets ALL
+        COMMAND "${CMAKE_COMMAND}" -E copy_directory "${CMAKE_SOURCE_DIR}/assets" "${PROJECT_BINARY_DIR}/assets"
+        COMMENT "Copying framework assets into binary directory"
+    )
+    add_dependencies(${PROJECT_NAME} ${PROJECT_NAME}_copy_assets)
 
 endfunction()
