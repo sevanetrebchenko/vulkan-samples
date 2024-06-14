@@ -70,6 +70,9 @@ class Sample {
         virtual void on_mouse_moved(glm::vec2 position);
         virtual void on_mouse_scrolled(double distance);
 
+        VkCommandBuffer allocate_transient_command_buffer();
+        void deallocate_transient_command_buffer(VkCommandBuffer command_buffer);
+        
         bool is_key_down(int key) const;
         glm::vec2 get_mouse_position() const;
 
@@ -92,6 +95,7 @@ class Sample {
         VkDevice device;
         
         VkCommandPool command_pool; // Command buffers are allocated from here
+        VkCommandPool transient_command_pool; // For short-lived commands
         std::array<VkCommandBuffer, NUM_FRAMES_IN_FLIGHT> command_buffers;
         unsigned queue_family_index;
         VkQueue queue;
@@ -174,7 +178,7 @@ class Sample {
         void initialize_swapchain();
         void destroy_swapchain();
         
-        void create_command_pool(); // Must happen after device queues are selected
+        void create_command_pools(); // Must happen after device queues are selected
         void allocate_command_buffers(); // Allocates command buffers for swapchain images
         virtual void record_command_buffers(unsigned image_index) = 0; // Samples do all the work on how to present to the screen
         void deallocate_command_buffers();

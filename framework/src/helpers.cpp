@@ -173,7 +173,6 @@ Model load_model(const char* filepath) {
 
             if (unique_vertex_list.count(vertex) == 0) {
                 unique_vertex_list[vertex] = unique_vertex_list.size();
-                model.vertices.push_back(vertex);
 
                 // Find mesh extrema.
                 if (vertex.x < minimum.x) {
@@ -198,7 +197,10 @@ Model load_model(const char* filepath) {
                 }
 
                 if (has_texture_coordinates) {
-                    model.uv.emplace_back(uv);
+                    model.vertices.emplace_back(vertex, uv);
+                }
+                else {
+                    model.vertices.emplace_back(vertex);
                 }
             }
 
@@ -259,8 +261,9 @@ Model load_model(const char* filepath) {
     // Center model at (0, 0, 0)
     glm::vec3 center = glm::vec3((minimum + maximum) / 2.0f);
     glm::mat4 translation = glm::translate(glm::mat4(1.0f), -center);
-    for (glm::vec3& vertex : model.vertices) {
-        vertex = translation * glm::vec4(vertex, 1.0f);
+    
+    for (std::size_t i = 0u; i < model.vertices.size(); ++i) {
+        model.vertices[i].position = glm::vec3(translation * glm::vec4(model.vertices[i].position, 1.0f));
     }
     
     // Scale model to [1, 1, 1]
@@ -270,9 +273,24 @@ Model load_model(const char* filepath) {
     float max_dimension = std::max(bounding_box.x, std::max(bounding_box.y, bounding_box.z));
     glm::mat4 scale = glm::scale(glm::mat4(1.0f), glm::vec3(2.0f / max_dimension));
     
-    for (glm::vec3& vertex : model.vertices) {
-        vertex = scale * glm::vec4(vertex, 1.0f);
+    for (std::size_t i = 0u; i < model.vertices.size(); ++i) {
+        model.vertices[i].position = glm::vec3(scale * glm::vec4(model.vertices[i].position, 1.0f));
     }
     
     return std::move(model);
+}
+
+Model::Vertex::Vertex(glm::vec3 position, glm::vec3 normal, glm::vec2 uv) : position(position),
+                                                                            normal(normal),
+                                                                            uv(uv) {
+}
+
+Model::Vertex::Vertex(glm::vec3 position, glm::vec2 uv) : position(position),
+                                                          normal(glm::vec3(0.0f)),
+                                                          uv(uv) {
+}
+
+Model::Vertex::Vertex(glm::vec3 position) : position(position),
+                                            normal(glm::vec3(0.0f)),
+                                            uv(glm::vec2(0.0f)) {
 }

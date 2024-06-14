@@ -12,14 +12,20 @@ void create_image(VkPhysicalDevice physical_device, VkDevice device, unsigned im
 void create_buffer(VkPhysicalDevice physical_device, VkDevice device, VkDeviceSize allocation_size, VkBufferUsageFlags buffer_usage, VkMemoryPropertyFlags desired_properties, VkBuffer& buffer, VkDeviceMemory& buffer_memory);
 
 struct Model {
-    std::vector<glm::vec3> vertices;
-    std::vector<glm::vec3> normals;
-    std::vector<glm::vec2> uv;
+    struct Vertex {
+        Vertex(glm::vec3 position, glm::vec3 normal, glm::vec2 uv);
+        Vertex(glm::vec3 position, glm::vec2 uv);
+        Vertex(glm::vec3 position);
+        
+        glm::vec3 position;
+        glm::vec3 normal;
+        glm::vec2 uv;
+    };
+    
+    std::vector<Vertex> vertices;
     std::vector<unsigned> indices;
 };
 
 Model load_model(const char* filepath);
-
-
 
 #endif // HELPERS_HPP

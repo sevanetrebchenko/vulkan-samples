@@ -93,7 +93,7 @@ void Sample::initialize() {
     
     create_synchronization_objects();
     
-    create_command_pool();
+    create_command_pools();
     allocate_command_buffers();
     
     // Some samples do not require the use of the depth buffer
@@ -1043,24 +1043,30 @@ void Sample::create_depth_buffer() {
     create_image_view(device, depth_buffer, image_format, VK_IMAGE_ASPECT_DEPTH_BIT, depth_mip_levels, depth_buffer_view);
 }
 
-void Sample::create_command_pool() {
+void Sample::create_command_pools() {
     // This function must be called after queue families are selected, since commands are submitted to a specific type of queue
     
     // Command pools are used to allocate / store command buffers
-    VkCommandPoolCreateInfo command_pool_ci { };
-    command_pool_ci.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-    command_pool_ci.queueFamilyIndex = queue_family_index;
+    VkCommandPoolCreateInfo command_pool_create_info { };
+    command_pool_create_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    command_pool_create_info.queueFamilyIndex = queue_family_index;
 
     // Two options for command buffer allocation strategy:
     //  - VK_COMMAND_POOL_CREATE_TRANSIENT_BIT: command buffers allocated from this pool are short-lived and will be reset/freed in a short amount of time
     //  - VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT: command buffers allocated from this pool have longer lifetimes and can be individually reset by calling vkResetCommandBuffer or vkBeginCommandBuffer
-    command_pool_ci.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+    command_pool_create_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
 
-    if (vkCreateCommandPool(device, &command_pool_ci, nullptr, &command_pool) != VK_SUCCESS) {
-        throw std::runtime_error("failed to allocate command pool!");
+    if (vkCreateCommandPool(device, &command_pool_create_info, nullptr, &command_pool) != VK_SUCCESS) {
+        throw std::runtime_error("failed to allocate main command pool!");
     }
 
-    // TODO: initialize transient command pool / command buffers
+    // Allocate a command pool for transient command buffers
+    command_pool_create_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    command_pool_create_info.queueFamilyIndex = queue_family_index;
+    command_pool_create_info.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
+    if (vkCreateCommandPool(device, &command_pool_create_info, nullptr, &transient_command_pool) != VK_SUCCESS) {
+        throw std::runtime_error("failed to allocate transient command pool!");
+    }
 }
 
 void Sample::allocate_command_buffers() {
@@ -1186,6 +1192,7 @@ void Sample::destroy_swapchain() {
 }
 
 void Sample::destroy_command_pool() {
+    vkDestroyCommandPool(device, transient_command_pool, nullptr);
     vkDestroyCommandPool(device, command_pool, nullptr);
 }
 
@@ -1214,4 +1221,23 @@ void Sample::destroy_framebuffers() {
     for (std::size_t i = 0u; i < NUM_FRAMES_IN_FLIGHT; ++i) {
         vkDestroyFramebuffer(device, framebuffers[i], nullptr);
     }
+}
+
+VkCommandBuffer Sample::allocate_transient_command_buffer() {
+    VkCommandBufferAllocateInfo command_buffer_allocate_info { };
+    command_buffer_allocate_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    command_buffer_allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    command_buffer_allocate_info.commandPool = transient_command_pool;
+    command_buffer_allocate_info.commandBufferCount = 1;
+
+    VkCommandBuffer command_buffer;
+    if (vkAllocateCommandBuffers(device, &command_buffer_allocate_info, &command_buffer) != VK_SUCCESS) {
+        throw std::runtime_error("failed to allocate transient command buffer!");
+    }
+    
+    return command_buffer;
+}
+
+void Sample::deallocate_transient_command_buffer(VkCommandBuffer command_buffer) {
+    vkFreeCommandBuffers(device, transient_command_pool, 1, &command_buffer);
 }
