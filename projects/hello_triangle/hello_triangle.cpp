@@ -518,6 +518,9 @@ class HelloTriangle final : public Sample {
         
         void initialize_resources() override {
             // Initialize vertex buffer
+            
+            // Vertices are defined in counter-clockwise winding (y-axis in the Vulkan coordinate system points down)
+            // This will be solved in future samples with a camera by flipping the projection when being rendered to the screen
             Vertex vertices[3] = {
                 { glm::vec2(0.0f, -0.5f), glm::vec3(1.0f, 0.0f, 0.0f) },
                 { glm::vec2(-0.5f, 0.5f), glm::vec3(0.0f, 0.0f, 1.0f) },
