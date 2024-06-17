@@ -30,7 +30,6 @@ Sample::Sample(const char* name) : instance(nullptr),
                                    command_buffers({ }),
                                    queue_family_index(-1),
                                    queue(nullptr),
-                                   render_pass(nullptr),
                                    width(1920),
                                    height(1080),
                                    window(nullptr),
@@ -49,7 +48,7 @@ Sample::Sample(const char* name) : instance(nullptr),
                                    depth_buffer_view(),
                                    depth_buffer_memory(),
                                    frame_index(0u),
-                                   framebuffers({ }),
+                                   present_framebuffers({ }),
                                    is_presentation_complete({ }),
                                    is_rendering_complete({ }),
                                    is_frame_in_flight({ }),
@@ -82,6 +81,24 @@ void Sample::initialize() {
     if (!settings.headless) {
         initialize_glfw();
         initialize_window();
+        
+        // Surface extension VK_KHR_SURFACE_EXTENSION_NAME is also guaranteed to be contained within extensions returned by glfwGetRequiredInstanceExtensions
+        enabled_instance_extensions.emplace_back(VK_KHR_SURFACE_EXTENSION_NAME);
+
+        // Append GLFW instance extensions.
+        unsigned glfw_extension_count = 0u;
+        const char** glfw_extensions = glfwGetRequiredInstanceExtensions(&glfw_extension_count);
+        for (unsigned i = 0u; i < glfw_extension_count; ++i) {
+            enabled_instance_extensions.emplace_back(glfw_extensions[i]);
+        }
+        
+        // VK_KHR_swapchain is the extension for swapchain support
+        // The swapchain is primarily used for presentation operations and is not required for headless applications
+        enabled_device_extensions.emplace_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+    }
+    
+    if (settings.debug) {
+        enabled_instance_extensions.emplace_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
     }
     
     create_vulkan_instance();
@@ -102,18 +119,7 @@ void Sample::initialize() {
         create_depth_buffer();
     }
     
-    initialize_descriptor_pool();
-    
-    // Initialize resources needed for the sample
-    initialize_render_passes();
-    initialize_framebuffers();
-    
-    initialize_uniform_buffers();
-    
-    // Descriptor sets are referenced in the pipeline and need to be created before the pipeline
-    initialize_descriptor_sets();
-    initialize_pipelines();
-    
+    // Initialize resources required for the sample to run
     initialize_resources();
     
     initialized = true;
@@ -147,6 +153,7 @@ void Sample::run() {
     vkWaitForFences(device, 1, &is_frame_in_flight[frame_index], VK_TRUE, std::numeric_limits<std::uint64_t>::max()); // Blocks CPU execution (fence is created in the signaled state so that the first pass through this function doesn't block execution indefinitely)
     vkResetFences(device, 1, &is_frame_in_flight[frame_index]);
     
+    update(dt);
     render();
     
     // Present to the screen
@@ -176,10 +183,9 @@ void Sample::shutdown() {
     // Destroy any sample-specific resources
     destroy_resources();
     
-    // Main pipeline, render pass, and framebuffer resources are owned by the base Sample
-    destroy_pipelines();
+    destroy_descriptor_pool();
+    
     destroy_framebuffers();
-    destroy_render_passes();
     
     // Some samples do not require the use of the depth buffer
     if (settings.use_depth_buffer) {
@@ -268,8 +274,6 @@ void Sample::render() {
     VkResult result = vkAcquireNextImageKHR(device, swapchain, std::numeric_limits<std::uint64_t>::max(), is_image_available, VK_NULL_HANDLE, &image_index);
     // TODO: handle different return values
     
-    update_uniform_buffers(image_index);
-    
     // Record command buffer(s)
     vkResetCommandBuffer(command_buffer, 0);
     record_command_buffers(image_index);
@@ -323,7 +327,7 @@ void Sample::create_vulkan_instance() {
     application_info.applicationVersion = VK_MAKE_API_VERSION(0, 1, 0, 0);
     application_info.pEngineName = "";
     application_info.engineVersion = VK_MAKE_API_VERSION(0, 1, 0, 0);
-    application_info.apiVersion = VK_MAKE_API_VERSION(0, 1, 0, 0);
+    application_info.apiVersion = VK_MAKE_API_VERSION(0, 1, 3, 0);
     instance_create_info.pApplicationInfo = &application_info;
 
     // Tell the Vulkan driver which global extensions and validation layers are in use
@@ -353,28 +357,6 @@ void Sample::create_vulkan_instance() {
         settings.debug = false;
     }
     
-    std::vector<const char*> extensions { };
-    
-    if (!settings.headless) {
-        // Surface extension VK_KHR_SURFACE_EXTENSION_NAME is also guaranteed to be contained within extensions returned by glfwGetRequiredInstanceExtensions
-        extensions.emplace_back(VK_KHR_SURFACE_EXTENSION_NAME);
-
-        // Append GLFW instance extensions.
-        unsigned glfw_extension_count = 0u;
-        const char** glfw_extensions = glfwGetRequiredInstanceExtensions(&glfw_extension_count);
-        for (unsigned i = 0u; i < glfw_extension_count; ++i) {
-            extensions.emplace_back(glfw_extensions[i]);
-        }
-    }
-    
-    if (settings.debug) {
-        extensions.emplace_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
-    }
-
-    // Append any sample-specific extensions
-    std::vector<const char*> requested_extensions = request_instance_extensions();
-    extensions.insert(extensions.end(), requested_extensions.begin(), requested_extensions.end());
-    
     // Verify extension support.
     unsigned supported_extension_count = 0u;
     vkEnumerateInstanceExtensionProperties(nullptr, &supported_extension_count, nullptr);
@@ -382,7 +364,7 @@ void Sample::create_vulkan_instance() {
     std::vector<VkExtensionProperties> supported_extensions(supported_extension_count);
     vkEnumerateInstanceExtensionProperties(nullptr, &supported_extension_count, supported_extensions.data());
     
-    for (const char* requested : extensions) {
+    for (const char* requested : enabled_instance_extensions) {
         found = false;
         for (const VkExtensionProperties& supported : supported_extensions) {
             if (strcmp(requested, supported.extensionName) == 0) {
@@ -396,8 +378,8 @@ void Sample::create_vulkan_instance() {
         }
     }
     
-    instance_create_info.enabledExtensionCount = static_cast<std::uint32_t>(extensions.size());
-    instance_create_info.ppEnabledExtensionNames = extensions.data();
+    instance_create_info.enabledExtensionCount = static_cast<std::uint32_t>(enabled_instance_extensions.size());
+    instance_create_info.ppEnabledExtensionNames = enabled_instance_extensions.data();
     
     if (settings.debug) {
         VkDebugUtilsMessengerCreateInfoEXT debug_callback_create_info { };
@@ -494,33 +476,20 @@ void Sample::select_physical_device() {
 }
 
 void Sample::create_logical_device() {
-    VkDeviceCreateInfo device_ci = { };
-    device_ci.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+    VkDeviceCreateInfo device_create_info = { };
+    device_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
     
     // Select enabled device features
-    VkPhysicalDeviceFeatures enabled_features = request_device_features();
-    device_ci.pEnabledFeatures = &enabled_features;
+    device_create_info.pEnabledFeatures = &enabled_physical_device_features;
     
     // Device extensions
-    std::vector<const char*> extensions;
-    
-    if (!settings.headless) {
-        // VK_KHR_swapchain is the extension for swapchain support
-        // The swapchain is primarily used for presentation operations and is not required for headless applications
-        extensions.emplace_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
-    }
-    
-    std::vector<const char*> requested_extesions = request_device_extensions();
-    extensions.insert(extensions.end(), requested_extesions.begin(), requested_extesions.end());
-    
-    device_ci.enabledExtensionCount = static_cast<unsigned>(extensions.size());
-    device_ci.ppEnabledExtensionNames = extensions.data();
+    device_create_info.enabledExtensionCount = static_cast<unsigned>(enabled_device_extensions.size());
+    device_create_info.ppEnabledExtensionNames = enabled_device_extensions.data();
     
     // Initialize queue requirements and retrieve queue family indices
-    VkQueueFlags requested_queue_types = request_device_queues();
-    bool graphics_support_requested = !settings.headless || requested_queue_types & VK_QUEUE_GRAPHICS_BIT;
-    bool compute_support_requested = requested_queue_types & VK_QUEUE_COMPUTE_BIT;
-    bool transfer_support_requested = requested_queue_types & VK_QUEUE_TRANSFER_BIT;
+    bool graphics_support_requested = !settings.headless || enabled_queue_types & VK_QUEUE_GRAPHICS_BIT;
+    bool compute_support_requested = enabled_queue_types & VK_QUEUE_COMPUTE_BIT;
+    bool transfer_support_requested = enabled_queue_types & VK_QUEUE_TRANSFER_BIT;
     bool presentation_support_requested = !settings.headless; // Headless applications do not need presentation support
     
     std::vector<VkDeviceQueueCreateInfo> queue_create_infos { };
@@ -580,10 +549,10 @@ void Sample::create_logical_device() {
         throw std::runtime_error("unable to find queue family that satisfies application requirements");
     }
     
-    device_ci.queueCreateInfoCount = static_cast<unsigned>(queue_create_infos.size());
-    device_ci.pQueueCreateInfos = queue_create_infos.data();
+    device_create_info.queueCreateInfoCount = static_cast<unsigned>(queue_create_infos.size());
+    device_create_info.pQueueCreateInfos = queue_create_infos.data();
     
-    if (vkCreateDevice(physical_device, &device_ci, nullptr, &device) != VK_SUCCESS) {
+    if (vkCreateDevice(physical_device, &device_create_info, nullptr, &device) != VK_SUCCESS) {
         throw std::runtime_error("failed to create logical device!");
     }
     
@@ -1065,22 +1034,6 @@ void Sample::on_mouse_scroll(double distance) {
     on_mouse_scrolled(distance);
 }
 
-std::vector<const char*> Sample::request_instance_extensions() const {
-    return { };
-}
-
-std::vector<const char*> Sample::request_device_extensions() const {
-    return { };
-}
-
-VkPhysicalDeviceFeatures Sample::request_device_features() const {
-    return { };
-}
-
-VkQueueFlags Sample::request_device_queues() const {
-    return { };
-}
-
 void Sample::on_window_resized(int w, int h) {
 }
 
@@ -1189,68 +1142,6 @@ void Sample::allocate_command_buffers() {
     }
 }
 
-void Sample::deallocate_command_buffers() {
-    // vkFreeCommandBuffers(device, command_pool, NUM_FRAMES_IN_FLIGHT, command_buffers.data());
-}
-
-VkShaderModule Sample::load_shader(const char* filepath) {
-    // Read shader into memory
-    std::ifstream file(filepath, std::ios::ate | std::ios::binary);
-    if (!file.is_open()) {
-        throw std::runtime_error("failed to open shader: " + std::string(filepath));
-    }
-
-    std::streamsize file_size = file.tellg();
-    std::string source;
-    source.resize(file_size);
-
-    // Read data
-    file.seekg(0);
-    file.read(source.data(), file_size);
-    file.close();
-
-    shaderc::CompileOptions options { };
-    
-    // TODO: configure shader defines
-
-    // TODO: support multiple shader languages
-    shaderc_shader_kind type;
-    std::filesystem::path path = std::filesystem::path(filepath);
-    std::filesystem::path extension = path.extension();
-    if (extension == ".vert") {
-        type = shaderc_glsl_vertex_shader;
-    }
-    else if (extension == ".frag") {
-        type = shaderc_glsl_fragment_shader;
-    }
-    else {
-        throw std::runtime_error("unknown shader type!");
-    }
-    
-    shaderc::Compiler compiler { };
-    std::string filename = path.stem().u8string(); // Convert from wchar_t
-    
-    // Function assumes entry point is 'main'
-    shaderc::SpvCompilationResult result = compiler.CompileGlslToSpv(source, type, filename.c_str());
-    
-    if (result.GetCompilationStatus() != shaderc_compilation_status_success) {
-        throw std::runtime_error("failed to compile shader: " + result.GetErrorMessage());
-    }
-    
-    std::vector<unsigned> spirv = { result.cbegin(), result.cend() };
-    VkShaderModuleCreateInfo shader_module_create_info { };
-    shader_module_create_info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-    shader_module_create_info.codeSize = spirv.size() * sizeof(unsigned); // Bytes
-    shader_module_create_info.pCode = spirv.data();
-    
-    VkShaderModule shader_module { };
-    if (vkCreateShaderModule(device, &shader_module_create_info, nullptr, &shader_module) != VK_SUCCESS) {
-        throw std::runtime_error("failed to create shader module!");
-    }
-    
-    return shader_module;
-}
-
 void Sample::destroy_vulkan_instance() {
     if (settings.debug) {
         static auto vkDestroyDebugUtilsMessengerEXT = (PFN_vkDestroyDebugUtilsMessengerEXT) vkGetInstanceProcAddr(instance, "vkDestroyDebugUtilsMessengerEXT");
@@ -1319,11 +1210,11 @@ void Sample::destroy_depth_buffer() {
 
 void Sample::destroy_framebuffers() {
     for (std::size_t i = 0u; i < NUM_FRAMES_IN_FLIGHT; ++i) {
-        vkDestroyFramebuffer(device, framebuffers[i], nullptr);
+        vkDestroyFramebuffer(device, present_framebuffers[i], nullptr);
     }
 }
 
-VkCommandBuffer Sample::allocate_transient_command_buffer() {
+VkCommandBuffer Sample::begin_transient_command_buffer() {
     VkCommandBufferAllocateInfo command_buffer_allocate_info { };
     command_buffer_allocate_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
     command_buffer_allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
@@ -1335,11 +1226,58 @@ VkCommandBuffer Sample::allocate_transient_command_buffer() {
         throw std::runtime_error("failed to allocate transient command buffer!");
     }
     
+    VkCommandBufferBeginInfo begin_info { };
+    begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    vkBeginCommandBuffer(command_buffer, &begin_info);
+    
     return command_buffer;
 }
 
-void Sample::deallocate_transient_command_buffer(VkCommandBuffer command_buffer) {
+void Sample::submit_transient_command_buffer(VkCommandBuffer command_buffer) {
+    vkEndCommandBuffer(command_buffer);
+    
+    VkSubmitInfo submit_info { };
+    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submit_info.commandBufferCount = 1;
+    submit_info.pCommandBuffers = &command_buffer;
+    
+    vkQueueSubmit(queue, 1, &submit_info, VK_NULL_HANDLE);
+
+    // This transfer is a one-time operation, easier just to wait for it to complete
+    // An alternative approach here would be to use a fence, which would allow scheduling multiple transfers in parallel and give the GPU more opportunities to optimize
+    vkQueueWaitIdle(queue);
+    
     vkFreeCommandBuffers(device, transient_command_pool, 1, &command_buffer);
+}
+
+void Sample::destroy_descriptor_pool() {
+    // Destroying the descriptor pool automatically destroys the descriptor sets allocated from this pool
+    vkDestroyDescriptorPool(device, descriptor_pool, nullptr);
+}
+
+void Sample::initialize_descriptor_pool(unsigned descriptor_count) {
+    // A descriptor is a handle to a resource (such as a buffer or a sampler)
+    // Descriptors also hold extra information such as the size of the buffer or the type of sampler
+    
+    // Descriptors are bound together into descriptor sets (Vulkan does not allow binding individual resources in shaders, this operation must be done in sets)
+    // There is a limit to how many descriptor sets different devices support
+    
+    VkDescriptorPoolSize descriptor_pool_size { };
+    descriptor_pool_size.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER; // Descriptor sets allocated from this pool are to be used as descriptor sets for uniform buffers
+    
+    // Allocate a descriptor set per frame in flight to prevent writing to uniform buffers of one frame while they are still in use by the rendering operations of the previous frame
+    descriptor_pool_size.descriptorCount = descriptor_count;
+    
+    VkDescriptorPoolCreateInfo descriptor_pool_create_info { };
+    descriptor_pool_create_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    descriptor_pool_create_info.poolSizeCount = 1;
+    descriptor_pool_create_info.pPoolSizes = &descriptor_pool_size;
+    descriptor_pool_create_info.maxSets = descriptor_count;
+    
+    if (vkCreateDescriptorPool(device, &descriptor_pool_create_info, nullptr, &descriptor_pool) != VK_SUCCESS) {
+        throw std::runtime_error("failed to create descriptor pool!");
+    }
 }
 
 

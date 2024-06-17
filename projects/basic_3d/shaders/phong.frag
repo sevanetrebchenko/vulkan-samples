@@ -12,7 +12,7 @@ layout (set = 0, binding = 0) uniform GlobalUniforms {
 
 // This is technically updated once per model, but can be shared across different instances of the same material
 // Objects using the same material can save on a call to vkCmdBindDescriptorSets and reuse the same data
-layout (set = 1, binding = 1) uniform BlinnPhongUniforms {
+layout (set = 1, binding = 1) uniform PhongUniforms {
     vec3 ambient;
     vec3 diffuse;
     vec3 specular;

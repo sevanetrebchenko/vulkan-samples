@@ -46,100 +46,96 @@ class Sample {
         bool active() const;
         
     protected:
-        virtual void render();
-        
-        virtual std::vector<const char*> request_instance_extensions() const;
-        
-        virtual std::vector<const char*> request_device_extensions() const;
-        virtual VkPhysicalDeviceFeatures request_device_features() const;
-        
-        // Application tries to find a dedicated queue of the specified type
-        virtual VkQueueFlags request_device_queues() const;
-        
-        // Detects shader module type from extension
-        // .vert - vertex
-        // .frag - fragment
-        // .comp - compute
-        // TODO: more shader types
-        VkShaderModule load_shader(const char* filepath);
+        // For initializing things like vertex buffers, index buffers, etc.
+        virtual void initialize_resources() = 0;
 
-        // Section: input
+        // For any updates that need to happen
+        virtual void update(double dt) = 0;
+        
+        // Passes the index of the swapchain image retrieved for presentation (1:1 mapping for final present framebuffer)
+        virtual void record_command_buffers(unsigned framebuffer_index) = 0;
+
+        // Framebuffers and pool resources are cleaned up automatically
+        virtual void destroy_resources() = 0;
+        
         virtual void on_window_resized(int width, int height);
-
         virtual void on_key_pressed(int key);
-        
         virtual void on_mouse_button_pressed(int button);
         virtual void on_mouse_moved(glm::vec2 position);
         virtual void on_mouse_scrolled(double distance);
 
-        VkCommandBuffer allocate_transient_command_buffer();
-        void deallocate_transient_command_buffer(VkCommandBuffer command_buffer);
+        // Helper vulkan functions
+        VkCommandBuffer begin_transient_command_buffer();
+        void submit_transient_command_buffer(VkCommandBuffer command_buffer); // Automatically calls vkEndCommandBuffer
         
-        bool is_key_down(int key) const;
-        glm::vec2 get_mouse_position() const;
-
+        void initialize_descriptor_pool(unsigned descriptor_count);
+        
         static constexpr int NUM_FRAMES_IN_FLIGHT = 3; // Increasing this number increases rendering latency by that many frames
         
-        // Section: Vulkan instance
-        VkInstance instance;
-        std::vector<const char*> enabled_instance_extensions;
-
-        // Section: Vulkan physical device
-        VkPhysicalDevice physical_device;
-        std::vector<const char*> enabled_device_extensions;
-        
-        VkPhysicalDeviceProperties physical_device_properties;
-        
-        VkPhysicalDeviceFeatures physical_device_features;
-        VkPhysicalDeviceFeatures enabled_physical_device_features;
-        
-        // Section: Vulkan logical device
-        VkDevice device;
-        
-        VkCommandPool command_pool; // Command buffers are allocated from here
-        VkCommandPool transient_command_pool; // For short-lived commands
-        std::array<VkCommandBuffer, NUM_FRAMES_IN_FLIGHT> command_buffers;
-        unsigned queue_family_index;
-        VkQueue queue;
-        VkRenderPass render_pass;
-        
-        // Section: Windowing
+        // May not correspond 1:1 with the resolution of swapchain internals due to display properties (the resolution of high-density displays does not necessarily match pixel data)
         int width;
         int height;
-
+        
         GLFWwindow* window;
         const char* name;
         
-        Camera camera;
+        VkInstance instance;
+        VkDebugUtilsMessengerEXT debug_messenger;
         
-        VkSurfaceKHR surface;
-        VkSurfaceCapabilitiesKHR surface_capabilities;
-        VkSurfaceFormatKHR surface_format;
+        // Any instance extensions required by the sample must be added to this list during sample construction
+        std::vector<const char*> enabled_instance_extensions;
         
-        // Section: Vulkan swapchain
+        // Swapchain data
         VkSwapchainKHR swapchain;
         std::array<VkImage, NUM_FRAMES_IN_FLIGHT> swapchain_images;
         std::array<VkImageView, NUM_FRAMES_IN_FLIGHT> swapchain_image_views;
-        VkExtent2D swapchain_extent;
         VkPresentModeKHR swapchain_present_mode;
+        VkExtent2D swapchain_extent;
         
-        // Section: depth buffer
-        VkImage depth_buffer;
-        VkFormat depth_buffer_format;
-        VkImageView depth_buffer_view;
-        VkDeviceMemory depth_buffer_memory;
+        VkPhysicalDevice physical_device;
+        VkPhysicalDeviceProperties physical_device_properties;
+        VkPhysicalDeviceFeatures physical_device_features;
         
-        VkDescriptorPool descriptor_pool;
+        // Any physical device features required by the sample must be toggled during sample construction
+        VkPhysicalDeviceFeatures enabled_physical_device_features;
+        
+        VkDevice device;
+        
+        // Any device extensions required by the sample must be added to this list during sample construction
+        std::vector<const char*> enabled_device_extensions;
+        
+        // Base Sample tries to find a queue family with support for all queue operations requested in 'enabled_queue_types'
+        // Should be done during sample construction (contains only GRAPHICS by default)
+        VkQueueFlags enabled_queue_types;
+        
+        unsigned queue_family_index;
+        VkQueue queue;
+        
+        VkSurfaceKHR surface;
+        VkSurfaceFormatKHR surface_format;
+        VkSurfaceCapabilitiesKHR surface_capabilities;
         
         unsigned frame_index; // Index of the current swapchain image
+        std::array<VkCommandBuffer, NUM_FRAMES_IN_FLIGHT> command_buffers;
         
         // Framebuffers for final rendering output
-        std::array<VkFramebuffer, NUM_FRAMES_IN_FLIGHT> framebuffers;
+        std::array<VkFramebuffer, NUM_FRAMES_IN_FLIGHT> present_framebuffers;
         
-        // Section: synchronization
+        // Samples only use one depth buffer
+        VkImage depth_buffer;
+        VkDeviceMemory depth_buffer_memory;
+        VkFormat depth_buffer_format;
+        VkImageView depth_buffer_view;
+        
+        // Synchronization objects
         std::array<VkSemaphore, NUM_FRAMES_IN_FLIGHT> is_presentation_complete;
         std::array<VkSemaphore, NUM_FRAMES_IN_FLIGHT> is_rendering_complete;
         std::array<VkFence, NUM_FRAMES_IN_FLIGHT> is_frame_in_flight;
+        
+        VkCommandPool command_pool;
+        VkCommandPool transient_command_pool; // For short-lived commands
+        
+        VkDescriptorPool descriptor_pool;
         
         struct Settings {
             Settings();
@@ -151,7 +147,9 @@ class Sample {
             // Runtime settings
             bool use_depth_buffer;
         } settings;
-
+        
+        Camera camera;
+        
     private:
         void initialize_glfw();
         void shutdown_glfw();
@@ -185,9 +183,7 @@ class Sample {
         void destroy_swapchain();
         
         void create_command_pools(); // Must happen after device queues are selected
-        void allocate_command_buffers(); // Allocates command buffers for swapchain images
-        virtual void record_command_buffers(unsigned image_index) = 0; // Samples do all the work on how to present to the screen
-        void deallocate_command_buffers();
+        void allocate_command_buffers();
         void destroy_command_pool();
         
         void create_synchronization_objects();
@@ -196,22 +192,9 @@ class Sample {
         void create_depth_buffer();
         void destroy_depth_buffer();
         
-        // Things for the Sample to do
-        virtual void initialize_descriptor_pool() = 0;
-        virtual void initialize_descriptor_sets() = 0;
-        virtual void initialize_pipelines() = 0;
-        virtual void destroy_pipelines() = 0;
-        virtual void initialize_render_passes() = 0;
-        virtual void destroy_render_passes() = 0;
-        virtual void initialize_framebuffers() = 0;
-        void destroy_framebuffers(); // Framebuffers are owned by the base Sample
+        void destroy_framebuffers();
         
-        virtual void initialize_uniform_buffers() = 0;
-        virtual void update_uniform_buffers(unsigned image_index) = 0;
-        
-        // For things like vertex buffers, index buffers, etc.
-        virtual void initialize_resources() = 0;
-        virtual void destroy_resources() = 0;
+        void destroy_descriptor_pool();
         
         // Event dispatch functions (hooked up to window callbacks)
         void on_window_resize(int width, int height);
@@ -219,13 +202,15 @@ class Sample {
         void on_mouse_button_press(int button);
         void on_mouse_move(double x, double y);
         void on_mouse_scroll(double distance);
-
-        VkDebugUtilsMessengerEXT debug_messenger;
         
+        // Invoking sample rendering and presenting the results to the screen is handled by the base
+        void render();
+        
+        // Sample data
+        double dt;
         bool initialized;
         bool running;
         
-        double dt;
         double last_frame_time;
         double frame_time_accumulator;
         std::size_t frame_count;
