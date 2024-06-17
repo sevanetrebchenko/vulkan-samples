@@ -11,6 +11,8 @@ void create_image(VkPhysicalDevice physical_device, VkDevice device, unsigned im
 
 void create_buffer(VkPhysicalDevice physical_device, VkDevice device, VkDeviceSize allocation_size, VkBufferUsageFlags buffer_usage, VkMemoryPropertyFlags desired_properties, VkBuffer& buffer, VkDeviceMemory& buffer_memory);
 
+void copy_buffer(VkCommandBuffer command_buffer, VkBuffer src, VkDeviceSize src_offset, VkBuffer dst,  VkDeviceSize dst_offset, VkDeviceSize size);
+
 struct Model {
     struct Vertex {
         Vertex(glm::vec3 position, glm::vec3 normal, glm::vec2 uv);
@@ -19,7 +21,6 @@ struct Model {
         
         glm::vec3 position;
         glm::vec3 normal;
-        glm::vec2 uv;
     };
     
     std::vector<Vertex> vertices;
@@ -27,5 +28,9 @@ struct Model {
 };
 
 Model load_model(const char* filepath);
+
+VkDescriptorSetLayoutBinding create_descriptor_set_layout_binding(VkDescriptorType type, VkShaderStageFlags stages, unsigned binding);
+
+std::size_t align_to_device_boundary(VkPhysicalDevice physical_device, std::size_t size);
 
 #endif // HELPERS_HPP

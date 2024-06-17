@@ -197,7 +197,7 @@ Model load_model(const char* filepath) {
                 }
 
                 if (has_texture_coordinates) {
-                    model.vertices.emplace_back(vertex, uv);
+                    model.vertices.emplace_back(vertex);
                 }
                 else {
                     model.vertices.emplace_back(vertex);
@@ -261,36 +261,120 @@ Model load_model(const char* filepath) {
     // Center model at (0, 0, 0)
     glm::vec3 center = glm::vec3((minimum + maximum) / 2.0f);
     glm::mat4 translation = glm::translate(glm::mat4(1.0f), -center);
-    
+
     for (std::size_t i = 0u; i < model.vertices.size(); ++i) {
         model.vertices[i].position = glm::vec3(translation * glm::vec4(model.vertices[i].position, 1.0f));
     }
-    
+
     // Scale model to [1, 1, 1]
     glm::vec3 bounding_box = maximum - minimum;
-    
+
     // Scale the mesh to range [-1 1] on all axes.
     float max_dimension = std::max(bounding_box.x, std::max(bounding_box.y, bounding_box.z));
-    glm::mat4 scale = glm::scale(glm::mat4(1.0f), glm::vec3(2.0f / max_dimension));
-    
+    glm::mat4 scale = glm::scale(glm::mat4(1.0f), glm::vec3(1.0f / max_dimension));
+
     for (std::size_t i = 0u; i < model.vertices.size(); ++i) {
         model.vertices[i].position = glm::vec3(scale * glm::vec4(model.vertices[i].position, 1.0f));
+    }
+    
+    // Recalculate vertex normals
+    assert(model.indices.size() % 3 == 0);
+    std::vector<std::vector<glm::vec3>> adjacent_face_normals(model.vertices.size());
+
+    // Traverse all mesh faces and attempt to add the face normals of all adjacent faces, taking care to make sure normals are not accounted for more than once
+    // Attempt to add each normal to the involved vertex if it hasn't been already.
+    for (int i = 0; i < model.indices.size(); i += 3) {
+        unsigned index1 = model.indices[i + 0];
+        unsigned index2 = model.indices[i + 1];
+        unsigned index3 = model.indices[i + 2];
+        const glm::vec3& vertex1 = model.vertices[index1].position;
+        const glm::vec3& vertex2 = model.vertices[index2].position;
+        const glm::vec3& vertex3 = model.vertices[index3].position;
+
+        // Calculate face normal.
+        glm::vec3 face_normal = glm::cross(vertex3 - vertex2, vertex1 - vertex2);
+
+        bool duplicate = false;
+        // Attempt to add each normal to the involved vertices.
+        for (unsigned j = 0; j < 3; ++j) {
+            const unsigned& index = model.indices[i + j];
+            // Check if normal was already added to this face's vertices.
+            for (const auto &normal : adjacent_face_normals[index]) {
+                if ((glm::dot(face_normal, normal) - glm::dot(face_normal, face_normal)) > std::numeric_limits<float>::epsilon()) {
+                    duplicate = true;
+                    break;
+                }
+            }
+
+            if (!duplicate) {
+                adjacent_face_normals[index].emplace_back(face_normal);
+            }
+        }
+    }
+
+    // Compute normals from precomputed adjacent normal list
+    for (std::size_t i = 0u; i < adjacent_face_normals.size(); ++i) {
+        glm::vec3 normal = glm::vec3(0.0f);
+
+        // Sum all adjacent face normals (this needs to happen without duplicates)
+        for (const glm::vec3& n : adjacent_face_normals[i]) {
+            normal += n;
+        }
+        
+        model.vertices[i].normal = glm::normalize(normal);
     }
     
     return std::move(model);
 }
 
 Model::Vertex::Vertex(glm::vec3 position, glm::vec3 normal, glm::vec2 uv) : position(position),
-                                                                            normal(normal),
-                                                                            uv(uv) {
+                                                                            normal(normal) {
 }
 
 Model::Vertex::Vertex(glm::vec3 position, glm::vec2 uv) : position(position),
-                                                          normal(glm::vec3(0.0f)),
-                                                          uv(uv) {
+                                                          normal(glm::vec3(0.0f)) {
 }
 
 Model::Vertex::Vertex(glm::vec3 position) : position(position),
-                                            normal(glm::vec3(0.0f)),
-                                            uv(glm::vec2(0.0f)) {
+                                            normal(glm::vec3(0.0f)) {
+}
+
+VkDescriptorSetLayoutBinding create_descriptor_set_layout_binding(VkDescriptorType type, VkShaderStageFlags stages, unsigned binding) {
+    VkDescriptorSetLayoutBinding set_binding { };
+    
+    // Should match with the 'binding' indicator on the buffer
+    // layout (binding = 0) uniform ... { ... };
+    set_binding.binding = binding;
+    set_binding.descriptorType = type;
+    
+    // Allows for an array of uniform buffer objects
+    set_binding.descriptorCount = 1;
+    
+    // Describe what stages this buffer is accessed in (can be a bitwise-or of VkShaderStageFlagBits, or VK_SHADER_STAGE_ALL_GRAPHICS)
+    set_binding.stageFlags = stages;
+    
+    set_binding.pImmutableSamplers = nullptr;
+    return set_binding;
+}
+
+std::size_t align_to_device_boundary(VkPhysicalDevice physical_device, std::size_t size) {
+    VkPhysicalDeviceProperties properties { };
+    vkGetPhysicalDeviceProperties(physical_device, &properties);
+    
+	size_t min_alignment = properties.limits.minUniformBufferOffsetAlignment;
+	size_t aligned = size;
+	if (min_alignment > 0) {
+		aligned = (aligned + min_alignment - 1) & ~(min_alignment - 1);
+	}
+	return aligned;
+    
+}
+
+void copy_buffer(VkCommandBuffer command_buffer, VkBuffer src, VkDeviceSize src_offset, VkBuffer dst,  VkDeviceSize dst_offset, VkDeviceSize size) {
+    // Copy 'size' bytes from the source to the destination buffer.
+    VkBufferCopy copy_region { };
+    copy_region.srcOffset = src_offset;
+    copy_region.dstOffset = dst_offset;
+    copy_region.size = size;
+    vkCmdCopyBuffer(command_buffer, src, dst, 1, &copy_region);
 }

@@ -2,6 +2,8 @@
 #ifndef SAMPLE_HPP
 #define SAMPLE_HPP
 
+#include "camera.hpp"
+
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
@@ -44,7 +46,7 @@ class Sample {
         bool active() const;
         
     protected:
-        virtual void render() = 0;
+        virtual void render();
         
         virtual std::vector<const char*> request_instance_extensions() const;
         
@@ -108,6 +110,8 @@ class Sample {
         GLFWwindow* window;
         const char* name;
         
+        Camera camera;
+        
         VkSurfaceKHR surface;
         VkSurfaceCapabilitiesKHR surface_capabilities;
         VkSurfaceFormatKHR surface_format;
@@ -124,6 +128,8 @@ class Sample {
         VkFormat depth_buffer_format;
         VkImageView depth_buffer_view;
         VkDeviceMemory depth_buffer_memory;
+        
+        VkDescriptorPool descriptor_pool;
         
         unsigned frame_index; // Index of the current swapchain image
         
@@ -189,14 +195,19 @@ class Sample {
         
         void create_depth_buffer();
         void destroy_depth_buffer();
-
+        
         // Things for the Sample to do
+        virtual void initialize_descriptor_pool() = 0;
+        virtual void initialize_descriptor_sets() = 0;
         virtual void initialize_pipelines() = 0;
         virtual void destroy_pipelines() = 0;
         virtual void initialize_render_passes() = 0;
         virtual void destroy_render_passes() = 0;
         virtual void initialize_framebuffers() = 0;
         void destroy_framebuffers(); // Framebuffers are owned by the base Sample
+        
+        virtual void initialize_uniform_buffers() = 0;
+        virtual void update_uniform_buffers(unsigned image_index) = 0;
         
         // For things like vertex buffers, index buffers, etc.
         virtual void initialize_resources() = 0;

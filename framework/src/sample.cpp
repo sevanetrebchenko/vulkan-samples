@@ -35,6 +35,7 @@ Sample::Sample(const char* name) : instance(nullptr),
                                    height(1080),
                                    window(nullptr),
                                    name(name),
+                                   camera(),
                                    surface(nullptr),
                                    surface_capabilities({ }),
                                    surface_format({ }),
@@ -101,9 +102,16 @@ void Sample::initialize() {
         create_depth_buffer();
     }
     
+    initialize_descriptor_pool();
+    
     // Initialize resources needed for the sample
     initialize_render_passes();
     initialize_framebuffers();
+    
+    initialize_uniform_buffers();
+    
+    // Descriptor sets are referenced in the pipeline and need to be created before the pipeline
+    initialize_descriptor_sets();
     initialize_pipelines();
     
     initialize_resources();
@@ -240,6 +248,59 @@ VKAPI_ATTR VkBool32 VKAPI_CALL vulkan_debug_callback(VkDebugUtilsMessageSeverity
 
 bool Sample::active() const {
     return running && !glfwWindowShouldClose(window);
+}
+
+void Sample::render() {
+    // The base sample uses multiple frames in flight to avoid forcing the CPU to wait on the GPU to finish rendering the previous frame to start rendering a new one
+    // With multiple frames in flight, the GPU can be rendering one frame while the CPU is recording commands for rendering another
+    // This requires separate command buffers and synchronization primitives (semaphores, fences) per frame in flight to avoid any interference across two frames
+    
+    // The render function is kicked off once the resources associated with the current frame (frame_index) are no longer in use by the GPU
+    // The sample is free to use the resources identified above at index frame_index to begin recording commands for rendering a new frame
+    // The Sample base also takes care of presenting the finished frame to the screen
+    
+    VkCommandBuffer command_buffer = command_buffers[frame_index];
+    VkSemaphore is_image_available = is_presentation_complete[frame_index];
+    
+    // Retrieve the index of the swapchain image to use for this frame
+    // Note that this may differ from frame_index as this is controlled by swapchain internals
+    unsigned image_index;
+    VkResult result = vkAcquireNextImageKHR(device, swapchain, std::numeric_limits<std::uint64_t>::max(), is_image_available, VK_NULL_HANDLE, &image_index);
+    // TODO: handle different return values
+    
+    update_uniform_buffers(image_index);
+    
+    // Record command buffer(s)
+    vkResetCommandBuffer(command_buffer, 0);
+    record_command_buffers(image_index);
+
+    VkSubmitInfo submit_info { };
+    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+
+    // Ensure that the swapchain image is available before executing any color operations (writes) by waiting on the pipeline stage that writes to the color attachment (discussed in detail during render pass creation above)
+    // Another approach that can be taken here is to wait on VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, which would ensure that no command buffers are executed before the image swapchain image is ready (vkAcquireNextImageKHR signals is_image_available, queue execution waits on is_image_available)
+    // However, this is not the preferred approach - waiting on VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT will completely block the pipeline until the swapchain image is ready
+    // Instead, waiting on the pipeline stage where writes are performed to the color attachment allows Vulkan to begin scheduling other work that happens before the VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT stage is reached for execution (such as invoking the vertex shader)
+    // This way, the implementation waits only the time that is absolutely necessary for coherent memory operations
+    
+    VkSemaphore wait_semaphores[] = { is_image_available }; // Semaphore(s) to wait on before the command buffers can begin execution
+    VkPipelineStageFlags wait_stage_flags[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT }; // Note: wait_stage_flags and wait_semaphores have a 1:1 correlation, meaning it is possible to wait on and signal different semaphores at different pipeline stages
+    
+    // Waiting on the swapchain image to be ready (if not yet) when the pipeline is ready to perform writes to color attachments
+    submit_info.waitSemaphoreCount = 1;
+    submit_info.pWaitSemaphores = wait_semaphores;
+    submit_info.pWaitDstStageMask = wait_stage_flags;
+    
+    submit_info.commandBufferCount = 1;
+    submit_info.pCommandBuffers = &command_buffer; // Command buffer(s) to execute
+
+    submit_info.signalSemaphoreCount = 1;
+    submit_info.pSignalSemaphores = &is_rendering_complete[frame_index]; // Semaphore to signal when all command buffer(s) have finished executing
+
+    // Submit
+    if (vkQueueSubmit(queue, 1, &submit_info, is_frame_in_flight[frame_index]) != VK_SUCCESS) {
+        throw std::runtime_error("failed to submit command buffer!");
+    }
 }
 
 void Sample::initialize_glfw() {
@@ -946,8 +1007,47 @@ void Sample::on_window_resize(int w, int h) {
 }
 
 void Sample::on_key_press(int key) {
+    // Only apply input if window is focused
+    if (!glfwGetWindowAttrib(window, GLFW_FOCUSED)) {
+        return;
+    }
+    
     if (key == GLFW_KEY_ESCAPE) {
         running = false;
+    }
+    
+    float speed = 500.0f * static_cast<float>(dt);
+    
+    glm::vec3 position = camera.get_position();
+    
+    // Construct orthonormal basis using the camera's coordinate system
+    glm::vec3 forward = glm::normalize(camera.get_look_direction());
+    glm::vec3 up = glm::normalize(camera.get_up_vector());
+    glm::vec3 left = glm::cross(up, forward);
+    
+    if (key == GLFW_KEY_W) {
+        // Move camera forwards
+        camera.set_position(position + speed * forward);
+    }
+    else if (key == GLFW_KEY_S) {
+        // Move camera backwards
+        camera.set_position(position - speed * forward);
+    }
+    else if (key == GLFW_KEY_A) {
+        // Move camera left
+        camera.set_position(position + speed * left);
+    }
+    else if (key == GLFW_KEY_D) {
+        // Move camera right
+        camera.set_position(position - speed * left);
+    }
+    else if (key == GLFW_KEY_Q) {
+        // Move camera down
+        camera.set_position(position + speed * up);
+    }
+    else if (key == GLFW_KEY_E) {
+        // Move camera up
+        camera.set_position(position - speed * up);
     }
     
     on_key_pressed(key);
@@ -1241,3 +1341,5 @@ VkCommandBuffer Sample::allocate_transient_command_buffer() {
 void Sample::deallocate_transient_command_buffer(VkCommandBuffer command_buffer) {
     vkFreeCommandBuffers(device, transient_command_pool, 1, &command_buffer);
 }
+
+

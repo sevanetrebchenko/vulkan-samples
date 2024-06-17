@@ -62,7 +62,7 @@ class HelloTriangle final : public Sample {
             render_pass_info.clearValueCount = 1;
             render_pass_info.pClearValues = &color_attachment_clear_color;
         
-            // Record command for starting the render pass.
+            // Record command for starting the render pass
             //   - VK_SUBPASS_CONTENTS_INLINE: render subpass commands will all be embedded into the primary command buffer, with no secondary command buffers
             //   - VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS: the primary command buffer will reference one or more secondary command buffers instead of containing render / compute commands directly
             //                                                    secondary command buffers can encapsulate complex rendering operations or subpass-specific commands and then be reused in multiple primary command buffers within a given render pass
@@ -552,57 +552,17 @@ class HelloTriangle final : public Sample {
             vkDestroyBuffer(device, vertex_buffer, nullptr);
         }
         
-        void render() override {
-            // The base sample uses multiple frames in flight to avoid forcing the CPU to wait on the GPU to finish rendering the previous frame to start rendering a new one
-            // With multiple frames in flight, the GPU can be rendering one frame while the CPU is recording commands for rendering another
-            // This requires separate command buffers and synchronization primitives (semaphores, fences) per frame in flight to avoid any interference across two frames
-            
-            // The render function is kicked off once the resources associated with the current frame (frame_index) are no longer in use by the GPU
-            // The sample is free to use the resources identified above at index frame_index to begin recording commands for rendering a new frame
-            // The Sample base also takes care of presenting the finished frame to the screen
-            
-            VkCommandBuffer command_buffer = command_buffers[frame_index];
-            VkSemaphore is_image_available = is_presentation_complete[frame_index];
-            
-            // Retrieve the index of the swapchain image to use for this frame
-            // Note that this may differ from frame_index as this is controlled by swapchain internals
-            unsigned image_index;
-            VkResult result = vkAcquireNextImageKHR(device, swapchain, std::numeric_limits<std::uint64_t>::max(), is_image_available, VK_NULL_HANDLE, &image_index);
-            // TODO: handle different return values
-    
-            // Record command buffer(s)
-            vkResetCommandBuffer(command_buffer, 0);
-            record_command_buffers(image_index);
-    
-            VkSubmitInfo submit_info { };
-            submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-
-            // Ensure that the swapchain image is available before executing any color operations (writes) by waiting on the pipeline stage that writes to the color attachment (discussed in detail during render pass creation above)
-            // Another approach that can be taken here is to wait on VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, which would ensure that no command buffers are executed before the image swapchain image is ready (vkAcquireNextImageKHR signals is_image_available, queue execution waits on is_image_available)
-            // However, this is not the preferred approach - waiting on VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT will completely block the pipeline until the swapchain image is ready
-            // Instead, waiting on the pipeline stage where writes are performed to the color attachment allows Vulkan to begin scheduling other work that happens before the VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT stage is reached for execution (such as invoking the vertex shader)
-            // This way, the implementation waits only the time that is absolutely necessary for coherent memory operations
-            
-            VkSemaphore wait_semaphores[] = { is_image_available }; // Semaphore(s) to wait on before the command buffers can begin execution
-            VkPipelineStageFlags wait_stage_flags[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT }; // Note: wait_stage_flags and wait_semaphores have a 1:1 correlation, meaning it is possible to wait on and signal different semaphores at different pipeline stages
-            
-            // Waiting on the swapchain image to be ready (if not yet) when the pipeline is ready to perform writes to color attachments
-            submit_info.waitSemaphoreCount = 1;
-            submit_info.pWaitSemaphores = wait_semaphores;
-            submit_info.pWaitDstStageMask = wait_stage_flags;
-            
-            submit_info.commandBufferCount = 1;
-            submit_info.pCommandBuffers = &command_buffer; // Command buffer(s) to execute
-    
-            submit_info.signalSemaphoreCount = 1;
-            submit_info.pSignalSemaphores = &is_rendering_complete[frame_index]; // Semaphore to signal when all command buffer(s) have finished executing
-    
-            // Submit
-            if (vkQueueSubmit(queue, 1, &submit_info, is_frame_in_flight[frame_index]) != VK_SUCCESS) {
-                throw std::runtime_error("failed to submit command buffer!");
-            }
+        void initialize_descriptor_pool() override {
         }
-        
+
+        void initialize_descriptor_sets() override {
+        }
+
+        void initialize_uniform_buffers() override {
+        }
+
+        void update_uniform_buffers(unsigned image_index) override {
+        }
 };
 
 DEFINE_SAMPLE_MAIN(HelloTriangle);
