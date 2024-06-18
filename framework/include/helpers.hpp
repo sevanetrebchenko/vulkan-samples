@@ -13,22 +13,6 @@ void create_buffer(VkPhysicalDevice physical_device, VkDevice device, VkDeviceSi
 
 void copy_buffer(VkCommandBuffer command_buffer, VkBuffer src, VkDeviceSize src_offset, VkBuffer dst,  VkDeviceSize dst_offset, VkDeviceSize size);
 
-struct Model {
-    struct Vertex {
-        Vertex(glm::vec3 position, glm::vec3 normal, glm::vec2 uv);
-        Vertex(glm::vec3 position, glm::vec2 uv);
-        Vertex(glm::vec3 position);
-        
-        glm::vec3 position;
-        glm::vec3 normal;
-    };
-    
-    std::vector<Vertex> vertices;
-    std::vector<unsigned> indices;
-};
-
-Model load_model(const char* filepath);
-
 VkDescriptorSetLayoutBinding create_descriptor_set_layout_binding(VkDescriptorType type, VkShaderStageFlags stages, unsigned binding);
 
 std::size_t align_to_device_boundary(VkPhysicalDevice physical_device, std::size_t size);

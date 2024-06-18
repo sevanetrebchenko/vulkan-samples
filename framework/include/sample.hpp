@@ -68,9 +68,9 @@ class Sample {
         VkCommandBuffer begin_transient_command_buffer();
         void submit_transient_command_buffer(VkCommandBuffer command_buffer); // Automatically calls vkEndCommandBuffer
         
-        void initialize_descriptor_pool(unsigned descriptor_count);
+        void initialize_descriptor_pool(unsigned buffer_count, unsigned sampler_count);
         
-        static constexpr int NUM_FRAMES_IN_FLIGHT = 3; // Increasing this number increases rendering latency by that many frames
+        int NUM_FRAMES_IN_FLIGHT = 3; // Increasing this number increases rendering latency by that many frames
         
         // May not correspond 1:1 with the resolution of swapchain internals due to display properties (the resolution of high-density displays does not necessarily match pixel data)
         int width;
@@ -87,8 +87,8 @@ class Sample {
         
         // Swapchain data
         VkSwapchainKHR swapchain;
-        std::array<VkImage, NUM_FRAMES_IN_FLIGHT> swapchain_images;
-        std::array<VkImageView, NUM_FRAMES_IN_FLIGHT> swapchain_image_views;
+        std::vector<VkImage> swapchain_images;
+        std::vector<VkImageView> swapchain_image_views;
         VkPresentModeKHR swapchain_present_mode;
         VkExtent2D swapchain_extent;
         
@@ -116,10 +116,10 @@ class Sample {
         VkSurfaceCapabilitiesKHR surface_capabilities;
         
         unsigned frame_index; // Index of the current swapchain image
-        std::array<VkCommandBuffer, NUM_FRAMES_IN_FLIGHT> command_buffers;
+        std::vector<VkCommandBuffer> command_buffers;
         
         // Framebuffers for final rendering output
-        std::array<VkFramebuffer, NUM_FRAMES_IN_FLIGHT> present_framebuffers;
+        std::vector<VkFramebuffer> present_framebuffers;
         
         // Samples only use one depth buffer
         VkImage depth_buffer;
@@ -128,9 +128,9 @@ class Sample {
         VkImageView depth_buffer_view;
         
         // Synchronization objects
-        std::array<VkSemaphore, NUM_FRAMES_IN_FLIGHT> is_presentation_complete;
-        std::array<VkSemaphore, NUM_FRAMES_IN_FLIGHT> is_rendering_complete;
-        std::array<VkFence, NUM_FRAMES_IN_FLIGHT> is_frame_in_flight;
+        std::vector<VkSemaphore> is_presentation_complete;
+        std::vector<VkSemaphore> is_rendering_complete;
+        std::vector<VkFence> is_frame_in_flight;
         
         VkCommandPool command_pool;
         VkCommandPool transient_command_pool; // For short-lived commands
@@ -204,7 +204,7 @@ class Sample {
         void on_mouse_scroll(double distance);
         
         // Invoking sample rendering and presenting the results to the screen is handled by the base
-        void render();
+        virtual void render();
         
         // Sample data
         double dt;

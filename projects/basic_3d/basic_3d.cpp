@@ -1,6 +1,7 @@
 
 #include "sample.hpp"
 #include "helpers.hpp"
+#include "loaders/obj.hpp"
 #include "vulkan_initializers.hpp"
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/transform.hpp>
@@ -222,7 +223,7 @@ class Basic3D final : public Sample {
             rasterizer_create_info.polygonMode = VK_POLYGON_MODE_FILL;
             
             rasterizer_create_info.lineWidth = 1.0f;
-            rasterizer_create_info.cullMode = VK_CULL_MODE_NONE;
+            rasterizer_create_info.cullMode = VK_CULL_MODE_BACK_BIT;
             rasterizer_create_info.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
             rasterizer_create_info.depthBiasEnable = VK_FALSE;
             rasterizer_create_info.depthBiasConstantFactor = 0.0f;
@@ -385,6 +386,8 @@ class Basic3D final : public Sample {
         }
         
         void initialize_framebuffers() {
+            present_framebuffers.resize(NUM_FRAMES_IN_FLIGHT);
+            
             for (unsigned i = 0u; i < NUM_FRAMES_IN_FLIGHT; ++i) {
                 VkFramebufferCreateInfo framebuffer_create_info { };
                 
@@ -406,7 +409,7 @@ class Basic3D final : public Sample {
         }
         
         void initialize_buffers() {
-            model = load_model("assets/models/dragon_high_poly.obj");
+            model = load_obj("assets/models/dragon_high_poly.obj");
             
             // TODO: consolidate memory usage across vertex and index buffers?
             

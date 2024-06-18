@@ -233,3 +233,16 @@ VkAttachmentReference create_attachment_reference(unsigned attachment, VkImageLa
     
     return attachment_reference;
 }
+
+VkPipelineColorBlendAttachmentState create_color_blend_attachment_state(VkColorComponentFlags color_mask, bool blending_enabled) {
+    VkPipelineColorBlendAttachmentState blend_attachment_state { };
+    blend_attachment_state.colorWriteMask = color_mask;
+    blend_attachment_state.blendEnable = (VkBool32) blending_enabled;
+    blend_attachment_state.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+    blend_attachment_state.dstColorBlendFactor = VK_BLEND_FACTOR_ZERO;
+    blend_attachment_state.colorBlendOp = VK_BLEND_OP_ADD;
+    blend_attachment_state.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+    blend_attachment_state.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+    blend_attachment_state.alphaBlendOp = VK_BLEND_OP_ADD;
+    return blend_attachment_state;
+}

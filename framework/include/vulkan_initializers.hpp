@@ -25,4 +25,6 @@ VkAttachmentReference create_attachment_reference(unsigned attachment, VkImageLa
 
 VkSubpassDependency create_subpass_dependency(unsigned src_subpass, VkPipelineStageFlags src_stages, VkAccessFlags src_memory_access, unsigned dst_subpass, VkPipelineStageFlags dst_stages, VkAccessFlags dst_memory_access);
 
+VkPipelineColorBlendAttachmentState create_color_blend_attachment_state(VkColorComponentFlags color_mask, bool blending_enabled = false);
+
 #endif // VULKAN_INITIALIZERS_HPP

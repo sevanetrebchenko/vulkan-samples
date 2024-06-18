@@ -575,6 +575,9 @@ void Sample::create_logical_device() {
 }
 
 void Sample::initialize_swapchain() {
+    swapchain_images.resize(NUM_FRAMES_IN_FLIGHT);
+    swapchain_image_views.resize(NUM_FRAMES_IN_FLIGHT);
+    
     VkSwapchainCreateInfoKHR swapchain_ci { };
     swapchain_ci.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
     swapchain_ci.surface = surface;
@@ -679,6 +682,10 @@ void Sample::initialize_swapchain() {
 }
 
 void Sample::create_synchronization_objects() {
+    is_presentation_complete.resize(NUM_FRAMES_IN_FLIGHT);
+    is_rendering_complete.resize(NUM_FRAMES_IN_FLIGHT);
+    is_frame_in_flight.resize(NUM_FRAMES_IN_FLIGHT);
+    
     // Semaphore: CPU - GPU synchronization (notify the GPU to kick off the next queued operation)
     // A semaphore is used to add explicit ordering between queue operations. Queue operations refer to work submitted to queues, either through command buffers or from function calls
     // Ordering queue operations involves signaling the semaphore in one queue operation and waiting on it in another queue operation. The first operation will signal the semaphore when it finishes, which will kick off the next operation
@@ -1091,8 +1098,6 @@ void Sample::create_depth_buffer() {
                  VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
                  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, // The most optimal memory type for GPU reads is VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT (meant for device read, not accessible by the CPU)
                  depth_buffer, depth_buffer_memory);
-    vkBindImageMemory(device, depth_buffer, depth_buffer_memory, 0); // Associate memory buffer with image
-    
     create_image_view(device, depth_buffer, image_format, VK_IMAGE_ASPECT_DEPTH_BIT, depth_mip_levels, depth_buffer_view);
 }
 
@@ -1124,6 +1129,8 @@ void Sample::create_command_pools() {
 
 void Sample::allocate_command_buffers() {
     // This function must be called after the command pool is initialized
+    command_buffers.resize(NUM_FRAMES_IN_FLIGHT);
+    
     
     VkCommandBufferAllocateInfo command_buffer_ai { };
     command_buffer_ai.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
@@ -1256,24 +1263,27 @@ void Sample::destroy_descriptor_pool() {
     vkDestroyDescriptorPool(device, descriptor_pool, nullptr);
 }
 
-void Sample::initialize_descriptor_pool(unsigned descriptor_count) {
+void Sample::initialize_descriptor_pool(unsigned buffer_count, unsigned sampler_count) {
     // A descriptor is a handle to a resource (such as a buffer or a sampler)
     // Descriptors also hold extra information such as the size of the buffer or the type of sampler
     
     // Descriptors are bound together into descriptor sets (Vulkan does not allow binding individual resources in shaders, this operation must be done in sets)
     // There is a limit to how many descriptor sets different devices support
     
-    VkDescriptorPoolSize descriptor_pool_size { };
-    descriptor_pool_size.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER; // Descriptor sets allocated from this pool are to be used as descriptor sets for uniform buffers
+    VkDescriptorPoolSize pool_sizes[2] { };
+    pool_sizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER; // Descriptor sets allocated from this pool are to be used as descriptor sets for uniform buffers
     
     // Allocate a descriptor set per frame in flight to prevent writing to uniform buffers of one frame while they are still in use by the rendering operations of the previous frame
-    descriptor_pool_size.descriptorCount = descriptor_count;
+    pool_sizes[0].descriptorCount = buffer_count;
+    
+    pool_sizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    pool_sizes[1].descriptorCount = sampler_count;
     
     VkDescriptorPoolCreateInfo descriptor_pool_create_info { };
     descriptor_pool_create_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     descriptor_pool_create_info.poolSizeCount = 1;
-    descriptor_pool_create_info.pPoolSizes = &descriptor_pool_size;
-    descriptor_pool_create_info.maxSets = descriptor_count;
+    descriptor_pool_create_info.pPoolSizes = pool_sizes;
+    descriptor_pool_create_info.maxSets = buffer_count + sampler_count; // TODO: not sure this is right
     
     if (vkCreateDescriptorPool(device, &descriptor_pool_create_info, nullptr, &descriptor_pool) != VK_SUCCESS) {
         throw std::runtime_error("failed to create descriptor pool!");
