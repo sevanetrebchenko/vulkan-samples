@@ -23,11 +23,11 @@ layout (location = 2) out vec3 out_ambient;
 layout (location = 3) out vec3 out_diffuse;
 layout (location = 4) out vec4 out_specular; // (r, g, b, exponent)
 
-float normal_blend = 1.0f;
+float normal_blend = 0.0f;
 vec3 calculate_face_normal(vec3 position) {
     vec3 dx = dFdx(position);
     vec3 dy = dFdy(position);
-    return normalize(cross(dx, dy));
+    return normalize(cross(-dx, dy));
 }
 
 void main() {

@@ -36,7 +36,7 @@ void Transform::set_rotation(glm::vec3 r) {
 }
 
 glm::vec3 Transform::get_rotation() const {
-    return glm::degrees(rotation);
+    return rotation;
 }
 
 void Transform::recalculate() {

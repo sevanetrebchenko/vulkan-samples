@@ -10,7 +10,7 @@
 class DeferredRendering final : public Sample {
     public:
         DeferredRendering() : Sample("Deferred Rendering") {
-            debug_view = NORMAL;
+            debug_view = OUTPUT;
             camera.set_position(glm::vec3(0, 0, 5));
             camera.set_look_direction(glm::vec3(0.0f, 0.0f, -1.0f));
         }
@@ -25,6 +25,8 @@ class DeferredRendering final : public Sample {
         struct Scene {
             struct Object {
                 unsigned model;
+                unsigned vertex_offset;
+                unsigned index_offset;
                 Transform transform;
                 
                 glm::vec3 ambient;
@@ -132,7 +134,14 @@ class DeferredRendering final : public Sample {
         }
         
         void update(double dt) override {
+//            Scene::Object& object = scene.objects.back();
+//            Transform& transform = object.transform;
+//            transform.set_rotation(transform.get_rotation() + glm::vec3(0.0f, 1.0f, 0.0f) * (float)dt);
+            
             update_uniform_buffers();
+            
+            for (std::size_t i = 0u; i < scene.objects.size(); ++i)
+                update_object_uniform_buffers(i);
         }
         
         void render() override {
@@ -258,23 +267,23 @@ class DeferredRendering final : public Sample {
                 set = 0;
                 vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, offscreen_pipeline_layout, set, 1, &offscreen_global, 0, nullptr);
                 
-                // Bind vertex buffer
-                VkDeviceSize offsets[] = { 0 };
-                vkCmdBindVertexBuffers(command_buffer, 0, 1, &vertex_buffer, offsets);
-                
-                // Bind index buffer
-                vkCmdBindIndexBuffer(command_buffer, index_buffer, 0, VK_INDEX_TYPE_UINT32);
-                
                 for (std::size_t i = 0u; i < scene.objects.size(); ++i) {
-                    // Bind per-object descriptor set
-                    update_object_uniform_buffers(i);
+                    const Scene::Object& object = scene.objects[i];
+                    const Model& model = models[object.model];
                     
+                    // Bind vertex buffer
+                    VkDeviceSize offsets[] = { object.vertex_offset  };
+                    vkCmdBindVertexBuffers(command_buffer, 0, 1, &vertex_buffer, offsets);
+                    
+                    // Bind index buffer
+                    vkCmdBindIndexBuffer(command_buffer, index_buffer, object.index_offset, VK_INDEX_TYPE_UINT32);
+                    
+                    // Descriptor sets need to be bound per object
                     set = 1;
                     vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, offscreen_pipeline_layout, set, 1, &offscreen_objects[i], 0, nullptr);
-                    const Scene::Object& object = scene.objects[i];
                     
                     // Draw indices.size() vertices which make up 1 instance starting at vertex index 0 and instance index 0.
-                    vkCmdDrawIndexed(command_buffer, (unsigned) models[object.model].indices.size(), 1, 0, 0, 0);
+                    vkCmdDrawIndexed(command_buffer, (unsigned) model.indices.size(), 1, 0, 0, 0);
                 }
             
             vkCmdEndRenderPass(command_buffer);
@@ -1041,7 +1050,8 @@ class DeferredRendering final : public Sample {
         }
         
         void initialize_buffers() {
-            models.emplace_back(load_obj("assets/models/quad.obj"));
+            models.emplace_back(load_obj("assets/models/cube.obj"));
+            models.emplace_back(load_obj("assets/models/bunny_low_poly.obj"));
             float box_size = 3.0f;
             
             // Walls
@@ -1049,9 +1059,9 @@ class DeferredRendering final : public Sample {
             right.model = 0;
             right.ambient = glm::vec3(0.1f);
             right.diffuse = glm::vec3(1.0f, 0.0f, 0.0f); // red
-            right.specular = glm::vec3(10.0f);
+            right.specular = glm::vec3(0.0f);
             right.specular_exponent = 0.0f;
-            right.transform = Transform(glm::vec3(-box_size, 0, 0), glm::vec3(box_size), glm::vec3(0.0f, 90.0f, 0.0f));
+            right.transform = Transform(glm::vec3(box_size, 0, 0), glm::vec3(0.1f, box_size, box_size), glm::vec3(0.0f, 0.0f, 0.0f));
             
             Scene::Object& left = scene.objects.emplace_back();
             left.model = 0;
@@ -1059,39 +1069,55 @@ class DeferredRendering final : public Sample {
             left.diffuse = glm::vec3(0.0f, 1.0f, 0.0f); // green
             left.specular = glm::vec3(0.0f);
             left.specular_exponent = 0.0f;
-            left.transform = Transform(glm::vec3(box_size, 0, 0), glm::vec3(box_size), glm::vec3(0.0f, 90.0f, 0.0f));
-            
+            left.transform = Transform(glm::vec3(-box_size, 0, 0), glm::vec3(0.1f, box_size, box_size), glm::vec3(0.0f, 0.0f, 0.0f));
+
             Scene::Object& back = scene.objects.emplace_back();
             back.model = 0;
             back.ambient = glm::vec3(0.1f);
-            back.diffuse = glm::vec3(0.0f, 0.0f, 1.0f); // green
+            back.diffuse = glm::vec3(0.0f, 0.0f, 1.0f); // blue
             back.specular = glm::vec3(0.0f);
             back.specular_exponent = 0.0f;
-            back.transform = Transform(glm::vec3(0, 0, -box_size), glm::vec3(box_size), glm::vec3(0.0f, 0.0f, 0.0f));
-            
+            back.transform = Transform(glm::vec3(0, 0, -box_size), glm::vec3(box_size, box_size, 0.1f), glm::vec3(0.0f, 0.0f, 0.0f));
+
             Scene::Object& ceiling = scene.objects.emplace_back();
             ceiling.model = 0;
             ceiling.ambient = glm::vec3(0.1f);
             ceiling.diffuse = glm::vec3(0.6f); // offwhite
             ceiling.specular = glm::vec3(0.0f);
             ceiling.specular_exponent = 0.0f;
-            ceiling.transform = Transform(glm::vec3(0, box_size, 0), glm::vec3(box_size), glm::vec3(-90.0f, 00.0f, 0.0f));
-            
+            ceiling.transform = Transform(glm::vec3(0, box_size, 0), glm::vec3(box_size, 0.1f, box_size), glm::vec3(0.0f, 0.0f, 0.0f));
+
             Scene::Object& floor = scene.objects.emplace_back();
             floor.model = 0;
             floor.ambient = glm::vec3(0.1f);
             floor.diffuse = glm::vec3(0.6f); // offwhite
             floor.specular = glm::vec3(0.0f);
             floor.specular_exponent = 0.0f;
-            floor.transform = Transform(glm::vec3(0, -box_size, 0), glm::vec3(box_size), glm::vec3(90.0f, 0.0f, 0.0f));
+            floor.transform = Transform(glm::vec3(0, -box_size, 0), glm::vec3(box_size, 0.1f, box_size), glm::vec3(0.0f, 0.0f, 0.0f));
+            
+            // Center model
+            Scene::Object& knight = scene.objects.emplace_back();
+            knight.model = 1;
+            knight.ambient = glm::vec3(0.3f);
+            knight.diffuse = glm::vec3(0.8f); // offwhite
+            knight.specular = glm::vec3(0.0f);
+            knight.specular_exponent = 0.0f;
+            knight.transform = Transform(glm::vec3(0, 0, 0), glm::vec3(1.0f), glm::vec3(0.0f, 0.0f, 0.0f));
             
             // This sample only uses vertex position and normal
             std::size_t vertex_buffer_size = 0u;
             std::size_t index_buffer_size = 0u;
             
-            for (const Model& model : models) {
-                vertex_buffer_size += model.vertices.size() * sizeof(Model::Vertex);
-                index_buffer_size += model.indices.size() * sizeof(unsigned);
+            for (std::size_t i = 0u; i < models.size(); ++i) {
+                for (Scene::Object& object : scene.objects) {
+                    if (object.model == i) {
+                        object.vertex_offset = vertex_buffer_size;
+                        object.index_offset = index_buffer_size;
+                    }
+                }
+                
+                vertex_buffer_size += models[i].vertices.size() * sizeof(Model::Vertex);
+                index_buffer_size += models[i].indices.size() * sizeof(unsigned);
             }
             
             VkBuffer staging_buffer { };
@@ -1260,7 +1286,7 @@ class DeferredRendering final : public Sample {
             };
             ObjectData object_data { };
             object_data.model = object.transform.get_matrix();
-            object_data.normal = glm::inverse(glm::transpose(object_data.model));
+            object_data.normal = glm::transpose(glm::inverse(object_data.model));
             
             memcpy((void*)((const char*) (uniform_buffer_mapped) + offset), &object_data, sizeof(ObjectData));
             offset += align_to_device_boundary(physical_device, sizeof(glm::mat4) * 2);
