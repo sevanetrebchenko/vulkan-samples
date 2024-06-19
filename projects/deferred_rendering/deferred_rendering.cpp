@@ -1209,9 +1209,12 @@ class DeferredRendering final : public Sample {
                 debug_view = AMBIENT;
             }
             else if (key == GLFW_KEY_5) {
-                debug_view = SPECULAR;
+                debug_view = DIFFUSE;
             }
             else if (key == GLFW_KEY_6) {
+                debug_view = SPECULAR;
+            }
+            else if (key == GLFW_KEY_7) {
                 debug_view = DEPTH;
             }
         }
