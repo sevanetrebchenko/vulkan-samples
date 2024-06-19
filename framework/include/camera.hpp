@@ -7,7 +7,7 @@
 // Camera assumes 16:9 aspect ratio, 75 degree FOV
 class Camera {
     public:
-        Camera(glm::vec3 position = glm::vec3(0.0f, 3.0f, 5.0f));
+        Camera(glm::vec3 position = glm::vec3(0.0f, 2.0f, 3.0f));
         ~Camera();
         
         void set_position(glm::vec3 position);

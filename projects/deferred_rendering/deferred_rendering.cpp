@@ -10,8 +10,7 @@
 class DeferredRendering final : public Sample {
     public:
         DeferredRendering() : Sample("Deferred Rendering") {
-            // This also needs to be configured to align with the swapchain image count
-            // NUM_FRAMES_IN_FLIGHT = 2;
+            debug_view = OUTPUT;
         }
         
         ~DeferredRendering() override {
@@ -19,6 +18,7 @@ class DeferredRendering final : public Sample {
         
     private:
         Model model;
+        int debug_view;
         
         VkBuffer vertex_buffer;
         VkDeviceMemory vertex_buffer_memory;
@@ -32,6 +32,8 @@ class DeferredRendering final : public Sample {
             VkImageView image_view;
             VkFormat format;
         };
+        
+        int OUTPUT = -1;
         
         int POSITION = 0;
         int NORMAL = 1;
@@ -604,7 +606,7 @@ class DeferredRendering final : public Sample {
                 create_attachment_description(VK_FORMAT_R8G8B8A8_UNORM, VK_SAMPLE_COUNT_1_BIT, VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE, VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL),
                 
                 // Depth
-                create_attachment_description(depth_buffer_format, VK_SAMPLE_COUNT_1_BIT, VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_DONT_CARE, VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL),
+                create_attachment_description(depth_buffer_format, VK_SAMPLE_COUNT_1_BIT, VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE, VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL),
             };
             
             VkAttachmentReference color_attachment_references[] {
@@ -814,7 +816,9 @@ class DeferredRendering final : public Sample {
                 create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 2), // Ambient sampler
                 create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 3), // Diffuse sampler
                 create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 4), // Specular sampler
-                create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT, 5), // Light uniform buffer
+                create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 5), // Depth sampler
+                create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT, 6), // Uniform buffer for lights
+                create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT, 7), // Uniform buffer for render settings
             };
             
             // Initialize the descriptor set layout
@@ -920,40 +924,70 @@ class DeferredRendering final : public Sample {
                 throw std::runtime_error("failed to allocate global composition descriptor set!");
             }
             
-            VkWriteDescriptorSet descriptor_writes[6] { };
-            VkDescriptorImageInfo image_infos[5] { };
+            VkWriteDescriptorSet descriptor_writes[8] { };
+            VkDescriptorImageInfo image_infos[6] { };
             
-            // Descriptors 0 - 4 - combined image sampler (position, normal, ambient, diffuse, specular)
-            for (std::size_t i = 0; i < 5; ++i) {
-                image_infos[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-                image_infos[i].imageView = offscreen_framebuffer_attachments[i].image_view;
-                image_infos[i].sampler = sampler;
+            unsigned binding;
+            
+            // Descriptors 0 - 5 - combined image sampler (position, normal, ambient, diffuse, specular, depth)
+            for (binding = 0; binding < 6; ++binding) {
+                if (binding == DEPTH) {
+                    image_infos[binding].imageLayout = VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL;
+                }
+                else {
+                    image_infos[binding].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                }
                 
-                descriptor_writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                descriptor_writes[i].dstSet = composition_global;
-                descriptor_writes[i].dstBinding = i;
-                descriptor_writes[i].dstArrayElement = 0;
-                descriptor_writes[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-                descriptor_writes[i].descriptorCount = 1;
-                descriptor_writes[i].pImageInfo = &image_infos[i];
+                image_infos[binding].imageView = offscreen_framebuffer_attachments[binding].image_view;
+                image_infos[binding].sampler = sampler;
+                
+                descriptor_writes[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                descriptor_writes[binding].dstSet = composition_global;
+                descriptor_writes[binding].dstBinding = binding;
+                descriptor_writes[binding].dstArrayElement = 0;
+                descriptor_writes[binding].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                descriptor_writes[binding].descriptorCount = 1;
+                descriptor_writes[binding].pImageInfo = &image_infos[binding];
             }
-
-            // Descriptor 5 - fragment shader uniform buffer
-            VkDescriptorBufferInfo buffer_info { };
-            buffer_info.buffer = uniform_buffer;
             
-            // Composition global uniforms are after all the uniforms for the offscreen pass
-            // set 0 binding 0 (globals) + set 1 binding 0 (per-object vertex) + set 1 binding 1 (per-object fragment)
-            buffer_info.offset = align_to_device_boundary(physical_device, sizeof(glm::mat4) * 2 + sizeof(glm::vec4)) + align_to_device_boundary(physical_device, sizeof(glm::mat4) * 2) + align_to_device_boundary(physical_device, sizeof(glm::vec4) * 3 + 4);
-            buffer_info.range = sizeof(glm::vec4);
+            VkDescriptorBufferInfo buffer_infos[2] { };
             
-            descriptor_writes[5].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            descriptor_writes[5].dstSet = composition_global;
-            descriptor_writes[5].dstBinding = 5;
-            descriptor_writes[5].dstArrayElement = 0;
-            descriptor_writes[5].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-            descriptor_writes[5].descriptorCount = 1;
-            descriptor_writes[5].pBufferInfo = &buffer_info;
+            // The same uniform buffer is used for both offscreen and composition passes
+            // Composition uniforms are located directly after all the offscreen uniforms
+            
+            std::size_t offset = align_to_device_boundary(physical_device, sizeof(glm::mat4) * 2 + sizeof(glm::vec4)) + align_to_device_boundary(physical_device, sizeof(glm::mat4) * 2) + align_to_device_boundary(physical_device, sizeof(glm::vec4) * 3 + 4);
+            
+            // Descriptor 6 - uniform buffer for lighting data
+            buffer_infos[0].buffer = uniform_buffer;
+            buffer_infos[0].offset = offset;
+            buffer_infos[0].range = sizeof(glm::mat4) + sizeof(glm::vec4) * 2;
+            
+            offset += align_to_device_boundary(physical_device, buffer_infos[0].range);
+            
+            descriptor_writes[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            descriptor_writes[binding].dstSet = composition_global;
+            descriptor_writes[binding].dstBinding = binding;
+            descriptor_writes[binding].dstArrayElement = 0;
+            descriptor_writes[binding].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            descriptor_writes[binding].descriptorCount = 1;
+            descriptor_writes[binding].pBufferInfo = &buffer_infos[0];
+            
+            ++binding;
+            
+            // Descriptor 7 - uniform buffer for settings
+            buffer_infos[1].buffer = uniform_buffer;
+            buffer_infos[1].offset = offset;
+            buffer_infos[1].range = sizeof(int);
+            
+            offset += align_to_device_boundary(physical_device, buffer_infos[1].range);
+            
+            descriptor_writes[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            descriptor_writes[binding].dstSet = composition_global;
+            descriptor_writes[binding].dstBinding = binding;
+            descriptor_writes[binding].dstArrayElement = 0;
+            descriptor_writes[binding].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            descriptor_writes[binding].descriptorCount = 1;
+            descriptor_writes[binding].pBufferInfo = &buffer_infos[1];
             
             // Specify the buffer and region within it that contains the data for the allocated descriptors
             vkUpdateDescriptorSets(device, sizeof(descriptor_writes) / sizeof(descriptor_writes[0]), descriptor_writes, 0, nullptr);
@@ -963,7 +997,7 @@ class DeferredRendering final : public Sample {
         }
         
         void initialize_buffers() {
-            model = load_obj("assets/models/dragon_high_poly.obj");
+            model = load_obj("assets/models/bunny_high_poly.obj");
             
             // This sample only uses vertex position and normal
             std::size_t vertex_buffer_size = model.vertices.size() * sizeof(Model::Vertex);
@@ -1093,7 +1127,7 @@ class DeferredRendering final : public Sample {
         void initialize_uniform_buffer() {
             // set 0 binding 0 (globals) + set 1 binding 0 (per-object vertex) + set 1 binding 1 (per-object fragment)
             std::size_t offscreen_buffer_size = align_to_device_boundary(physical_device, (sizeof(glm::mat4) * 2) + sizeof(glm::vec4)) + align_to_device_boundary(physical_device, sizeof(glm::mat4) * 2) + align_to_device_boundary(physical_device, sizeof(glm::vec4) * 3 + 4);
-            std::size_t composition_buffer_size = align_to_device_boundary(physical_device, sizeof(glm::vec4));
+            std::size_t composition_buffer_size = align_to_device_boundary(physical_device, sizeof(glm::mat4) + sizeof(glm::vec4) * 2) + align_to_device_boundary(physical_device, sizeof(int));
             
             std::size_t uniform_buffer_size = offscreen_buffer_size + composition_buffer_size;
             create_buffer(physical_device, device, uniform_buffer_size, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, uniform_buffer, uniform_buffer_memory);
@@ -1137,18 +1171,51 @@ class DeferredRendering final : public Sample {
             memcpy((void*)((const char*) (uniform_buffer_mapped) + offset), &material, sizeof(MaterialData));
             offset += align_to_device_boundary(physical_device, sizeof(glm::vec4) * 3 + 4);
             
-            struct LightData {
-                glm::vec3 position = glm::vec3(0.0f, 10.0f, 0.0f);
+            struct LightingData {
+                glm::mat4 view;
+                glm::vec3 camera_position;
             };
-            LightData light { };
-            memcpy((void*)((const char*) (uniform_buffer_mapped) + offset), &light, sizeof(LightData));
-            offset += align_to_device_boundary(physical_device, sizeof(glm::vec4));
+            LightingData light_data { };
+            light_data.view = camera.get_view_matrix();
+            light_data.camera_position = camera.get_position();
+            memcpy((void*)((const char*) (uniform_buffer_mapped) + offset), &light_data, sizeof(LightingData));
+            offset += align_to_device_boundary(physical_device, sizeof(glm::mat4) + sizeof(glm::vec4) * 2);
+            
+            struct RenderSettings {
+                int view;
+            };
+            RenderSettings render_settings { };
+            render_settings.view = debug_view;
+            memcpy((void*)((const char*) (uniform_buffer_mapped) + offset), &render_settings, sizeof(RenderSettings));
+            offset += align_to_device_boundary(physical_device, sizeof(int));
         }
         
         void destroy_uniform_buffer() {
             vkFreeMemory(device, uniform_buffer_memory, nullptr);
             vkDestroyBuffer(device, uniform_buffer, nullptr);
         }
+        
+        void on_key_pressed(int key) override {
+            if (key == GLFW_KEY_1) {
+                debug_view = OUTPUT;
+            }
+            else if (key == GLFW_KEY_2) {
+                debug_view = POSITION;
+            }
+            else if (key == GLFW_KEY_3) {
+                debug_view = NORMAL;
+            }
+            else if (key == GLFW_KEY_4) {
+                debug_view = AMBIENT;
+            }
+            else if (key == GLFW_KEY_5) {
+                debug_view = SPECULAR;
+            }
+            else if (key == GLFW_KEY_6) {
+                debug_view = DEPTH;
+            }
+        }
+        
 };
 
 DEFINE_SAMPLE_MAIN(DeferredRendering);
