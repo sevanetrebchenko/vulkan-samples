@@ -12,9 +12,6 @@
 Model load_obj(const char* filepath) {
     std::unordered_map<glm::vec3, std::size_t> unique_vertex_list { };
     
-    glm::vec3 minimum(std::numeric_limits<float>::max());
-    glm::vec3 maximum(std::numeric_limits<float>::lowest());
-    
     tinyobj::attrib_t attributes { }; // Holds all positions, normals, and texture coordinates.
     std::vector<tinyobj::shape_t> shape_data { }; // Holds all separate objects and their faces.
     std::vector<tinyobj::material_t> material_data { };
@@ -44,29 +41,6 @@ Model load_obj(const char* filepath) {
 
             if (unique_vertex_list.count(vertex) == 0) {
                 unique_vertex_list[vertex] = unique_vertex_list.size();
-
-                // Find mesh extrema.
-                if (vertex.x < minimum.x) {
-                    minimum.x = vertex.x;
-                }
-                else if (vertex.x > maximum.x) {
-                    maximum.x = vertex.x;
-                }
-
-                if (vertex.y < minimum.y) {
-                    minimum.y = vertex.y;
-                }
-                else if (vertex.y > maximum.y) {
-                    maximum.y = vertex.y;
-                }
-
-                if (vertex.z < minimum.z) {
-                    minimum.z = vertex.z;
-                }
-                else if (vertex.z > maximum.z) {
-                    maximum.z = vertex.z;
-                }
-
                 model.vertices.emplace_back().position = vertex;
             }
 
@@ -124,23 +98,30 @@ Model load_obj(const char* filepath) {
 //        vertex_normals.emplace_back(glm::normalize(normal));
 //    }
     
-    // Center model at (0, 0, 0)
-    glm::vec3 center = glm::vec3((minimum + maximum) / 2.0f);
-    glm::mat4 translation = glm::translate(glm::mat4(1.0f), -center);
-
-    for (std::size_t i = 0u; i < model.vertices.size(); ++i) {
-        model.vertices[i].position = glm::vec3(translation * glm::vec4(model.vertices[i].position, 1.0f));
+    glm::vec3 minimum(std::numeric_limits<float>::max());
+    glm::vec3 maximum(std::numeric_limits<float>::lowest());
+    
+    for (const Model::Vertex& vertex : model.vertices) {
+        minimum = glm::min(minimum, vertex.position);
+        maximum = glm::max(maximum, vertex.position);
     }
 
+    // Center model at (0, 0, 0)
+    glm::vec3 center = glm::vec3((minimum + maximum) / 2.0f);
+    for (Model::Vertex& vertex : model.vertices) {
+        vertex.position -= center;
+    }
+    
     // Scale model to [1, 1, 1]
     glm::vec3 bounding_box = maximum - minimum;
 
-    // Scale the mesh to range [-1 1] on all axes.
-    float max_dimension = std::max(bounding_box.x, std::max(bounding_box.y, bounding_box.z));
-    glm::mat4 scale = glm::scale(glm::mat4(1.0f), glm::vec3(1.0f / max_dimension));
+    // Scale the mesh to range [-1 1] on all axes
+    glm::vec3 extents = maximum - minimum;
+    float max_extent = std::max({ extents.x, extents.y, extents.z });
+    float scale = 2.0f / max_extent;
 
-    for (std::size_t i = 0u; i < model.vertices.size(); ++i) {
-        model.vertices[i].position = glm::vec3(scale * glm::vec4(model.vertices[i].position, 1.0f));
+    for (Model::Vertex& vertex : model.vertices) {
+        vertex.position *= scale;
     }
     
     // Recalculate vertex normals

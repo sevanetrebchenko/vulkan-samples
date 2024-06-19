@@ -8,6 +8,7 @@ add_library(${PROJECT_NAME} STATIC
     "${PROJECT_SOURCE_DIR}/src/camera.cpp"
     "${PROJECT_SOURCE_DIR}/src/vulkan_initializers.cpp"
     "${PROJECT_SOURCE_DIR}/src/loaders/obj.cpp"
+    "${PROJECT_SOURCE_DIR}/src/transform.cpp"
 )
 
 # Vulkan

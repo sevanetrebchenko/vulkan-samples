@@ -3,6 +3,8 @@
 #define SAMPLE_HPP
 
 #include "camera.hpp"
+#include "model.hpp"
+#include "transform.hpp"
 
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>

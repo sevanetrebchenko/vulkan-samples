@@ -49,7 +49,7 @@ glm::mat4 Camera::get_projection_matrix() {
 void Camera::recalculate() {
     view = glm::lookAt(eye, look_at, up);
     
-    double fov = 80.0;
+    double fov = 45.0;
     double aspect = 16.0 / 9.0;
     double near = 0.01; // Near plane distance
     double far = 1000.0; // Far plane distance

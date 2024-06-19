@@ -1,6 +1,8 @@
 
 #include "sample.hpp"
 #include "helpers.hpp"
+#include "loaders/obj.hpp"
+#include "model.hpp"
 #include <shaderc/shaderc.hpp>
 #include <stdexcept> // std::runtime_error
 #include <filesystem> // std::filesystem
@@ -1289,5 +1291,3 @@ void Sample::initialize_descriptor_pool(unsigned buffer_count, unsigned sampler_
         throw std::runtime_error("failed to create descriptor pool!");
     }
 }
-
-

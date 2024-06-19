@@ -10,14 +10,34 @@
 class DeferredRendering final : public Sample {
     public:
         DeferredRendering() : Sample("Deferred Rendering") {
-            debug_view = OUTPUT;
+            debug_view = NORMAL;
+            camera.set_position(glm::vec3(0, 0, 5));
+            camera.set_look_direction(glm::vec3(0.0f, 0.0f, -1.0f));
         }
         
         ~DeferredRendering() override {
         }
         
     private:
-        Model model;
+        std::vector<Model> models;
+        std::vector<Transform> transforms;
+        
+        struct Scene {
+            struct Object {
+                unsigned model;
+                Transform transform;
+                
+                glm::vec3 ambient;
+                glm::vec3 diffuse;
+                glm::vec3 specular;
+                float specular_exponent;
+                
+                bool flat_shaded;
+            };
+
+            std::vector<Object> objects;
+        } scene;
+        
         int debug_view;
         
         VkBuffer vertex_buffer;
@@ -54,7 +74,7 @@ class DeferredRendering final : public Sample {
         VkDescriptorSet offscreen_global;
         
         VkDescriptorSetLayout offscreen_object_layout;
-        VkDescriptorSet offscreen_object;
+        std::vector<VkDescriptorSet> offscreen_objects;
         
         // Used to synchronize between rendering the geometry buffer and rendering the final scene
         VkSemaphore is_offscreen_rendering_complete;
@@ -74,7 +94,7 @@ class DeferredRendering final : public Sample {
         VkBuffer uniform_buffer; // One uniform buffer for all uniforms, across both passes
         VkDeviceMemory uniform_buffer_memory;
         void* uniform_buffer_mapped;
-
+        
         VkSampler sampler;
         
         void initialize_resources() override {
@@ -93,16 +113,17 @@ class DeferredRendering final : public Sample {
             
             // This sample allocates 3 descriptor sets:
             //   1. Global set (0) for the geometry pass
-            //   1. 2 per-object sets (1) for the geometry pass
+            //   1. 2 per-object sets (1) for the geometry pass, per object
             //   1. Global set (2) for the composition pass
-            initialize_descriptor_pool(4, 5);
+            initialize_descriptor_pool(1 + 2 * offscreen_objects.size() + 2, 6);
+            
+            initialize_buffers();
             
             initialize_uniform_buffer();
             
             initialize_descriptor_set_layouts();
             initialize_descriptor_sets();
             
-            initialize_buffers();
             
             initialize_pipelines();
         }
@@ -243,13 +264,18 @@ class DeferredRendering final : public Sample {
                 
                 // Bind index buffer
                 vkCmdBindIndexBuffer(command_buffer, index_buffer, 0, VK_INDEX_TYPE_UINT32);
-            
-                // Bind per-object descriptor set
-                set = 1;
-                vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, offscreen_pipeline_layout, set, 1, &offscreen_object, 0, nullptr);
                 
-                // Draw indices.size() vertices which make up 1 instance starting at vertex index 0 and instance index 0.
-                vkCmdDrawIndexed(command_buffer, (unsigned) model.indices.size(), 1, 0, 0, 0);
+                for (std::size_t i = 0u; i < scene.objects.size(); ++i) {
+                    // Bind per-object descriptor set
+                    update_object_uniform_buffers(i);
+                    
+                    set = 1;
+                    vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, offscreen_pipeline_layout, set, 1, &offscreen_objects[i], 0, nullptr);
+                    const Scene::Object& object = scene.objects[i];
+                    
+                    // Draw indices.size() vertices which make up 1 instance starting at vertex index 0 and instance index 0.
+                    vkCmdDrawIndexed(command_buffer, (unsigned) models[object.model].indices.size(), 1, 0, 0, 0);
+                }
             
             vkCmdEndRenderPass(command_buffer);
             
@@ -845,9 +871,6 @@ class DeferredRendering final : public Sample {
         
         void initialize_offscreen_descriptor_sets() {
             // All descriptor sets are allocated from the same descriptor pool, allocated at the start of the frame
-            VkWriteDescriptorSet descriptor_writes[3] { };
-            VkDescriptorBufferInfo buffer_infos[3] { };
-            std::size_t offset = 0u;
             
             // Initialize the global descriptor set
             VkDescriptorSetAllocateInfo offscreen_global_set_allocate_info { };
@@ -859,59 +882,78 @@ class DeferredRendering final : public Sample {
                 throw std::runtime_error("failed to allocate global composition offscreen descriptor set!");
             }
             
-            buffer_infos[0].buffer = uniform_buffer;
-            buffer_infos[0].offset = 0;
-            buffer_infos[0].range = (sizeof(glm::mat4) * 2) + sizeof(glm::vec4);
-            offset += align_to_device_boundary(physical_device, buffer_infos[0].range);
+            std::size_t offset = 0u;
             
-            descriptor_writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            descriptor_writes[0].dstSet = offscreen_global;
-            descriptor_writes[0].dstBinding = 0;
-            descriptor_writes[0].dstArrayElement = 0;
-            descriptor_writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-            descriptor_writes[0].descriptorCount = 1;
-            descriptor_writes[0].pBufferInfo = &buffer_infos[0];
+            // Global uniforms
+            VkDescriptorBufferInfo buffer_info { };
+            buffer_info.buffer = uniform_buffer;
+            buffer_info.offset = 0;
+            buffer_info.range = (sizeof(glm::mat4) * 2) + sizeof(glm::vec4);
+            offset += align_to_device_boundary(physical_device, buffer_info.range);
             
+            VkWriteDescriptorSet descriptor_write { };
+            descriptor_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            descriptor_write.dstSet = offscreen_global;
+            descriptor_write.dstBinding = 0;
+            descriptor_write.dstArrayElement = 0;
+            descriptor_write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            descriptor_write.descriptorCount = 1;
+            descriptor_write.pBufferInfo = &buffer_info;
             
-            VkDescriptorSetAllocateInfo offscreen_object_set_allocate_info { };
-            offscreen_object_set_allocate_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-            offscreen_object_set_allocate_info.descriptorPool = descriptor_pool;
-            offscreen_object_set_allocate_info.descriptorSetCount = 1;
-            offscreen_object_set_allocate_info.pSetLayouts = &offscreen_object_layout;
-            if (vkAllocateDescriptorSets(device, &offscreen_object_set_allocate_info, &offscreen_object) != VK_SUCCESS) {
-                throw std::runtime_error("failed to allocate per-model offscreen descriptor set!");
+            vkUpdateDescriptorSets(device, 1, &descriptor_write, 0, nullptr);
+            
+            offscreen_objects.resize(scene.objects.size());
+
+            
+            // Configure per-object uniform ranges
+            std::size_t object_uniform_size = align_to_device_boundary(physical_device, (sizeof(glm::mat4) * 2)) + align_to_device_boundary(physical_device, sizeof(glm::vec4) * 3 + 4);
+            
+            for (std::size_t i = 0u; i < scene.objects.size(); ++i) {
+                VkDescriptorSetAllocateInfo offscreen_object_set_allocate_info { };
+                offscreen_object_set_allocate_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+                offscreen_object_set_allocate_info.descriptorPool = descriptor_pool;
+                offscreen_object_set_allocate_info.descriptorSetCount = 1;
+                offscreen_object_set_allocate_info.pSetLayouts = &offscreen_object_layout;
+                if (vkAllocateDescriptorSets(device, &offscreen_object_set_allocate_info, &offscreen_objects[i]) != VK_SUCCESS) {
+                    throw std::runtime_error("failed to allocate per-model offscreen descriptor set!");
+                }
+                
+                std::size_t starting_offset = offset + i * object_uniform_size;
+                
+                VkDescriptorBufferInfo buffer_infos[2] { };
+                VkWriteDescriptorSet descriptor_writes[2] { };
+                
+                // Vertex shader
+                buffer_infos[0].buffer = uniform_buffer;
+                buffer_infos[0].offset = starting_offset;
+                buffer_infos[0].range = sizeof(glm::mat4) * 2;
+                starting_offset += align_to_device_boundary(physical_device, buffer_infos[0].range);
+                
+                descriptor_writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                descriptor_writes[0].dstSet = offscreen_objects[i];
+                descriptor_writes[0].dstBinding = 0;
+                descriptor_writes[0].dstArrayElement = 0;
+                descriptor_writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+                descriptor_writes[0].descriptorCount = 1;
+                descriptor_writes[0].pBufferInfo = &buffer_infos[0];
+                
+                // Fragment shader
+                buffer_infos[1].buffer = uniform_buffer;
+                buffer_infos[1].offset = starting_offset;
+                buffer_infos[1].range = (sizeof(glm::vec4) * 3) + 4;
+                starting_offset += align_to_device_boundary(physical_device, buffer_infos[1].range);
+                
+                descriptor_writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                descriptor_writes[1].dstSet = offscreen_objects[i];
+                descriptor_writes[1].dstBinding = 1;
+                descriptor_writes[1].dstArrayElement = 0;
+                descriptor_writes[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+                descriptor_writes[1].descriptorCount = 1;
+                descriptor_writes[1].pBufferInfo = &buffer_infos[1];
+                
+                // Specify the buffer and region within it that contains the data for the allocated descriptors
+                vkUpdateDescriptorSets(device, 2, descriptor_writes, 0, nullptr);
             }
-            
-            // Specify the range of data and buffer where data for the vertex binding is located
-            buffer_infos[1].buffer = uniform_buffer;
-            buffer_infos[1].offset = offset;
-            buffer_infos[1].range = sizeof(glm::mat4) * 2;
-            offset += align_to_device_boundary(physical_device, buffer_infos[1].range);
-            
-            descriptor_writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            descriptor_writes[1].dstSet = offscreen_object;
-            descriptor_writes[1].dstBinding = 0;
-            descriptor_writes[1].dstArrayElement = 0;
-            descriptor_writes[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-            descriptor_writes[1].descriptorCount = 1;
-            descriptor_writes[1].pBufferInfo = &buffer_infos[1];
-            
-            // Specify the range of data and buffer where data for the fragment binding is located
-            buffer_infos[2].buffer = uniform_buffer;
-            buffer_infos[2].offset = offset;
-            buffer_infos[2].range = (sizeof(glm::vec4) * 3) + 4;
-            offset += align_to_device_boundary(physical_device, buffer_infos[2].range);
-            
-            descriptor_writes[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            descriptor_writes[2].dstSet = offscreen_object;
-            descriptor_writes[2].dstBinding = 1;
-            descriptor_writes[2].dstArrayElement = 0;
-            descriptor_writes[2].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-            descriptor_writes[2].descriptorCount = 1;
-            descriptor_writes[2].pBufferInfo = &buffer_infos[2];
-            
-            // Specify the buffer and region within it that contains the data for the allocated descriptors
-            vkUpdateDescriptorSets(device, sizeof(descriptor_writes) / sizeof(descriptor_writes[0]), descriptor_writes, 0, nullptr);
         }
         
         void initialize_composition_descriptor_sets() {
@@ -955,12 +997,14 @@ class DeferredRendering final : public Sample {
             // The same uniform buffer is used for both offscreen and composition passes
             // Composition uniforms are located directly after all the offscreen uniforms
             
-            std::size_t offset = align_to_device_boundary(physical_device, sizeof(glm::mat4) * 2 + sizeof(glm::vec4)) + align_to_device_boundary(physical_device, sizeof(glm::mat4) * 2) + align_to_device_boundary(physical_device, sizeof(glm::vec4) * 3 + 4);
+            // vertex uniforms + fragment uniforms
+            std::size_t object_uniform_size = align_to_device_boundary(physical_device, (sizeof(glm::mat4) * 2)) + align_to_device_boundary(physical_device, sizeof(glm::vec4) * 3 + 4);
+            std::size_t offset = align_to_device_boundary(physical_device, sizeof(glm::mat4) * 2 + sizeof(glm::vec4)) + scene.objects.size() * object_uniform_size;
             
             // Descriptor 6 - uniform buffer for lighting data
             buffer_infos[0].buffer = uniform_buffer;
             buffer_infos[0].offset = offset;
-            buffer_infos[0].range = sizeof(glm::mat4) + sizeof(glm::vec4) * 2;
+            buffer_infos[0].range = sizeof(glm::mat4) + sizeof(glm::vec4);
             
             offset += align_to_device_boundary(physical_device, buffer_infos[0].range);
             
@@ -997,11 +1041,58 @@ class DeferredRendering final : public Sample {
         }
         
         void initialize_buffers() {
-            model = load_obj("assets/models/bunny_high_poly.obj");
+            models.emplace_back(load_obj("assets/models/quad.obj"));
+            float box_size = 3.0f;
+            
+            // Walls
+            Scene::Object& right = scene.objects.emplace_back();
+            right.model = 0;
+            right.ambient = glm::vec3(0.1f);
+            right.diffuse = glm::vec3(1.0f, 0.0f, 0.0f); // red
+            right.specular = glm::vec3(10.0f);
+            right.specular_exponent = 0.0f;
+            right.transform = Transform(glm::vec3(-box_size, 0, 0), glm::vec3(box_size), glm::vec3(0.0f, 90.0f, 0.0f));
+            
+            Scene::Object& left = scene.objects.emplace_back();
+            left.model = 0;
+            left.ambient = glm::vec3(0.1f);
+            left.diffuse = glm::vec3(0.0f, 1.0f, 0.0f); // green
+            left.specular = glm::vec3(0.0f);
+            left.specular_exponent = 0.0f;
+            left.transform = Transform(glm::vec3(box_size, 0, 0), glm::vec3(box_size), glm::vec3(0.0f, 90.0f, 0.0f));
+            
+            Scene::Object& back = scene.objects.emplace_back();
+            back.model = 0;
+            back.ambient = glm::vec3(0.1f);
+            back.diffuse = glm::vec3(0.0f, 0.0f, 1.0f); // green
+            back.specular = glm::vec3(0.0f);
+            back.specular_exponent = 0.0f;
+            back.transform = Transform(glm::vec3(0, 0, -box_size), glm::vec3(box_size), glm::vec3(0.0f, 0.0f, 0.0f));
+            
+            Scene::Object& ceiling = scene.objects.emplace_back();
+            ceiling.model = 0;
+            ceiling.ambient = glm::vec3(0.1f);
+            ceiling.diffuse = glm::vec3(0.6f); // offwhite
+            ceiling.specular = glm::vec3(0.0f);
+            ceiling.specular_exponent = 0.0f;
+            ceiling.transform = Transform(glm::vec3(0, box_size, 0), glm::vec3(box_size), glm::vec3(-90.0f, 00.0f, 0.0f));
+            
+            Scene::Object& floor = scene.objects.emplace_back();
+            floor.model = 0;
+            floor.ambient = glm::vec3(0.1f);
+            floor.diffuse = glm::vec3(0.6f); // offwhite
+            floor.specular = glm::vec3(0.0f);
+            floor.specular_exponent = 0.0f;
+            floor.transform = Transform(glm::vec3(0, -box_size, 0), glm::vec3(box_size), glm::vec3(90.0f, 0.0f, 0.0f));
             
             // This sample only uses vertex position and normal
-            std::size_t vertex_buffer_size = model.vertices.size() * sizeof(Model::Vertex);
-            std::size_t index_buffer_size = model.indices.size() * sizeof(unsigned);
+            std::size_t vertex_buffer_size = 0u;
+            std::size_t index_buffer_size = 0u;
+            
+            for (const Model& model : models) {
+                vertex_buffer_size += model.vertices.size() * sizeof(Model::Vertex);
+                index_buffer_size += model.indices.size() * sizeof(unsigned);
+            }
             
             VkBuffer staging_buffer { };
             VkDeviceMemory staging_buffer_memory { };
@@ -1011,15 +1102,36 @@ class DeferredRendering final : public Sample {
             create_buffer(physical_device, device, vertex_buffer_size + index_buffer_size, staging_buffer_usage, staging_buffer_memory_properties, staging_buffer, staging_buffer_memory);
             
             // Upload vertex data into staging buffer
-            void* data;
-            vkMapMemory(device, staging_buffer_memory, 0, vertex_buffer_size, 0, &data);
-                memcpy(data, model.vertices.data(), vertex_buffer_size);
-            vkUnmapMemory(device, staging_buffer_memory);
+            {
+                std::size_t offset = 0u;
+                
+                for (const Model& model : models) {
+                    std::size_t model_vertices_size = model.vertices.size() * sizeof(Model::Vertex);
+                    
+                    void* data;
+                    vkMapMemory(device, staging_buffer_memory, offset, model_vertices_size, 0, &data);
+                        memcpy(data, model.vertices.data(), model_vertices_size);
+                    vkUnmapMemory(device, staging_buffer_memory);
+                    
+                    offset += model_vertices_size;
+                }
+            }
             
             // Upload index data into staging buffer
-            vkMapMemory(device, staging_buffer_memory, vertex_buffer_size, index_buffer_size, 0, &data);
-                memcpy(data, model.indices.data(), index_buffer_size);
-            vkUnmapMemory(device, staging_buffer_memory);
+            {
+                std::size_t offset = 0u;
+                
+                for (const Model& model : models) {
+                    std::size_t model_indices_size = model.indices.size() * sizeof(unsigned);
+                    
+                    void* data;
+                    vkMapMemory(device, staging_buffer_memory, vertex_buffer_size + offset, model_indices_size, 0, &data);
+                        memcpy(data, model.indices.data(), model_indices_size);
+                    vkUnmapMemory(device, staging_buffer_memory);
+                    
+                    offset += model_indices_size;
+                }
+            }
             
             // Create device-local buffers
             VkBufferUsageFlags vertex_buffer_usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
@@ -1125,13 +1237,49 @@ class DeferredRendering final : public Sample {
         }
         
         void initialize_uniform_buffer() {
-            // set 0 binding 0 (globals) + set 1 binding 0 (per-object vertex) + set 1 binding 1 (per-object fragment)
-            std::size_t offscreen_buffer_size = align_to_device_boundary(physical_device, (sizeof(glm::mat4) * 2) + sizeof(glm::vec4)) + align_to_device_boundary(physical_device, sizeof(glm::mat4) * 2) + align_to_device_boundary(physical_device, sizeof(glm::vec4) * 3 + 4);
+            std::size_t offscreen_buffer_size = align_to_device_boundary(physical_device, (sizeof(glm::mat4) * 2) + sizeof(glm::vec4));
+            
+            // Per-object uniforms
+            offscreen_buffer_size += (align_to_device_boundary(physical_device, sizeof(glm::mat4) * 2) + align_to_device_boundary(physical_device, sizeof(glm::vec4) * 3 + 4)) * scene.objects.size();
+            
             std::size_t composition_buffer_size = align_to_device_boundary(physical_device, sizeof(glm::mat4) + sizeof(glm::vec4) * 2) + align_to_device_boundary(physical_device, sizeof(int));
             
             std::size_t uniform_buffer_size = offscreen_buffer_size + composition_buffer_size;
+            
             create_buffer(physical_device, device, uniform_buffer_size, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, uniform_buffer, uniform_buffer_memory);
             vkMapMemory(device, uniform_buffer_memory, 0, uniform_buffer_size, 0, &uniform_buffer_mapped);
+        }
+        
+        void update_object_uniform_buffers(unsigned id) {
+            Scene::Object& object = scene.objects[id];
+            std::size_t offset = align_to_device_boundary(physical_device, sizeof(glm::mat4) * 2 + sizeof(glm::vec4)) + (align_to_device_boundary(physical_device, sizeof(glm::mat4) * 2) + align_to_device_boundary(physical_device, sizeof(glm::vec4) * 3 + 4)) * id;
+            
+            struct ObjectData {
+                glm::mat4 model;
+                glm::mat4 normal;
+            };
+            ObjectData object_data { };
+            object_data.model = object.transform.get_matrix();
+            object_data.normal = glm::inverse(glm::transpose(object_data.model));
+            
+            memcpy((void*)((const char*) (uniform_buffer_mapped) + offset), &object_data, sizeof(ObjectData));
+            offset += align_to_device_boundary(physical_device, sizeof(glm::mat4) * 2);
+            
+            struct MaterialData {
+                // Must be aligned to vec4
+                glm::vec4 ambient;
+                glm::vec4 diffuse;
+                glm::vec4 specular;
+                float exponent;
+            };
+            MaterialData material_data { };
+            material_data.ambient = glm::vec4(object.ambient, 1.0f);
+            material_data.diffuse = glm::vec4(object.diffuse, 1.0f);
+            material_data.specular = glm::vec4(object.specular, 1.0f);
+            material_data.exponent = object.specular_exponent;
+            
+            memcpy((void*)((const char*) (uniform_buffer_mapped) + offset), &material_data, sizeof(MaterialData));
+            offset += align_to_device_boundary(physical_device, sizeof(glm::vec4) * 3 + 4);
         }
         
         void update_uniform_buffers() {
@@ -1145,31 +1293,9 @@ class DeferredRendering final : public Sample {
             globals.projection = camera.get_projection_matrix();
             globals.eye = camera.get_position();
             memcpy(uniform_buffer_mapped, &globals, sizeof(CameraData));
-            
-            struct ObjectData {
-                glm::mat4 model;
-                glm::mat4 normal;
-            };
-            ObjectData object { };
-            object.model = glm::scale(glm::vec3(3.0f));
-            object.normal = glm::inverse(glm::transpose(object.model));
-            
             std::size_t offset = align_to_device_boundary(physical_device, sizeof(glm::mat4) * 2 + sizeof(glm::vec4));
             
-            memcpy((void*)((const char*) (uniform_buffer_mapped) + offset), &object, sizeof(ObjectData));
-            offset += align_to_device_boundary(physical_device, sizeof(glm::mat4) * 2);
-            
-            struct MaterialData {
-                // Must be aligned to vec4
-                glm::vec4 ambient = glm::vec4(0.1f, 0.1f, 0.1f, 1.0f);
-                glm::vec4 diffuse = glm::vec4(0.5f, 0.5f, 0.5f, 1.0f);
-                glm::vec4 specular = glm::vec4(0.8f, 0.8f, 0.8f, 1.0f);
-                float exponent = 15.0f;
-            };
-            MaterialData material { };
-            
-            memcpy((void*)((const char*) (uniform_buffer_mapped) + offset), &material, sizeof(MaterialData));
-            offset += align_to_device_boundary(physical_device, sizeof(glm::vec4) * 3 + 4);
+            offset += (align_to_device_boundary(physical_device, sizeof(glm::mat4) * 2) + align_to_device_boundary(physical_device, sizeof(glm::vec4) * 3 + 4)) * scene.objects.size();
             
             struct LightingData {
                 glm::mat4 view;

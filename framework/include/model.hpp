@@ -17,6 +17,6 @@ struct Model {
 
 // Primitives
 Model load_cube();
-Model load_sphere();
+Model load_plane();
 
 #endif // MODEL_HPP
