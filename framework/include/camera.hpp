@@ -23,6 +23,8 @@ class Camera {
         glm::mat4 get_view_matrix();
         glm::mat4 get_projection_matrix();
         
+        bool is_dirty() const;
+        
     private:
         void recalculate();
         

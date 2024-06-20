@@ -21,6 +21,8 @@ class Transform {
         glm::vec3 get_rotation() const;
         
         glm::mat4 get_matrix();
+        
+        bool is_dirty() const;
 
     private:
         void recalculate();

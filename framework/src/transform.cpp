@@ -69,3 +69,7 @@ Transform& Transform::operator=(const Transform& other) {
     
     return *this;
 }
+
+bool Transform::is_dirty() const {
+    return dirty;
+}

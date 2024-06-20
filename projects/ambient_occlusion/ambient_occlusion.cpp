@@ -7,6 +7,12 @@
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/transform.hpp>
 
+// Ambient occlusion consists of doing 4 passes:
+// 1. Geometry buffer pass
+// 2. Generate ambient occlusion texture
+// 3. Blur ambient occlusion texture
+// 4. Composite ambient occlusion and geometry buffer attachments
+
 class AmbientOcclusion final : public Sample {
     public:
         AmbientOcclusion() : Sample("Ambient Occlusion") {
@@ -18,6 +24,7 @@ class AmbientOcclusion final : public Sample {
         }
         
     private:
+        // Scene information
         std::vector<Model> models;
         std::vector<Transform> transforms;
         
@@ -45,293 +52,360 @@ class AmbientOcclusion final : public Sample {
         VkBuffer index_buffer;
         VkDeviceMemory index_buffer_memory;
         
-        struct FramebufferAttachment {
+        constexpr static const int KERNEL_SIZE = 64;
+        constexpr static const float SAMPLE_RADIUS = 0.5f;
+        
+        glm::vec4 samples[KERNEL_SIZE];
+        
+        struct Texture {
             VkImage image;
             VkDeviceMemory memory;
             VkImageView image_view;
             VkFormat format;
         };
         
-        std::array<FramebufferAttachment, 6> offscreen_framebuffer_attachments;
-        VkFramebuffer offscreen_framebuffer;
+        // Geometry buffer
+        // Position, normal, ambient, diffuse, specular, depth
+        std::array<Texture, 6> geometry_framebuffer_attachments;
         
-        VkPipeline offscreen_pipeline;
-        VkPipelineLayout offscreen_pipeline_layout;
+        VkFramebuffer geometry_framebuffer;
+        VkPipelineLayout geometry_pipeline_layout;
         
-        VkRenderPass offscreen_render_pass;
+        VkPipeline geometry_pipeline;
+        VkRenderPass geometry_render_pass;
+        
+        VkDescriptorSetLayout geometry_global_descriptor_set_layout;
+        VkDescriptorSet geometry_global_descriptor_set;
+        struct GeometryGlobalUniforms {
+            glm::mat4 view;
+            glm::mat4 projection;
+            glm::vec4 camera_position; // Padded vec3
+        };
+        
+        VkDescriptorSetLayout geometry_object_descriptor_set_layout;
+        std::vector<VkDescriptorSet> geometry_object_descriptor_sets; // One per scene object
+        struct GeometryObjectVertexStageUniforms {
+            glm::mat4 model;
+            glm::mat4 normal;
+        };
+        struct GeometryObjectFragmentStageUniforms {
+            glm::vec4 ambient; // Padded vec3
+            glm::vec4 diffuse; // Padded vec3
+            glm::vec4 specular; // Padded vec3
+            float exponent;
+        };
+        
+        // Ambient occlusion
+        // Ambient occlusion, ambient occlusion blurred
+        std::array<Texture, 2> ambient_occlusion_attachments;
+        VkFramebuffer ambient_occlusion_framebuffer;
+        
+        VkPipelineLayout ambient_occlusion_pipeline_layout;
+        VkPipeline ambient_occlusion_pipeline;
+        VkRenderPass ambient_occlusion_render_pass;
+        
+        VkDescriptorSetLayout ambient_occlusion_descriptor_set_layout;
+        VkDescriptorSet ambient_occlusion_descriptor_set;
+        struct AmbientOcclusionUniforms {
+            glm::mat4 projection;
+            glm::vec4 samples[KERNEL_SIZE];
+        };
+        
+        VkPipelineLayout ambient_occlusion_blur_pipeline_layout;
+        VkPipeline ambient_occlusion_blur_pipeline;
+        VkRenderPass ambient_occlusion_blur_render_pass;
+        
+        VkDescriptorSetLayout ambient_occlusion_blur_descriptor_set_layout;
+        VkDescriptorSet ambient_occlusion_blur_descriptor_set;
+        
+        Texture ambient_occlusion_noise;
+        
+        // Composition
+        VkRenderPass composition_render_pass;
+        
+        VkPipelineLayout composition_pipeline_layout;
+        VkPipeline composition_pipeline;
+        
+        VkDescriptorSetLayout composition_descriptor_set_layout;
+        VkDescriptorSet composition_descriptor_set;
+        struct CompositionUniforms {
+            glm::mat4 view;
+            glm::vec4 camera_position; // Padded vec3
+        };
         
         // Descriptor sets
-        VkDescriptorSetLayout offscreen_global_layout;
-        VkDescriptorSet offscreen_global;
-        
-        VkDescriptorSetLayout offscreen_object_layout;
-        std::vector<VkDescriptorSet> offscreen_objects;
         
         // Used to synchronize between rendering the geometry buffer and rendering the final scene
         VkSemaphore is_offscreen_rendering_complete;
         
         std::vector<VkCommandBuffer> offscreen_command_buffers;
         
-        // Composition
-        VkRenderPass composition_render_pass;
-        
-        VkPipeline composition_pipeline;
-        VkPipelineLayout composition_pipeline_layout;
-        
-        VkDescriptorSetLayout composition_global_layout;
-        VkDescriptorSet composition_global;
+//        // Composition
+//        VkRenderPass composition_render_pass;
+//
+//        VkPipeline composition_pipeline;
+//        VkPipelineLayout composition_pipeline_layout;
+//
+//        VkDescriptorSetLayout composition_global_layout;
+//        VkDescriptorSet composition_global;
         
         // Uniform buffers
         VkBuffer uniform_buffer; // One uniform buffer for all uniforms, across both passes
         VkDeviceMemory uniform_buffer_memory;
         void* uniform_buffer_mapped;
         
-        VkSampler sampler;
+        VkSampler sampler; // Shared color sampler
+
         
         void initialize_resources() override {
-            VkSemaphoreCreateInfo semaphore_create_info { };
-            semaphore_create_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-            if (vkCreateSemaphore(device, &semaphore_create_info, nullptr, &is_offscreen_rendering_complete) != VK_SUCCESS) {
-                throw std::runtime_error("failed to create semaphore (offscreen)");
-            }
-            
-            initialize_samplers();
-            
-            initialize_command_buffer();
-            
-            initialize_render_passes();
-            initialize_framebuffers();
-            
-            // This sample allocates 3 descriptor sets:
-            //   1. Global set (0) for the geometry pass
-            //   1. 2 per-object sets (1) for the geometry pass, per object
-            //   1. Global set (2) for the composition pass
-            initialize_descriptor_pool(1 + 2 * offscreen_objects.size() + 2, 6);
-            
-            initialize_buffers();
-            
-            initialize_uniform_buffer();
-            
-            initialize_descriptor_set_layouts();
-            initialize_descriptor_sets();
-            
-            
-            initialize_pipelines();
+//            VkSemaphoreCreateInfo semaphore_create_info { };
+//            semaphore_create_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+//            if (vkCreateSemaphore(device, &semaphore_create_info, nullptr, &is_offscreen_rendering_complete) != VK_SUCCESS) {
+//                throw std::runtime_error("failed to create semaphore (offscreen)");
+//            }
+//
+//            initialize_samplers();
+//
+//            initialize_command_buffer();
+//
+//            initialize_render_passes();
+//            initialize_framebuffers();
+//
+//            // This sample allocates 3 descriptor sets:
+//            //   1. Global set (0) for the geometry pass
+//            //   1. 2 per-object sets (1) for the geometry pass, per object
+//            //   1. Global set (2) for the composition pass
+//            initialize_descriptor_pool(1 + 2 * offscreen_objects.size() + 2, 6);
+//
+//            initialize_buffers();
+//
+//            initialize_uniform_buffer();
+//
+            // Initialize descriptor sets
+            initialize_geometry_global_descriptor_set();
+            initialize_geometry_per_object_descriptor_sets();
+            initialize_ambient_occlusion_descriptor_set();
+            initialize_ambient_occlusion_blur_descriptor_set();
+            initialize_composition_descriptor_set();
+
+
+//
+//            initialize_pipelines();
         }
         
         void destroy_resources() override {
         }
         
         void update() override {
-            Scene::Object& object = scene.objects.back();
-            Transform& transform = object.transform;
-            transform.set_rotation(transform.get_rotation() + (float)dt * glm::vec3(0.0f, -10.0f, 0.0f));
-            
-            update_uniform_buffers();
-            
-            for (std::size_t i = 0u; i < scene.objects.size(); ++i)
-                update_object_uniform_buffers(i);
+//            Scene::Object& object = scene.objects.back();
+//            Transform& transform = object.transform;
+//            transform.set_rotation(transform.get_rotation() + (float)dt * glm::vec3(0.0f, -10.0f, 0.0f));
+//
+//            update_uniform_buffers();
+//
+//            for (std::size_t i = 0u; i < scene.objects.size(); ++i)
+//                update_object_uniform_buffers(i);
         }
         
         void render() override {
-            VkSemaphore is_image_available = is_presentation_complete[frame_index];
-            
-            unsigned image_index;
-            VkResult result = vkAcquireNextImageKHR(device, swapchain, std::numeric_limits<std::uint64_t>::max(), is_image_available, VK_NULL_HANDLE, &image_index);
-            
-            // Record command buffer(s)
-            record_command_buffers(image_index);
-        
-            VkSubmitInfo submit_info { };
-            submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        
-            // Ensure that the swapchain image is available before executing any color operations (writes) by waiting on the pipeline stage that writes to the color attachment (discussed in detail during render pass creation above)
-            // Another approach that can be taken here is to wait on VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, which would ensure that no command buffers are executed before the image swapchain image is ready (vkAcquireNextImageKHR signals is_image_available, queue execution waits on is_image_available)
-            // However, this is not the preferred approach - waiting on VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT will completely block the pipeline until the swapchain image is ready
-            // Instead, waiting on the pipeline stage where writes are performed to the color attachment allows Vulkan to begin scheduling other work that happens before the VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT stage is reached for execution (such as invoking the vertex shader)
-            // This way, the implementation waits only the time that is absolutely necessary for coherent memory operations
-            
-            // Presentation -> geometry buffer pass
-            {
-                VkSemaphore wait_semaphores[] = { is_image_available, is_offscreen_rendering_complete }; // Semaphore(s) to wait on before the command buffers can begin execution
-                VkPipelineStageFlags wait_stage_flags[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT }; // Note: wait_stage_flags and wait_semaphores have a 1:1 correlation, meaning it is possible to wait on and signal different semaphores at different pipeline stages
-                
-                // Waiting on the swapchain image to be ready (if not yet) when the pipeline is ready to perform writes to color attachments
-                submit_info.waitSemaphoreCount = 1;
-                submit_info.pWaitSemaphores = wait_semaphores;
-                submit_info.pWaitDstStageMask = wait_stage_flags;
-                
-                submit_info.commandBufferCount = 1;
-                submit_info.pCommandBuffers = &offscreen_command_buffers[frame_index]; // Command buffer(s) to execute
-            
-                submit_info.signalSemaphoreCount = 1;
-                submit_info.pSignalSemaphores = &is_offscreen_rendering_complete; // Signal offscreen semaphore
-            
-                // Submit
-                if (vkQueueSubmit(queue, 1, &submit_info, VK_NULL_HANDLE) != VK_SUCCESS) {
-                    throw std::runtime_error("failed to submit offscreen command buffer!");
-                }
-            }
-
-            // Geometry buffer pass -> presentation
-            {
-                VkSemaphore wait_semaphores[] = { is_offscreen_rendering_complete };
-                VkPipelineStageFlags wait_stage_flags[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
-                
-                submit_info.waitSemaphoreCount = 1;
-                submit_info.pWaitSemaphores = wait_semaphores;
-                submit_info.pWaitDstStageMask = wait_stage_flags;
-                submit_info.commandBufferCount = 1;
-                submit_info.pCommandBuffers = &command_buffers[frame_index];
-            
-                submit_info.signalSemaphoreCount = 1;
-                submit_info.pSignalSemaphores = &is_rendering_complete[frame_index];
-            
-                // Submit
-                // TODO: fence is not necessary here
-                if (vkQueueSubmit(queue, 1, &submit_info, is_frame_in_flight[frame_index]) != VK_SUCCESS) {
-                    throw std::runtime_error("failed to submit presentation command buffer!");
-                }
-            }
+//            VkSemaphore is_image_available = is_presentation_complete[frame_index];
+//
+//            unsigned image_index;
+//            VkResult result = vkAcquireNextImageKHR(device, swapchain, std::numeric_limits<std::uint64_t>::max(), is_image_available, VK_NULL_HANDLE, &image_index);
+//
+//            // Record command buffer(s)
+//            record_command_buffers(image_index);
+//
+//            VkSubmitInfo submit_info { };
+//            submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+//
+//            // Ensure that the swapchain image is available before executing any color operations (writes) by waiting on the pipeline stage that writes to the color attachment (discussed in detail during render pass creation above)
+//            // Another approach that can be taken here is to wait on VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, which would ensure that no command buffers are executed before the image swapchain image is ready (vkAcquireNextImageKHR signals is_image_available, queue execution waits on is_image_available)
+//            // However, this is not the preferred approach - waiting on VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT will completely block the pipeline until the swapchain image is ready
+//            // Instead, waiting on the pipeline stage where writes are performed to the color attachment allows Vulkan to begin scheduling other work that happens before the VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT stage is reached for execution (such as invoking the vertex shader)
+//            // This way, the implementation waits only the time that is absolutely necessary for coherent memory operations
+//
+//            // Presentation -> geometry buffer pass
+//            {
+//                VkSemaphore wait_semaphores[] = { is_image_available, is_offscreen_rendering_complete }; // Semaphore(s) to wait on before the command buffers can begin execution
+//                VkPipelineStageFlags wait_stage_flags[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT }; // Note: wait_stage_flags and wait_semaphores have a 1:1 correlation, meaning it is possible to wait on and signal different semaphores at different pipeline stages
+//
+//                // Waiting on the swapchain image to be ready (if not yet) when the pipeline is ready to perform writes to color attachments
+//                submit_info.waitSemaphoreCount = 1;
+//                submit_info.pWaitSemaphores = wait_semaphores;
+//                submit_info.pWaitDstStageMask = wait_stage_flags;
+//
+//                submit_info.commandBufferCount = 1;
+//                submit_info.pCommandBuffers = &offscreen_command_buffers[frame_index]; // Command buffer(s) to execute
+//
+//                submit_info.signalSemaphoreCount = 1;
+//                submit_info.pSignalSemaphores = &is_offscreen_rendering_complete; // Signal offscreen semaphore
+//
+//                // Submit
+//                if (vkQueueSubmit(queue, 1, &submit_info, VK_NULL_HANDLE) != VK_SUCCESS) {
+//                    throw std::runtime_error("failed to submit offscreen command buffer!");
+//                }
+//            }
+//
+//            // Geometry buffer pass -> presentation
+//            {
+//                VkSemaphore wait_semaphores[] = { is_offscreen_rendering_complete };
+//                VkPipelineStageFlags wait_stage_flags[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
+//
+//                submit_info.waitSemaphoreCount = 1;
+//                submit_info.pWaitSemaphores = wait_semaphores;
+//                submit_info.pWaitDstStageMask = wait_stage_flags;
+//                submit_info.commandBufferCount = 1;
+//                submit_info.pCommandBuffers = &command_buffers[frame_index];
+//
+//                submit_info.signalSemaphoreCount = 1;
+//                submit_info.pSignalSemaphores = &is_rendering_complete[frame_index];
+//
+//                // Submit
+//                // TODO: fence is not necessary here
+//                if (vkQueueSubmit(queue, 1, &submit_info, is_frame_in_flight[frame_index]) != VK_SUCCESS) {
+//                    throw std::runtime_error("failed to submit presentation command buffer!");
+//                }
+//            }
         }
         
         void initialize_command_buffer() {
-            VkCommandBufferAllocateInfo command_buffer_allocate_info { };
-            command_buffer_allocate_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-            command_buffer_allocate_info.commandPool = command_pool;
-            command_buffer_allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-            command_buffer_allocate_info.commandBufferCount = NUM_FRAMES_IN_FLIGHT;
-            
-            offscreen_command_buffers.resize(NUM_FRAMES_IN_FLIGHT);
-    
-            // Command buffer will get released with the command pool at the end of the sample
-            if (vkAllocateCommandBuffers(device, &command_buffer_allocate_info, offscreen_command_buffers.data()) != VK_SUCCESS) {
-                throw std::runtime_error("failed to allocate offscreen command buffer!");
-            }
+//            VkCommandBufferAllocateInfo command_buffer_allocate_info { };
+//            command_buffer_allocate_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+//            command_buffer_allocate_info.commandPool = command_pool;
+//            command_buffer_allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+//            command_buffer_allocate_info.commandBufferCount = NUM_FRAMES_IN_FLIGHT;
+//
+//            offscreen_command_buffers.resize(NUM_FRAMES_IN_FLIGHT);
+//
+//            // Command buffer will get released with the command pool at the end of the sample
+//            if (vkAllocateCommandBuffers(device, &command_buffer_allocate_info, offscreen_command_buffers.data()) != VK_SUCCESS) {
+//                throw std::runtime_error("failed to allocate offscreen command buffer!");
+//            }
         }
         
         void record_command_buffers(unsigned image_index) override {
-            record_offscreen_command_buffer();
-            record_composition_command_buffer(image_index);
+//            record_offscreen_command_buffer();
+//            record_composition_command_buffer(image_index);
         }
         
         void record_offscreen_command_buffer() {
-            VkCommandBuffer command_buffer = offscreen_command_buffers[frame_index];
-            vkResetCommandBuffer(command_buffer, 0);
-            
-            VkCommandBufferBeginInfo command_buffer_begin_info { };
-            command_buffer_begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-            command_buffer_begin_info.flags = 0;
-            if (vkBeginCommandBuffer(command_buffer, &command_buffer_begin_info) != VK_SUCCESS) {
-                throw std::runtime_error("failed to begin command buffer recording!");
-            }
-        
-            VkRenderPassBeginInfo render_pass_info { };
-            render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-            render_pass_info.renderPass = offscreen_render_pass;
-            render_pass_info.framebuffer = offscreen_framebuffer; // Only one geometry buffer
-        
-            // Specify render area and offset
-            render_pass_info.renderArea = create_region(0, 0, swapchain_extent.width, swapchain_extent.height);
-        
-            VkClearValue clear_values[6] { };
-            clear_values[0].color = {{ 0.0f, 0.0f, 0.0f, 1.0f }}; // Position
-            clear_values[1].color = {{ 0.0f, 0.0f, 0.0f, 1.0f }}; // Normal
-            clear_values[2].color = {{ 0.0f, 0.0f, 0.0f, 1.0f }}; // Ambient
-            clear_values[3].color = {{ 0.0f, 0.0f, 0.0f, 1.0f }}; // Diffuse
-            clear_values[4].color = {{ 0.0f, 0.0f, 0.0f, 1.0f }}; // Specular
-            clear_values[5].depthStencil = { 1.0f, 0 }; // Depth
-
-            render_pass_info.clearValueCount = sizeof(clear_values) / sizeof(clear_values[0]);
-            render_pass_info.pClearValues = clear_values;
-        
-            unsigned set;
-            
-            // Record command for starting the offscreen render pass
-            vkCmdBeginRenderPass(command_buffer, &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
-                // Bind graphics pipeline
-                vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, offscreen_pipeline);
-                
-                // Bind pipeline-global descriptor sets
-                set = 0;
-                vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, offscreen_pipeline_layout, set, 1, &offscreen_global, 0, nullptr);
-                
-                for (std::size_t i = 0u; i < scene.objects.size(); ++i) {
-                    const Scene::Object& object = scene.objects[i];
-                    const Model& model = models[object.model];
-                    
-                    // Bind vertex buffer
-                    VkDeviceSize offsets[] = { object.vertex_offset  };
-                    vkCmdBindVertexBuffers(command_buffer, 0, 1, &vertex_buffer, offsets);
-                    
-                    // Bind index buffer
-                    vkCmdBindIndexBuffer(command_buffer, index_buffer, object.index_offset, VK_INDEX_TYPE_UINT32);
-                    
-                    // Descriptor sets need to be bound per object
-                    set = 1;
-                    vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, offscreen_pipeline_layout, set, 1, &offscreen_objects[i], 0, nullptr);
-                    
-                    // Draw indices.size() vertices which make up 1 instance starting at vertex index 0 and instance index 0.
-                    vkCmdDrawIndexed(command_buffer, (unsigned) model.indices.size(), 1, 0, 0, 0);
-                }
-            
-            vkCmdEndRenderPass(command_buffer);
-            
-            if (vkEndCommandBuffer(command_buffer) != VK_SUCCESS) {
-                throw std::runtime_error("failed to record command buffer!");
-            }
+//            VkCommandBuffer command_buffer = offscreen_command_buffers[frame_index];
+//            vkResetCommandBuffer(command_buffer, 0);
+//
+//            VkCommandBufferBeginInfo command_buffer_begin_info { };
+//            command_buffer_begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+//            command_buffer_begin_info.flags = 0;
+//            if (vkBeginCommandBuffer(command_buffer, &command_buffer_begin_info) != VK_SUCCESS) {
+//                throw std::runtime_error("failed to begin command buffer recording!");
+//            }
+//
+//            VkRenderPassBeginInfo render_pass_info { };
+//            render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+//            render_pass_info.renderPass = offscreen_render_pass;
+//            render_pass_info.framebuffer = offscreen_framebuffer; // Only one geometry buffer
+//
+//            // Specify render area and offset
+//            render_pass_info.renderArea = create_region(0, 0, swapchain_extent.width, swapchain_extent.height);
+//
+//            VkClearValue clear_values[6] { };
+//            clear_values[0].color = {{ 0.0f, 0.0f, 0.0f, 1.0f }}; // Position
+//            clear_values[1].color = {{ 0.0f, 0.0f, 0.0f, 1.0f }}; // Normal
+//            clear_values[2].color = {{ 0.0f, 0.0f, 0.0f, 1.0f }}; // Ambient
+//            clear_values[3].color = {{ 0.0f, 0.0f, 0.0f, 1.0f }}; // Diffuse
+//            clear_values[4].color = {{ 0.0f, 0.0f, 0.0f, 1.0f }}; // Specular
+//            clear_values[5].depthStencil = { 1.0f, 0 }; // Depth
+//
+//            render_pass_info.clearValueCount = sizeof(clear_values) / sizeof(clear_values[0]);
+//            render_pass_info.pClearValues = clear_values;
+//
+//            unsigned set;
+//
+//            // Record command for starting the offscreen render pass
+//            vkCmdBeginRenderPass(command_buffer, &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
+//                // Bind graphics pipeline
+//                vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, offscreen_pipeline);
+//
+//                // Bind pipeline-global descriptor sets
+//                set = 0;
+//                vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, offscreen_pipeline_layout, set, 1, &offscreen_global, 0, nullptr);
+//
+//                for (std::size_t i = 0u; i < scene.objects.size(); ++i) {
+//                    const Scene::Object& object = scene.objects[i];
+//                    const Model& model = models[object.model];
+//
+//                    // Bind vertex buffer
+//                    VkDeviceSize offsets[] = { object.vertex_offset  };
+//                    vkCmdBindVertexBuffers(command_buffer, 0, 1, &vertex_buffer, offsets);
+//
+//                    // Bind index buffer
+//                    vkCmdBindIndexBuffer(command_buffer, index_buffer, object.index_offset, VK_INDEX_TYPE_UINT32);
+//
+//                    // Descriptor sets need to be bound per object
+//                    set = 1;
+//                    vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, offscreen_pipeline_layout, set, 1, &offscreen_objects[i], 0, nullptr);
+//
+//                    // Draw indices.size() vertices which make up 1 instance starting at vertex index 0 and instance index 0.
+//                    vkCmdDrawIndexed(command_buffer, (unsigned) model.indices.size(), 1, 0, 0, 0);
+//                }
+//
+//            vkCmdEndRenderPass(command_buffer);
+//
+//            if (vkEndCommandBuffer(command_buffer) != VK_SUCCESS) {
+//                throw std::runtime_error("failed to record command buffer!");
+//            }
         }
         
         void record_composition_command_buffer(unsigned image_index) {
-            VkCommandBuffer command_buffer = command_buffers[frame_index];
-            vkResetCommandBuffer(command_buffer, 0);
-            
-            VkCommandBufferBeginInfo command_buffer_begin_info { };
-            command_buffer_begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-            command_buffer_begin_info.flags = 0;
-            if (vkBeginCommandBuffer(command_buffer, &command_buffer_begin_info) != VK_SUCCESS) {
-                throw std::runtime_error("failed to begin command buffer recording!");
-            }
-        
-            VkRenderPassBeginInfo render_pass_info { };
-            render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-            render_pass_info.renderPass = composition_render_pass;
-            render_pass_info.framebuffer = present_framebuffers[image_index]; // Bind the framebuffer for the swapchain image being rendered to
-        
-            // Specify render area and offset
-            render_pass_info.renderArea = create_region(0, 0, swapchain_extent.width, swapchain_extent.height);
-        
-            VkClearValue clear_value { };
-
-            // Clear value for color attachment
-            clear_value.color = {{ 0.0f, 0.0f, 0.0f, 1.0f }};
-            render_pass_info.clearValueCount = 1;
-            
-            render_pass_info.pClearValues = &clear_value;
-            
-            // Record command for starting the composition render pass
-            vkCmdBeginRenderPass(command_buffer, &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
-                // Bind graphics pipeline
-                vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, composition_pipeline);
-                
-                // Bind pipeline-global descriptor sets
-                unsigned set = 0;
-                vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, composition_pipeline_layout, set, 1, &composition_global, 0, nullptr);
-                
-                // Draw a full screen triangle
-                vkCmdDraw(command_buffer, 3, 1, 0, 0);
-            
-            // Finish recording the command buffer
-            vkCmdEndRenderPass(command_buffer);
-            
-            if (vkEndCommandBuffer(command_buffer) != VK_SUCCESS) {
-                throw std::runtime_error("failed to record command buffer!");
-            }
+//            VkCommandBuffer command_buffer = command_buffers[frame_index];
+//            vkResetCommandBuffer(command_buffer, 0);
+//
+//            VkCommandBufferBeginInfo command_buffer_begin_info { };
+//            command_buffer_begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+//            command_buffer_begin_info.flags = 0;
+//            if (vkBeginCommandBuffer(command_buffer, &command_buffer_begin_info) != VK_SUCCESS) {
+//                throw std::runtime_error("failed to begin command buffer recording!");
+//            }
+//
+//            VkRenderPassBeginInfo render_pass_info { };
+//            render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+//            render_pass_info.renderPass = composition_render_pass;
+//            render_pass_info.framebuffer = present_framebuffers[image_index]; // Bind the framebuffer for the swapchain image being rendered to
+//
+//            // Specify render area and offset
+//            render_pass_info.renderArea = create_region(0, 0, swapchain_extent.width, swapchain_extent.height);
+//
+//            VkClearValue clear_value { };
+//
+//            // Clear value for color attachment
+//            clear_value.color = {{ 0.0f, 0.0f, 0.0f, 1.0f }};
+//            render_pass_info.clearValueCount = 1;
+//
+//            render_pass_info.pClearValues = &clear_value;
+//
+//            // Record command for starting the composition render pass
+//            vkCmdBeginRenderPass(command_buffer, &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
+//                // Bind graphics pipeline
+//                vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, composition_pipeline);
+//
+//                // Bind pipeline-global descriptor sets
+//                unsigned set = 0;
+//                vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, composition_pipeline_layout, set, 1, &composition_global, 0, nullptr);
+//
+//                // Draw a full screen triangle
+//                vkCmdDraw(command_buffer, 3, 1, 0, 0);
+//
+//            // Finish recording the command buffer
+//            vkCmdEndRenderPass(command_buffer);
+//
+//            if (vkEndCommandBuffer(command_buffer) != VK_SUCCESS) {
+//                throw std::runtime_error("failed to record command buffer!");
+//            }
         }
         
         void initialize_pipelines() {
-            initialize_offscreen_pipeline();
-            initialize_composition_pipeline();
+//            initialize_offscreen_pipeline();
+//            initialize_composition_pipeline();
         }
         
         void initialize_offscreen_pipeline() {
@@ -792,156 +866,137 @@ class AmbientOcclusion final : public Sample {
             vkDestroyFramebuffer(device, offscreen_framebuffer, nullptr);
         }
         
-        void initialize_descriptor_set_layouts() {
-            initialize_offscreen_descriptor_set_layouts();
-            initialize_composition_descriptor_set_layouts();
-        }
-        
-        void initialize_offscreen_descriptor_set_layouts() {
-            // Allocate descriptor set 0 for global uniforms used in the geometry buffer pass
+        void initialize_geometry_global_descriptor_set() {
+            // Initialize the global descriptor set (used across both vertex and fragment shader stages)
+            // This descriptor set is mapped to set 0 and contains a uniform buffer at binding 0 with the following members:
+            //   - mat4 (camera view)
+            //   - mat4 (camera projection)
+            //   - vec3 (camera position)
             
-            // This set has one binding at location 0
-            // This binding references a uniform buffer and can be used in both the vertex and fragment stages
-            VkDescriptorSetLayoutBinding binding = create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0);
+            // Initialize set layout
+            unsigned binding_point = 0;
+            VkDescriptorSetLayoutBinding binding = create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, binding_point);
             
-            // Initialize the descriptor set layout
             VkDescriptorSetLayoutCreateInfo layout_create_info { };
             layout_create_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
             layout_create_info.bindingCount = 1;
             layout_create_info.pBindings = &binding;
-            if (vkCreateDescriptorSetLayout(device, &layout_create_info, nullptr, &offscreen_global_layout) != VK_SUCCESS) {
-                throw std::runtime_error("failed to allocate global offscreen descriptor set layout!");
+            if (vkCreateDescriptorSetLayout(device, &layout_create_info, nullptr, &geometry_global_descriptor_set_layout) != VK_SUCCESS) {
+                throw std::runtime_error("failed to create descriptor set layout!");
             }
             
-            // Allocate descriptor set 1 for per-object uniforms
-            // In theory, it would be better to separate this set into two (per-material and per-object) and render objects grouped by material, but for this sample each object has unique material properties
-            
-            // This set has two bindings at locations 0 and 1
-            VkDescriptorSetLayoutBinding bindings[2] = {
-                // Binding at location 0 references a uniform buffer that can be used in the vertex stage
-                create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, 0),
-                create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT, 1)
-            };
-            
-            VkDescriptorSetLayoutCreateInfo vertex_layout_create_info { };
-            vertex_layout_create_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-            vertex_layout_create_info.bindingCount = sizeof(bindings) / sizeof(bindings[0]);
-            vertex_layout_create_info.pBindings = bindings;
-            
-            if (vkCreateDescriptorSetLayout(device, &vertex_layout_create_info, nullptr, &offscreen_object_layout) != VK_SUCCESS) {
-                throw std::runtime_error("failed to allocate per-model offscreen descriptor set layout!");
-            }
-        }
-        
-        void initialize_composition_descriptor_set_layouts() {
-            VkDescriptorSetLayoutBinding bindings[] {
-                create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 0), // Position sampler
-                create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 1), // Normal sampler
-                create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 2), // Ambient sampler
-                create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 3), // Diffuse sampler
-                create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 4), // Specular sampler
-                create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT, 5), // Uniform buffer for lights
-            };
-            
-            // Initialize the descriptor set layout
-            VkDescriptorSetLayoutCreateInfo layout_create_info { };
-            layout_create_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-            layout_create_info.bindingCount = sizeof(bindings) / sizeof(bindings[0]);
-            layout_create_info.pBindings = bindings;
-            if (vkCreateDescriptorSetLayout(device, &layout_create_info, nullptr, &composition_global_layout) != VK_SUCCESS) {
-                throw std::runtime_error("failed to allocate global composition descriptor set layout!");
-            }
-        }
-        
-        void destroy_descriptor_set_layouts() {
-            vkDestroyDescriptorSetLayout(device, offscreen_global_layout, nullptr);
-            vkDestroyDescriptorSetLayout(device, offscreen_object_layout, nullptr);
-            
-            vkDestroyDescriptorSetLayout(device, composition_global_layout, nullptr);
-        }
-        
-        void initialize_descriptor_sets() {
-            initialize_offscreen_descriptor_sets();
-            initialize_composition_descriptor_sets();
-        }
-        
-        void initialize_offscreen_descriptor_sets() {
-            // All descriptor sets are allocated from the same descriptor pool, allocated at the start of the frame
-            
-            // Initialize the global descriptor set
-            VkDescriptorSetAllocateInfo offscreen_global_set_allocate_info { };
-            offscreen_global_set_allocate_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-            offscreen_global_set_allocate_info.descriptorPool = descriptor_pool;
-            offscreen_global_set_allocate_info.descriptorSetCount = 1;
-            offscreen_global_set_allocate_info.pSetLayouts = &offscreen_global_layout;
-            if (vkAllocateDescriptorSets(device, &offscreen_global_set_allocate_info, &offscreen_global) != VK_SUCCESS) {
-                throw std::runtime_error("failed to allocate global composition offscreen descriptor set!");
+            // Initialize set
+            VkDescriptorSetAllocateInfo set_create_info { };
+            set_create_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+            set_create_info.descriptorPool = descriptor_pool;
+            set_create_info.descriptorSetCount = 1;
+            set_create_info.pSetLayouts = &geometry_global_descriptor_set_layout;
+            if (vkAllocateDescriptorSets(device, &set_create_info, &geometry_global_descriptor_set) != VK_SUCCESS) {
+                throw std::runtime_error("failed to allocate descriptor set!");
             }
             
+            // Configure the offsets at which the data for the global uniforms for the geometry pass is located
+            
+            // This descriptor set is located at the very start of the uniform buffer
             std::size_t offset = 0u;
             
-            // Global uniforms
             VkDescriptorBufferInfo buffer_info { };
             buffer_info.buffer = uniform_buffer;
             buffer_info.offset = 0;
-            buffer_info.range = (sizeof(glm::mat4) * 2) + sizeof(glm::vec4);
-            offset += align_to_device_boundary(physical_device, buffer_info.range);
+            buffer_info.range = sizeof(GeometryGlobalUniforms);
             
             VkWriteDescriptorSet descriptor_write { };
             descriptor_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            descriptor_write.dstSet = offscreen_global;
-            descriptor_write.dstBinding = 0;
+            descriptor_write.dstSet = geometry_global_descriptor_set;
+            descriptor_write.dstBinding = binding_point;
             descriptor_write.dstArrayElement = 0;
             descriptor_write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
             descriptor_write.descriptorCount = 1;
             descriptor_write.pBufferInfo = &buffer_info;
             
             vkUpdateDescriptorSets(device, 1, &descriptor_write, 0, nullptr);
+        }
+        
+        void initialize_geometry_per_object_descriptor_sets() {
+            // Initialize descriptor sets for each object
+            // This descriptor set is mapped to set 1 and contains 2 uniform buffers at binding points 0 and 1 in the vertex and fragment shaders (respectively) with the following members:
             
-            offscreen_objects.resize(scene.objects.size());
+            // Vertex uniform buffer (binding point 0):
+            //   - mat4 (model matrix)
+            //   - mat4 (normal matrix)
+            
+            // Fragment uniform buffer (binding point 1):
+            //   - vec3 (ambient color)
+            //   - vec3 (diffuse color)
+            //   - vec3 (specular color)
+            //   - float (specular exponent)
+            
+            // There needs to be a descriptor set allocated per object in the scene that points into the uniform buffer at the correct offset
 
+            // Initialize set layout
+            VkDescriptorSetLayoutBinding bindings[] {
+                create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, 0), // Uniform buffer for the vertex stage at binding point 0
+                create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT, 1) // Uniform buffer for the fragment stage at bidning point 1
+            };
             
-            // Configure per-object uniform ranges
-            std::size_t object_uniform_size = align_to_device_boundary(physical_device, (sizeof(glm::mat4) * 2)) + align_to_device_boundary(physical_device, sizeof(glm::vec4) * 3 + 4);
+            VkDescriptorSetLayoutCreateInfo layout_create_info { };
+            layout_create_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+            layout_create_info.bindingCount = sizeof(bindings) / sizeof(bindings[0]);
+            layout_create_info.pBindings = bindings;
+            if (vkCreateDescriptorSetLayout(device, &layout_create_info, nullptr, &geometry_object_descriptor_set_layout) != VK_SUCCESS) {
+                throw std::runtime_error("failed to create descriptor set layout!");
+            }
             
+            // Initialize sets (one per scene object)
+            geometry_object_descriptor_sets.resize(scene.objects.size());
+            
+            // In memory, the data for the vertex and fragment uniform buffers for a given object are consecutive
+            // This data is located directly after the section containing the global uniform buffer for the geometry pass (initialized above)
+
+            std::size_t globals_uniform_block_size = align_to_device_boundary(physical_device, sizeof(GeometryGlobalUniforms));
+            
+            // Configure per-object uniform ranges (each object requires its own descriptor set)
+            std::size_t object_uniform_block_size = align_to_device_boundary(physical_device, sizeof(GeometryObjectVertexStageUniforms)) + align_to_device_boundary(physical_device, sizeof(GeometryObjectFragmentStageUniforms));
             for (std::size_t i = 0u; i < scene.objects.size(); ++i) {
-                VkDescriptorSetAllocateInfo offscreen_object_set_allocate_info { };
-                offscreen_object_set_allocate_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-                offscreen_object_set_allocate_info.descriptorPool = descriptor_pool;
-                offscreen_object_set_allocate_info.descriptorSetCount = 1;
-                offscreen_object_set_allocate_info.pSetLayouts = &offscreen_object_layout;
-                if (vkAllocateDescriptorSets(device, &offscreen_object_set_allocate_info, &offscreen_objects[i]) != VK_SUCCESS) {
-                    throw std::runtime_error("failed to allocate per-model offscreen descriptor set!");
+                
+                VkDescriptorSetAllocateInfo set_create_info { };
+                set_create_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+                set_create_info.descriptorPool = descriptor_pool;
+                set_create_info.descriptorSetCount = 1;
+                set_create_info.pSetLayouts = &geometry_object_descriptor_set_layout;
+                if (vkAllocateDescriptorSets(device, &set_create_info, &geometry_object_descriptor_sets[i]) != VK_SUCCESS) {
+                    throw std::runtime_error("failed to allocate descriptor set!");
                 }
                 
-                std::size_t starting_offset = offset + i * object_uniform_size;
+                std::size_t offset = globals_uniform_block_size + i * object_uniform_block_size;
                 
                 VkDescriptorBufferInfo buffer_infos[2] { };
                 VkWriteDescriptorSet descriptor_writes[2] { };
                 
-                // Vertex shader
+                // Configure ranges for vertex uniform block
                 buffer_infos[0].buffer = uniform_buffer;
-                buffer_infos[0].offset = starting_offset;
-                buffer_infos[0].range = sizeof(glm::mat4) * 2;
-                starting_offset += align_to_device_boundary(physical_device, buffer_infos[0].range);
+                buffer_infos[0].offset = offset;
+                buffer_infos[0].range = sizeof(GeometryObjectVertexStageUniforms);
                 
                 descriptor_writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                descriptor_writes[0].dstSet = offscreen_objects[i];
-                descriptor_writes[0].dstBinding = 0;
+                descriptor_writes[0].dstSet = geometry_object_descriptor_sets[i];
+                descriptor_writes[0].dstBinding = 0; // Vertex uniform block is bound at binding point 0
                 descriptor_writes[0].dstArrayElement = 0;
                 descriptor_writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
                 descriptor_writes[0].descriptorCount = 1;
                 descriptor_writes[0].pBufferInfo = &buffer_infos[0];
                 
-                // Fragment shader
+                // Vertex and fragment uniform blocks are consecutive
+                offset += align_to_device_boundary(physical_device, buffer_infos[0].range);
+                
+                // Configure ranges for fragment uniform block
                 buffer_infos[1].buffer = uniform_buffer;
-                buffer_infos[1].offset = starting_offset;
-                buffer_infos[1].range = (sizeof(glm::vec4) * 3) + 4;
-                starting_offset += align_to_device_boundary(physical_device, buffer_infos[1].range);
+                buffer_infos[1].offset = offset;
+                buffer_infos[1].range = sizeof(GeometryObjectFragmentStageUniforms);
                 
                 descriptor_writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                descriptor_writes[1].dstSet = offscreen_objects[i];
-                descriptor_writes[1].dstBinding = 1;
+                descriptor_writes[1].dstSet = geometry_object_descriptor_sets[i];
+                descriptor_writes[1].dstBinding = 1; // Fragment uniform block is bound at binding point 1
                 descriptor_writes[1].dstArrayElement = 0;
                 descriptor_writes[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
                 descriptor_writes[1].descriptorCount = 1;
@@ -952,68 +1007,178 @@ class AmbientOcclusion final : public Sample {
             }
         }
         
-        void initialize_composition_descriptor_sets() {
-            VkDescriptorSetAllocateInfo composition_global_set_allocate_info { };
-            composition_global_set_allocate_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-            composition_global_set_allocate_info.descriptorPool = descriptor_pool;
-            composition_global_set_allocate_info.descriptorSetCount = 1;
-            composition_global_set_allocate_info.pSetLayouts = &composition_global_layout;
-            if (vkAllocateDescriptorSets(device, &composition_global_set_allocate_info, &composition_global) != VK_SUCCESS) {
-                throw std::runtime_error("failed to allocate global composition descriptor set!");
+        void initialize_ambient_occlusion_descriptor_set() {
+            // Initialize the global descriptor set used in the fragment shader for ambient occlusion calculations
+            // This descriptor set is mapped to set 0 and contains a uniform buffer at binding 0 with the following members:
+            //   - mat4 (camera projection)
+            //   - array of vec4s (ambient occlusion kernel)
+            
+            // Initialize set layout
+            VkDescriptorSetLayoutBinding bindings[] {
+                create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 0),
+                create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 1),
+                create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 2),
+                create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT, 3),
+            };
+            
+            VkDescriptorSetLayoutCreateInfo layout_create_info { };
+            layout_create_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+            layout_create_info.bindingCount = sizeof(bindings) / sizeof(bindings[0]);
+            layout_create_info.pBindings = bindings;
+            if (vkCreateDescriptorSetLayout(device, &layout_create_info, nullptr, &ambient_occlusion_descriptor_set_layout) != VK_SUCCESS) {
+                throw std::runtime_error("failed to create descriptor set layout!");
             }
             
-            VkWriteDescriptorSet descriptor_writes[6] { };
-            VkDescriptorImageInfo image_infos[5] { };
+            // Initialize set
+            VkDescriptorSetAllocateInfo set_create_info { };
+            set_create_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+            set_create_info.descriptorPool = descriptor_pool;
+            set_create_info.descriptorSetCount = 1;
+            set_create_info.pSetLayouts = &ambient_occlusion_descriptor_set_layout;
+            if (vkAllocateDescriptorSets(device, &set_create_info, &ambient_occlusion_descriptor_set) != VK_SUCCESS) {
+                throw std::runtime_error("failed to allocate descriptor set!");
+            }
             
-            unsigned binding;
+            // Configure the offsets at which the data for the global uniforms for the geometry pass is located
             
-            // Descriptors 0 - 5 - combined image sampler (position, normal, ambient, diffuse, specular)
-            for (binding = 0; binding < 5; ++binding) {
-                image_infos[binding].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-                image_infos[binding].imageView = offscreen_framebuffer_attachments[binding].image_view;
-                image_infos[binding].sampler = sampler;
+            // This descriptor set is located after the per-model descriptor sets for the geometry pass
+            std::size_t globals_uniform_block_size = align_to_device_boundary(physical_device, sizeof(GeometryGlobalUniforms));
+            std::size_t object_uniform_block_size = align_to_device_boundary(physical_device, sizeof(GeometryObjectVertexStageUniforms)) + align_to_device_boundary(physical_device, sizeof(GeometryObjectFragmentStageUniforms));
+            
+            VkDescriptorBufferInfo buffer_info { };
+            buffer_info.buffer = uniform_buffer;
+            buffer_info.offset = globals_uniform_block_size + object_uniform_block_size * scene.objects.size();
+            buffer_info.range = sizeof(AmbientOcclusionUniforms);
+            
+            VkWriteDescriptorSet descriptor_write { };
+            descriptor_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            descriptor_write.dstSet = ambient_occlusion_descriptor_set;
+            descriptor_write.dstBinding = 3;
+            descriptor_write.dstArrayElement = 0;
+            descriptor_write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            descriptor_write.descriptorCount = 1;
+            descriptor_write.pBufferInfo = &buffer_info;
+            
+            vkUpdateDescriptorSets(device, 1, &descriptor_write, 0, nullptr);
+        }
+        
+        void initialize_ambient_occlusion_blur_descriptor_set() {
+            // Initialize the global descriptor set used in the fragment shader for blurring
+            
+            // Initialize set layout
+            VkDescriptorSetLayoutBinding binding = create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 0),
+            
+            VkDescriptorSetLayoutCreateInfo layout_create_info { };
+            layout_create_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+            layout_create_info.bindingCount = 1;
+            layout_create_info.pBindings = &binding;
+            if (vkCreateDescriptorSetLayout(device, &layout_create_info, nullptr, &ambient_occlusion_blur_descriptor_set_layout) != VK_SUCCESS) {
+                throw std::runtime_error("failed to create descriptor set layout!");
+            }
+            
+            // Initialize set
+            VkDescriptorSetAllocateInfo set_create_info { };
+            set_create_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+            set_create_info.descriptorPool = descriptor_pool;
+            set_create_info.descriptorSetCount = 1;
+            set_create_info.pSetLayouts = &ambient_occlusion_blur_descriptor_set_layout;
+            if (vkAllocateDescriptorSets(device, &set_create_info, &ambient_occlusion_blur_descriptor_set) != VK_SUCCESS) {
+                throw std::runtime_error("failed to allocate descriptor set!");
+            }
+        }
+        
+        void initialize_composition_descriptor_set() {
+            // Initialize the global descriptor set used in the fragment shader for the composition of the final scene
+            
+            // Initialize set layout
+            VkDescriptorSetLayoutBinding bindings[] {
+                create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 0), // Position
+                create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 1), // Normals
+                create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 2), // Ambient
+                create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 3), // Diffuse
+                create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 4), // Specular
+                create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 5), // Ambient occlusion
+                create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT, 6)
+            };
+            
+            VkDescriptorSetLayoutCreateInfo layout_create_info { };
+            layout_create_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+            layout_create_info.bindingCount = sizeof(bindings) / sizeof(bindings[0]);
+            layout_create_info.pBindings = bindings;
+            if (vkCreateDescriptorSetLayout(device, &layout_create_info, nullptr, &composition_descriptor_set_layout) != VK_SUCCESS) {
+                throw std::runtime_error("failed to create descriptor set layout!");
+            }
+            
+            VkDescriptorSetAllocateInfo set_allocate_info { };
+            set_allocate_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+            set_allocate_info.descriptorPool = descriptor_pool;
+            set_allocate_info.descriptorSetCount = 1;
+            set_allocate_info.pSetLayouts = &composition_descriptor_set_layout;
+            if (vkAllocateDescriptorSets(device, &set_allocate_info, &composition_descriptor_set) != VK_SUCCESS) {
+                throw std::runtime_error("failed to allocate descriptor set!");
+            }
+            
+            VkWriteDescriptorSet descriptor_writes[7] { };
+            VkDescriptorImageInfo image_infos[6] { };
+            
+            unsigned binding_point;
+            
+            // Descriptors 0 - 5 come from the geometry framebuffer (position, normal, ambient, diffuse, specular)
+            for (binding_point = 0; binding_point < 5; ++binding_point) {
+                image_infos[binding_point].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                image_infos[binding_point].imageView = geometry_framebuffer_attachments[binding_point].image_view;
+                image_infos[binding_point].sampler = sampler;
                 
-                descriptor_writes[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                descriptor_writes[binding].dstSet = composition_global;
-                descriptor_writes[binding].dstBinding = binding;
-                descriptor_writes[binding].dstArrayElement = 0;
-                descriptor_writes[binding].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-                descriptor_writes[binding].descriptorCount = 1;
-                descriptor_writes[binding].pImageInfo = &image_infos[binding];
+                descriptor_writes[binding_point].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                descriptor_writes[binding_point].dstSet = composition_descriptor_set;
+                descriptor_writes[binding_point].dstBinding = binding_point;
+                descriptor_writes[binding_point].dstArrayElement = 0;
+                descriptor_writes[binding_point].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                descriptor_writes[binding_point].descriptorCount = 1;
+                descriptor_writes[binding_point].pImageInfo = &image_infos[binding_point];
             }
             
-            VkDescriptorBufferInfo buffer_infos[2] { };
+            ++binding_point; // 6
             
-            // The same uniform buffer is used for both offscreen and composition passes
-            // Composition uniforms are located directly after all the offscreen uniforms
+            // Descriptor 6 comes from the ambient occlusion framebuffer
+            // This can either be the blurred or non-blurred version, depending on the desired effect
+            image_infos[binding_point].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            image_infos[binding_point].imageView = ambient_occlusion_attachments[1].image_view; // 0 for non-blurred, 1 for blurred
+            image_infos[binding_point].sampler = sampler;
             
-            // vertex uniforms + fragment uniforms
-            std::size_t object_uniform_size = align_to_device_boundary(physical_device, (sizeof(glm::mat4) * 2)) + align_to_device_boundary(physical_device, sizeof(glm::vec4) * 3 + 4);
-            std::size_t offset = align_to_device_boundary(physical_device, sizeof(glm::mat4) * 2 + sizeof(glm::vec4)) + scene.objects.size() * object_uniform_size;
+            descriptor_writes[binding_point].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            descriptor_writes[binding_point].dstSet = composition_descriptor_set;
+            descriptor_writes[binding_point].dstBinding = binding_point;
+            descriptor_writes[binding_point].dstArrayElement = 0;
+            descriptor_writes[binding_point].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            descriptor_writes[binding_point].descriptorCount = 1;
+            descriptor_writes[binding_point].pImageInfo = &image_infos[binding_point];
             
-            // Descriptor 5 - uniform buffer for lighting data
-            buffer_infos[0].buffer = uniform_buffer;
-            buffer_infos[0].offset = offset;
-            buffer_infos[0].range = sizeof(glm::mat4) + sizeof(glm::vec4);
+            // Uniforms for the final composition pass are located at the very end of the uniform buffer
             
-            offset += align_to_device_boundary(physical_device, buffer_infos[0].range);
+            std::size_t globals_uniform_block_size = align_to_device_boundary(physical_device, sizeof(GeometryGlobalUniforms));
+            std::size_t object_uniform_block_size = align_to_device_boundary(physical_device, sizeof(GeometryObjectVertexStageUniforms)) + align_to_device_boundary(physical_device, sizeof(GeometryObjectFragmentStageUniforms));
+            std::size_t ambient_occlusion_uniform_block_size = align_to_device_boundary(physical_device, sizeof(AmbientOcclusionUniforms));
             
-            descriptor_writes[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            descriptor_writes[binding].dstSet = composition_global;
-            descriptor_writes[binding].dstBinding = binding;
-            descriptor_writes[binding].dstArrayElement = 0;
-            descriptor_writes[binding].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-            descriptor_writes[binding].descriptorCount = 1;
-            descriptor_writes[binding].pBufferInfo = &buffer_infos[0];
+            VkDescriptorBufferInfo buffer_info { };
+            buffer_info.buffer = uniform_buffer;
+            buffer_info.offset = globals_uniform_block_size + object_uniform_block_size * scene.objects.size() + ambient_occlusion_uniform_block_size;
+            buffer_info.range = sizeof(CompositionUniforms);
             
-            ++binding;
+            ++binding_point; // 7
+            
+            descriptor_writes[binding_point].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            descriptor_writes[binding_point].dstSet = composition_descriptor_set;
+            descriptor_writes[binding_point].dstBinding = binding_point;
+            descriptor_writes[binding_point].dstArrayElement = 0;
+            descriptor_writes[binding_point].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            descriptor_writes[binding_point].descriptorCount = 1;
+            descriptor_writes[binding_point].pBufferInfo = &buffer_info;
             
             // Specify the buffer and region within it that contains the data for the allocated descriptors
             vkUpdateDescriptorSets(device, sizeof(descriptor_writes) / sizeof(descriptor_writes[0]), descriptor_writes, 0, nullptr);
         }
         
-        void destroy_descriptor_sets() {
-        }
         
         void initialize_buffers() {
             models.emplace_back(load_obj("assets/models/cube.obj"));
@@ -1165,8 +1330,8 @@ class AmbientOcclusion final : public Sample {
             // Filters help deal with oversampling (when there is more geometry fragments than texels) and blend between texture colors
             //   - VK_FILTER_LINEAR - bilinear filtering (interpolates from texel neighbors)
             //   - VK_FILTER_NEAREST - no filtering, takes the nearest texel value
-            texture_sampler_create_info.magFilter = VK_FILTER_LINEAR; // Magnification filter, more than one pixel per texel
-            texture_sampler_create_info.minFilter = VK_FILTER_LINEAR; // Minification filter, more than one texel per pixel
+            texture_sampler_create_info.magFilter = VK_FILTER_NEAREST;
+            texture_sampler_create_info.minFilter = VK_FILTER_NEAREST;
             
             // Samplers also take care of transformations (what happens when texels are read from outside the image)
             //   - VK_SAMPLER_ADDRESS_MODE_REPEAT - texture is repeated when sampled beyond the original image dimension
@@ -1232,75 +1397,74 @@ class AmbientOcclusion final : public Sample {
         }
         
         void initialize_uniform_buffer() {
-            std::size_t offscreen_buffer_size = align_to_device_boundary(physical_device, (sizeof(glm::mat4) * 2) + sizeof(glm::vec4));
+            std::size_t geometry_global_uniform_block_size = align_to_device_boundary(physical_device, sizeof(GeometryGlobalUniforms));
+            std::size_t geometry_object_uniform_block_size = (align_to_device_boundary(physical_device, sizeof(GeometryObjectVertexStageUniforms)) + align_to_device_boundary(physical_device, sizeof(GeometryObjectFragmentStageUniforms))) * scene.objects.size();
+            std::size_t ambient_occlusion_uniform_block_size = align_to_device_boundary(physical_device, sizeof(AmbientOcclusionUniforms));
             
-            // Per-object uniforms
-            offscreen_buffer_size += (align_to_device_boundary(physical_device, sizeof(glm::mat4) * 2) + align_to_device_boundary(physical_device, sizeof(glm::vec4) * 3 + 4)) * scene.objects.size();
-            
-            std::size_t composition_buffer_size = align_to_device_boundary(physical_device, sizeof(glm::mat4) + sizeof(glm::vec4) * 2);
-            
-            std::size_t uniform_buffer_size = offscreen_buffer_size + composition_buffer_size;
-            
+            std::size_t uniform_buffer_size = geometry_global_uniform_block_size + geometry_object_uniform_block_size + ambient_occlusion_uniform_block_size;
+
             create_buffer(physical_device, device, uniform_buffer_size, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, uniform_buffer, uniform_buffer_memory);
             vkMapMemory(device, uniform_buffer_memory, 0, uniform_buffer_size, 0, &uniform_buffer_mapped);
         }
         
-        void update_object_uniform_buffers(unsigned id) {
-            Scene::Object& object = scene.objects[id];
-            std::size_t offset = align_to_device_boundary(physical_device, sizeof(glm::mat4) * 2 + sizeof(glm::vec4)) + (align_to_device_boundary(physical_device, sizeof(glm::mat4) * 2) + align_to_device_boundary(physical_device, sizeof(glm::vec4) * 3 + 4)) * id;
-            
-            struct ObjectData {
-                glm::mat4 model;
-                glm::mat4 normal;
-            };
-            ObjectData object_data { };
-            object_data.model = object.transform.get_matrix();
-            object_data.normal = glm::transpose(glm::inverse(object_data.model));
-            
-            memcpy((void*)((const char*) (uniform_buffer_mapped) + offset), &object_data, sizeof(ObjectData));
-            offset += align_to_device_boundary(physical_device, sizeof(glm::mat4) * 2);
-            
-            struct MaterialData {
-                // Must be aligned to vec4
-                glm::vec4 ambient;
-                glm::vec4 diffuse;
-                glm::vec4 specular;
-                float exponent;
-            };
-            MaterialData material_data { };
-            material_data.ambient = glm::vec4(object.ambient, 1.0f);
-            material_data.diffuse = glm::vec4(object.diffuse, 1.0f);
-            material_data.specular = glm::vec4(object.specular, 1.0f);
-            material_data.exponent = object.specular_exponent;
-            
-            memcpy((void*)((const char*) (uniform_buffer_mapped) + offset), &material_data, sizeof(MaterialData));
-            offset += align_to_device_boundary(physical_device, sizeof(glm::vec4) * 3 + 4);
-        }
-        
         void update_uniform_buffers() {
-            struct CameraData {
-                glm::mat4 view;
-                glm::mat4 projection;
-                glm::vec3 eye;
-            };
-            CameraData globals { };
-            globals.view = camera.get_view_matrix();
-            globals.projection = camera.get_projection_matrix();
-            globals.eye = camera.get_position();
-            memcpy(uniform_buffer_mapped, &globals, sizeof(CameraData));
-            std::size_t offset = align_to_device_boundary(physical_device, sizeof(glm::mat4) * 2 + sizeof(glm::vec4));
+            // TODO: this data only needs to change when dirty
+            std::size_t offset = 0u;
             
-            offset += (align_to_device_boundary(physical_device, sizeof(glm::mat4) * 2) + align_to_device_boundary(physical_device, sizeof(glm::vec4) * 3 + 4)) * scene.objects.size();
+            // Geometry pass global uniforms
+            {
+                GeometryGlobalUniforms uniforms { };
+                uniforms.camera_position = glm::vec4(camera.get_position(), 1.0f);
+                uniforms.view = camera.get_view_matrix();
+                uniforms.projection = camera.get_projection_matrix();
+                
+                memset((void*)((const char*) uniform_buffer_mapped) + offset, &uniforms, sizeof(uniforms));
+                offset += align_to_device_boundary(physical_device, sizeof(GeometryGlobalUniforms));
+            }
             
-            struct LightingData {
-                glm::mat4 view;
-                glm::vec3 camera_position;
-            };
-            LightingData light_data { };
-            light_data.view = camera.get_view_matrix();
-            light_data.camera_position = camera.get_position();
-            memcpy((void*)((const char*) (uniform_buffer_mapped) + offset), &light_data, sizeof(LightingData));
-            offset += align_to_device_boundary(physical_device, sizeof(glm::mat4) + sizeof(glm::vec4) * 2);
+            // Geometry pass per-object uniforms
+            for (std::size_t i = 0u; i < scene.objects.size(); ++i) {
+                const Scene::Object& object = scene.objects[i];
+                const Transform& transform = object.transform;
+                
+                // Vertex
+                GeometryObjectVertexStageUniforms vertex { };
+                vertex.model = transform.get_model_matrix();
+                vertex.normal = glm::transpose(glm::inverse(vertex.model));
+                
+                memset((void*)((const char*) uniform_buffer_mapped) + offset, &vertex, sizeof(GeometryObjectVertexStageUniforms));
+                offset += align_to_device_boundary(physical_device, sizeof(GeometryObjectVertexStageUniforms));
+                
+                // Fragment
+                GeometryObjectFragmentStageUniforms fragment { };
+                fragment.ambient = vec4(object.ambient, 1.0f);
+                fragment.diffuse = vec4(object.diffuse, 1.0f);
+                fragment.specular = vec4(object.specular, 1.0f);
+                fragment.exponent = object.specular_exponent;
+                
+                memset((void*)((const char*) uniform_buffer_mapped) + offset, &fragment, sizeof(GeometryObjectFragmentStageUniforms));
+                offset += align_to_device_boundary(physical_device, sizeof(GeometryObjectFragmentStageUniforms));
+            }
+            
+            // Ambient occlusion uniforms
+            {
+                AmbientOcclusionUniforms uniforms { };
+                uniforms.projection = camera.get_projection_matrix();
+                uniforms.samples = samples;
+                
+                memset((void*)((const char*) uniform_buffer_mapped) + offset, &uniforms, sizeof(AmbientOcclusionUniforms));
+                offset += align_to_device_boundary(physical_device, sizeof(AmbientOcclusionUniforms));
+            }
+            
+            // Composition uniforms
+            {
+                CompositionUniforms uniforms { };
+                uniforms.view = camera.get_view_matrix();
+                uniforms.camera_position = camera.get_position();
+                
+                memset((void*)((const char*) uniform_buffer_mapped) + offset, &uniforms, sizeof(CompositionUniforms));
+                offset += align_to_device_boundary(physical_device, sizeof(CompositionUniforms));
+            }
         }
         
         void destroy_uniform_buffer() {

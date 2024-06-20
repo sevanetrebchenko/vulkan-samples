@@ -68,3 +68,7 @@ void Camera::set_up_vector(glm::vec3 direction) {
 glm::vec3 Camera::get_up_vector() const {
     return up;
 }
+
+bool Camera::is_dirty() const {
+    return dirty;
+}
