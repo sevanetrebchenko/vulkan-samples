@@ -6,6 +6,7 @@
 
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/transform.hpp>
+#include <random>
 
 // Ambient occlusion consists of doing 4 passes:
 // 1. Geometry buffer pass
@@ -122,6 +123,7 @@ class AmbientOcclusion final : public Sample {
         VkDescriptorSet ambient_occlusion_blur_descriptor_set;
         
         Texture ambient_occlusion_noise;
+        VkSampler ambient_occlusion_sampler;
         
         // Composition
         VkRenderPass composition_render_pass;
@@ -149,6 +151,7 @@ class AmbientOcclusion final : public Sample {
         
         void initialize_resources() override {
             initialize_samplers();
+            initialize_ambient_occlusion();
 
             initialize_command_buffer();
 
@@ -1364,6 +1367,53 @@ class AmbientOcclusion final : public Sample {
                 throw std::runtime_error("failed to allocate descriptor set!");
             }
             
+            VkWriteDescriptorSet descriptor_writes[4] { };
+            VkDescriptorImageInfo image_infos[3] { };
+            
+            unsigned binding_point = 0;
+            
+            image_infos[binding_point].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            image_infos[binding_point].imageView = geometry_framebuffer_attachments[0].image_view; // Positions
+            image_infos[binding_point].sampler = sampler;
+            
+            descriptor_writes[binding_point].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            descriptor_writes[binding_point].dstSet = ambient_occlusion_descriptor_set;
+            descriptor_writes[binding_point].dstBinding = binding_point;
+            descriptor_writes[binding_point].dstArrayElement = 0;
+            descriptor_writes[binding_point].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            descriptor_writes[binding_point].descriptorCount = 1;
+            descriptor_writes[binding_point].pImageInfo = &image_infos[binding_point];
+            
+            ++binding_point;
+            
+            image_infos[binding_point].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            image_infos[binding_point].imageView = geometry_framebuffer_attachments[1].image_view; // Normals
+            image_infos[binding_point].sampler = sampler;
+            
+            descriptor_writes[binding_point].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            descriptor_writes[binding_point].dstSet = ambient_occlusion_descriptor_set;
+            descriptor_writes[binding_point].dstBinding = binding_point;
+            descriptor_writes[binding_point].dstArrayElement = 0;
+            descriptor_writes[binding_point].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            descriptor_writes[binding_point].descriptorCount = 1;
+            descriptor_writes[binding_point].pImageInfo = &image_infos[binding_point];
+            
+            ++binding_point;
+            
+            image_infos[binding_point].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            image_infos[binding_point].imageView = ambient_occlusion_noise.image_view; // Random noise
+            image_infos[binding_point].sampler = ambient_occlusion_sampler; // TODO: initialize
+            
+            descriptor_writes[binding_point].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            descriptor_writes[binding_point].dstSet = ambient_occlusion_descriptor_set;
+            descriptor_writes[binding_point].dstBinding = binding_point;
+            descriptor_writes[binding_point].dstArrayElement = 0;
+            descriptor_writes[binding_point].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            descriptor_writes[binding_point].descriptorCount = 1;
+            descriptor_writes[binding_point].pImageInfo = &image_infos[binding_point];
+            
+            ++binding_point;
+            
             // Configure the offsets at which the data for the global uniforms for the geometry pass is located
             
             // This descriptor set is located after the per-model descriptor sets for the geometry pass
@@ -1375,16 +1425,15 @@ class AmbientOcclusion final : public Sample {
             buffer_info.offset = globals_uniform_block_size + object_uniform_block_size * scene.objects.size();
             buffer_info.range = sizeof(AmbientOcclusionUniforms);
             
-            VkWriteDescriptorSet descriptor_write { };
-            descriptor_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            descriptor_write.dstSet = ambient_occlusion_descriptor_set;
-            descriptor_write.dstBinding = 3;
-            descriptor_write.dstArrayElement = 0;
-            descriptor_write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-            descriptor_write.descriptorCount = 1;
-            descriptor_write.pBufferInfo = &buffer_info;
+            descriptor_writes[binding_point].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            descriptor_writes[binding_point].dstSet = ambient_occlusion_descriptor_set;
+            descriptor_writes[binding_point].dstBinding = binding_point;
+            descriptor_writes[binding_point].dstArrayElement = 0;
+            descriptor_writes[binding_point].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            descriptor_writes[binding_point].descriptorCount = 1;
+            descriptor_writes[binding_point].pBufferInfo = &buffer_info;
             
-            vkUpdateDescriptorSets(device, 1, &descriptor_write, 0, nullptr);
+            vkUpdateDescriptorSets(device, sizeof(descriptor_writes) / sizeof(descriptor_writes[0]), descriptor_writes, 0, nullptr);
         }
         
         void initialize_ambient_occlusion_blur_descriptor_set() {
@@ -1809,6 +1858,48 @@ class AmbientOcclusion final : public Sample {
         void destroy_uniform_buffer() {
             vkFreeMemory(device, uniform_buffer_memory, nullptr);
             vkDestroyBuffer(device, uniform_buffer, nullptr);
+        }
+        
+        float lerp(float a, float b, float f) {
+            return a + f * (b - a);
+        }
+        
+        void initialize_ambient_occlusion() {
+            // Initialize sample kernel
+            std::uniform_real_distribution<float> distribution(0.0f, 1.0f); // Uniform distribution of floats in the range [0.0, 1.0]
+            std::default_random_engine generator(time(nullptr));
+            
+            // Generate samples in tangent space, with the normal vector pointing at +z
+            for (std::size_t i = 0u; i < KERNEL_SIZE; ++i) {
+                // Generate x and y coordinates on the range [-1.0, 1.0], but z on the range [0.0, 1.0] to generates samples within a unit hemisphere around the surface normal
+                glm::vec3 sample(distribution(generator) * 2.0f - 1.0f, distribution(generator) * 2.0f - 1.0f, distribution(generator));
+                sample = glm::normalize(sample);
+                
+                // Uniformly randomize around the unit hemisphere
+                sample *= distribution(generator);
+                
+                // Apply an accelerating scaling factor so that more samples are distributed towards the origin
+                float scale = (float) i / (float) KERNEL_SIZE;
+                scale = lerp(0.1f, 1.0f, scale * scale);
+                
+                samples[i] = glm::vec4(sample * scale, 0.0f);
+            }
+            
+            // Introducing slight variation (randomness) to the sample kernel for each fragment is a good way to reduce artifacting and the number of samples to get convincing ambient occlusion
+            // One way to do this would be to generate a random rotation vector for each fragment of the scene, but this is costly to store (width * height * 4 channels of 32-bit floating point data)
+            // A better approach would be to tile a smaller subset of of randomized rotation vectors across the image
+            
+            std::vector<glm::vec4> noise_values;
+            std::size_t dimension = 8;
+            noise_values.resize(dimension * dimension); // 64 random rotation vectors
+            
+            for (std::size_t i = 0u; i < dimension * dimension; ++i) {
+                // Rotation vectors should be oriented around the tangent-space surface normal
+                noise_values[i] = glm::vec4(distribution(generator) * 2.0f - 1.0f, distribution(generator) * 2.0f - 1.0f, 0.0f, 0.0f);
+            }
+            
+            // Generate texture for noise values
+            // TODO:
         }
         
 };
