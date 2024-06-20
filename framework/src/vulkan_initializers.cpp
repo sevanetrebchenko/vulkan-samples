@@ -63,7 +63,7 @@ VkShaderModule create_shader_module(VkDevice device, const char* filepath) {
     return shader_module;
 }
 
-VkPipelineShaderStageCreateInfo create_shader_stage(VkShaderModule module, VkShaderStageFlagBits stage, const char* entry) {
+VkPipelineShaderStageCreateInfo create_shader_stage(VkShaderModule module, VkShaderStageFlagBits stage, VkSpecializationInfo* specialization_info, const char* entry) {
     // https://registry.khronos.org/vulkan/specs/1.3-extensions/man/html/VkPipelineShaderStageCreateInfo.html
     VkPipelineShaderStageCreateInfo create_info { };
     
@@ -71,7 +71,7 @@ VkPipelineShaderStageCreateInfo create_shader_stage(VkShaderModule module, VkSha
     create_info.stage = stage;
     create_info.module = module;
     create_info.pName = entry;
-    create_info.pSpecializationInfo = nullptr; // TODO: what is this?
+    create_info.pSpecializationInfo = specialization_info;
     
     return create_info;
 }

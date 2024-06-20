@@ -97,8 +97,11 @@ class AmbientOcclusion final : public Sample {
         
         // Ambient occlusion
         // Ambient occlusion, ambient occlusion blurred
-        std::array<Texture, 2> ambient_occlusion_attachments;
+        Texture ambient_occlusion_attachment;
         VkFramebuffer ambient_occlusion_framebuffer;
+        
+        Texture ambient_occlusion_blur_attachment;
+        VkFramebuffer ambient_occlusion_blur_framebuffer;
         
         VkPipelineLayout ambient_occlusion_pipeline_layout;
         VkPipeline ambient_occlusion_pipeline;
@@ -135,19 +138,7 @@ class AmbientOcclusion final : public Sample {
         
         // Descriptor sets
         
-        // Used to synchronize between rendering the geometry buffer and rendering the final scene
-        VkSemaphore is_offscreen_rendering_complete;
-        
         std::vector<VkCommandBuffer> offscreen_command_buffers;
-        
-//        // Composition
-//        VkRenderPass composition_render_pass;
-//
-//        VkPipeline composition_pipeline;
-//        VkPipelineLayout composition_pipeline_layout;
-//
-//        VkDescriptorSetLayout composition_global_layout;
-//        VkDescriptorSet composition_global;
         
         // Uniform buffers
         VkBuffer uniform_buffer; // One uniform buffer for all uniforms, across both passes
@@ -155,32 +146,28 @@ class AmbientOcclusion final : public Sample {
         void* uniform_buffer_mapped;
         
         VkSampler sampler; // Shared color sampler
-
         
         void initialize_resources() override {
-//            VkSemaphoreCreateInfo semaphore_create_info { };
-//            semaphore_create_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-//            if (vkCreateSemaphore(device, &semaphore_create_info, nullptr, &is_offscreen_rendering_complete) != VK_SUCCESS) {
-//                throw std::runtime_error("failed to create semaphore (offscreen)");
-//            }
-//
-//            initialize_samplers();
-//
-//            initialize_command_buffer();
-//
-//            initialize_render_passes();
-//            initialize_framebuffers();
-//
-//            // This sample allocates 3 descriptor sets:
-//            //   1. Global set (0) for the geometry pass
-//            //   1. 2 per-object sets (1) for the geometry pass, per object
-//            //   1. Global set (2) for the composition pass
-//            initialize_descriptor_pool(1 + 2 * offscreen_objects.size() + 2, 6);
-//
-//            initialize_buffers();
-//
-//            initialize_uniform_buffer();
-//
+            initialize_samplers();
+
+            initialize_command_buffer();
+
+            initialize_geometry_render_pass();
+            initialize_ambient_occlusion_render_pass();
+            initialize_ambient_occlusion_blur_render_pass();
+            initialize_composition_render_pass();
+
+            initialize_geometry_framebuffer();
+            initialize_ambient_occlusion_framebuffer();
+            initialize_ambient_occlusion_blur_framebuffer();
+            initialize_composition_framebuffers();
+
+            initialize_descriptor_pool(1 + 2 * scene.objects.size() + 1 + 1, 12);
+
+            initialize_buffers();
+
+            initialize_uniform_buffer();
+
             // Initialize descriptor sets
             initialize_geometry_global_descriptor_set();
             initialize_geometry_per_object_descriptor_sets();
@@ -188,9 +175,10 @@ class AmbientOcclusion final : public Sample {
             initialize_ambient_occlusion_blur_descriptor_set();
             initialize_composition_descriptor_set();
 
-
-//
-//            initialize_pipelines();
+            initialize_geometry_pipeline();
+            initialize_ambient_occlusion_pipeline();
+            initialize_ambient_occlusion_blur_pipeline();
+            initialize_composition_pipeline();
         }
         
         void destroy_resources() override {
@@ -403,12 +391,7 @@ class AmbientOcclusion final : public Sample {
 //            }
         }
         
-        void initialize_pipelines() {
-//            initialize_offscreen_pipeline();
-//            initialize_composition_pipeline();
-        }
-        
-        void initialize_offscreen_pipeline() {
+        void initialize_geometry_pipeline() {
             VkVertexInputBindingDescription vertex_binding_descriptions[] {
                 create_vertex_binding_description(0, sizeof(glm::vec3) * 2, VK_VERTEX_INPUT_RATE_VERTEX) // One element is vertex position (vec3) + normal (vec3)
             };
@@ -426,12 +409,6 @@ class AmbientOcclusion final : public Sample {
             vertex_input_create_info.pVertexBindingDescriptions = vertex_binding_descriptions;
             vertex_input_create_info.vertexAttributeDescriptionCount = sizeof(vertex_attribute_descriptions) / sizeof(vertex_attribute_descriptions[0]);
             vertex_input_create_info.pVertexAttributeDescriptions = vertex_attribute_descriptions;
-            
-            // Bundle shader stages to assign to pipeline
-            VkPipelineShaderStageCreateInfo shader_stages[] = {
-                create_shader_stage(create_shader_module(device, "shaders/geometry_buffer.vert"), VK_SHADER_STAGE_VERTEX_BIT),
-                create_shader_stage(create_shader_module(device, "shaders/geometry_buffer.frag"), VK_SHADER_STAGE_FRAGMENT_BIT),
-            };
             
             // Input assembly describes the topology of the geometry being rendered
             VkPipelineInputAssemblyStateCreateInfo input_assembly_state_create_info = create_input_assembly_state(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
@@ -505,17 +482,23 @@ class AmbientOcclusion final : public Sample {
             VkPipelineLayoutCreateInfo pipeline_layout_create_info { };
             pipeline_layout_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
             
-            VkDescriptorSetLayout layouts[2] = { offscreen_global_layout, offscreen_object_layout };
+            VkDescriptorSetLayout layouts[2] = { geometry_global_descriptor_set_layout, geometry_object_descriptor_set_layout };
             pipeline_layout_create_info.setLayoutCount = sizeof(layouts) / sizeof(layouts[0]);
             pipeline_layout_create_info.pSetLayouts = layouts;
 
             pipeline_layout_create_info.pushConstantRangeCount = 0;
             pipeline_layout_create_info.pPushConstantRanges = nullptr;
         
-            if (vkCreatePipelineLayout(device, &pipeline_layout_create_info, nullptr, &offscreen_pipeline_layout) != VK_SUCCESS) {
+            if (vkCreatePipelineLayout(device, &pipeline_layout_create_info, nullptr, &geometry_pipeline_layout) != VK_SUCCESS) {
                 throw std::runtime_error("failed to create pipeline layout!");
             }
         
+            // Bundle shader stages to assign to pipeline
+            VkPipelineShaderStageCreateInfo shader_stages[] = {
+                create_shader_stage(create_shader_module(device, "shaders/geometry_buffer.vert"), VK_SHADER_STAGE_VERTEX_BIT),
+                create_shader_stage(create_shader_module(device, "shaders/geometry_buffer.frag"), VK_SHADER_STAGE_FRAGMENT_BIT),
+            };
+            
             VkGraphicsPipelineCreateInfo pipeline_create_info { };
             pipeline_create_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
             pipeline_create_info.stageCount = sizeof(shader_stages) / sizeof(shader_stages[0]);
@@ -528,8 +511,8 @@ class AmbientOcclusion final : public Sample {
             pipeline_create_info.pDepthStencilState = &depth_stencil_create_info;
             pipeline_create_info.pColorBlendState = &color_blend_create_info;
             pipeline_create_info.pDynamicState = nullptr;
-            pipeline_create_info.layout = offscreen_pipeline_layout;
-            pipeline_create_info.renderPass = offscreen_render_pass;
+            pipeline_create_info.layout = geometry_pipeline_layout;
+            pipeline_create_info.renderPass = geometry_render_pass;
             pipeline_create_info.subpass = 0;
         
             // TODO: Allows for recreating a pipeline from an existing pipeline
@@ -537,8 +520,265 @@ class AmbientOcclusion final : public Sample {
             pipeline_create_info.basePipelineIndex = -1;
         
             // TODO: pipeline caching.
-            if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipeline_create_info, nullptr, &offscreen_pipeline) != VK_SUCCESS) {
-                throw std::runtime_error("failed to create offscreen pipeline!");
+            if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipeline_create_info, nullptr, &geometry_pipeline) != VK_SUCCESS) {
+                throw std::runtime_error("failed to create pipeline!");
+            }
+
+            for (const VkPipelineShaderStageCreateInfo& stage : shader_stages) {
+                vkDestroyShaderModule(device, stage.module, nullptr);
+            }
+        }
+        
+        void initialize_ambient_occlusion_pipeline() {
+            // Vertex data is generated directly in the vertex shader, no vertex input state to specify
+            VkPipelineVertexInputStateCreateInfo vertex_input_create_info { };
+            vertex_input_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+            
+            // Input assembly describes the topology of the geometry being rendered
+            VkPipelineInputAssemblyStateCreateInfo input_assembly_state_create_info = create_input_assembly_state(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+        
+            // The viewport describes the region of the framebuffer that the output will be rendered to
+            VkViewport viewport = create_viewport(0.0f, 0.0f, (float) swapchain_extent.width, (float) swapchain_extent.height, 0.0f, 1.0f);
+        
+            // The scissor region defines the portion of the viewport that will be drawn to the screen
+            VkRect2D scissor = create_region(0, 0, swapchain_extent.width, swapchain_extent.height);
+            
+            VkPipelineViewportStateCreateInfo viewport_create_info { };
+            viewport_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+            viewport_create_info.viewportCount = 1;
+            viewport_create_info.pViewports = &viewport;
+            viewport_create_info.scissorCount = 1;
+            viewport_create_info.pScissors = &scissor;
+            
+            // Rasterization properties
+            VkPipelineRasterizationStateCreateInfo rasterizer_create_info { };
+            rasterizer_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+            rasterizer_create_info.depthClampEnable = VK_FALSE; // Fragments beyond the near/far depth planes are clamped instead of discarded
+            rasterizer_create_info.rasterizerDiscardEnable = VK_FALSE; // Discards any / all output fragments to the framebuffer
+        
+            rasterizer_create_info.polygonMode = VK_POLYGON_MODE_FILL;
+            
+            rasterizer_create_info.lineWidth = 1.0f;
+            rasterizer_create_info.cullMode = VK_CULL_MODE_BACK_BIT;
+            rasterizer_create_info.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+            rasterizer_create_info.depthBiasEnable = VK_FALSE;
+            rasterizer_create_info.depthBiasConstantFactor = 0.0f;
+            rasterizer_create_info.depthBiasClamp = 0.0f;
+            rasterizer_create_info.depthBiasSlopeFactor = 0.0f;
+        
+            // Multisampling is disabled for this sample
+            VkPipelineMultisampleStateCreateInfo multisampling_create_info { };
+            multisampling_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+            multisampling_create_info.sampleShadingEnable = VK_FALSE;
+            multisampling_create_info.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+            multisampling_create_info.minSampleShading = 1.0f;
+            multisampling_create_info.pSampleMask = nullptr;
+            multisampling_create_info.alphaToCoverageEnable = VK_FALSE;
+            multisampling_create_info.alphaToOneEnable = VK_FALSE;
+        
+            // Depth/stencil buffers
+            VkPipelineDepthStencilStateCreateInfo depth_stencil_create_info { };
+            depth_stencil_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+            depth_stencil_create_info.depthTestEnable = VK_FALSE;
+            depth_stencil_create_info.depthWriteEnable = VK_FALSE;
+            depth_stencil_create_info.depthCompareOp = VK_COMPARE_OP_LESS; // Fragments that are closer have a lower depth value and should be kept (fragments further away are discarded)
+            
+            // Needs one color blend attachment, otherwise colorMask will be set to 0 and the attachment will not receive any color output
+            VkPipelineColorBlendAttachmentState color_blend_attachment_state = create_color_blend_attachment_state(VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT, false);
+        
+            VkPipelineColorBlendStateCreateInfo color_blend_create_info { };
+            color_blend_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+            color_blend_create_info.logicOpEnable = VK_FALSE; // Use a bitwise operation to combine the old and new color values (setting this to true disables color mixing (specified above) for all framebuffers)
+            color_blend_create_info.logicOp = VK_LOGIC_OP_COPY;
+            color_blend_create_info.attachmentCount = 1;
+            color_blend_create_info.pAttachments = &color_blend_attachment_state;
+            color_blend_create_info.blendConstants[0] = 0.0f;
+            color_blend_create_info.blendConstants[1] = 0.0f;
+            color_blend_create_info.blendConstants[2] = 0.0f;
+            color_blend_create_info.blendConstants[3] = 0.0f;
+            
+            VkPipelineLayoutCreateInfo pipeline_layout_create_info { };
+            pipeline_layout_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+            pipeline_layout_create_info.setLayoutCount = 1;
+            pipeline_layout_create_info.pSetLayouts = &ambient_occlusion_descriptor_set_layout;
+            pipeline_layout_create_info.pushConstantRangeCount = 0;
+            pipeline_layout_create_info.pPushConstantRanges = nullptr;
+        
+            if (vkCreatePipelineLayout(device, &pipeline_layout_create_info, nullptr, &ambient_occlusion_pipeline_layout) != VK_SUCCESS) {
+                throw std::runtime_error("failed to create pipeline layout!");
+            }
+            
+            // Fragment shader constants
+            VkSpecializationMapEntry specializations[2] { };
+            
+            // layout (constant_id = 0) int KERNEL_SIZE;
+            specializations[0].constantID = 0;
+            specializations[0].size = sizeof(int);
+            specializations[0].offset = 0;
+            
+            // layout (constant_id = 1) float SAMPLE_RADIUS;
+            specializations[1].constantID = 1;
+            specializations[1].size = sizeof(float);
+            specializations[1].offset = sizeof(int);
+            
+            struct SpecializationData {
+                int kernel_size;
+                float sample_radius;
+            };
+            SpecializationData data { };
+            data.kernel_size = KERNEL_SIZE;
+            data.sample_radius = SAMPLE_RADIUS;
+            
+            VkSpecializationInfo specialization_info { };
+            specialization_info.mapEntryCount = 2;
+            specialization_info.pMapEntries = specializations;
+            specialization_info.dataSize = sizeof(SpecializationData);
+            specialization_info.pData = &data;
+            
+            // Bundle shader stages to assign to pipeline
+            VkPipelineShaderStageCreateInfo shader_stages[] = {
+                create_shader_stage(create_shader_module(device, "shaders/fullscreen.vert"), VK_SHADER_STAGE_VERTEX_BIT),
+                create_shader_stage(create_shader_module(device, "shaders/ambient_occlusion.frag"), VK_SHADER_STAGE_FRAGMENT_BIT, &specialization_info),
+            };
+            
+            VkGraphicsPipelineCreateInfo pipeline_create_info { };
+            pipeline_create_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+            pipeline_create_info.stageCount = sizeof(shader_stages) / sizeof(shader_stages[0]);
+            pipeline_create_info.pStages = shader_stages;
+            pipeline_create_info.pVertexInputState = &vertex_input_create_info;
+            pipeline_create_info.pInputAssemblyState = &input_assembly_state_create_info;
+            pipeline_create_info.pViewportState = &viewport_create_info;
+            pipeline_create_info.pRasterizationState = &rasterizer_create_info;
+            pipeline_create_info.pMultisampleState = &multisampling_create_info;
+            pipeline_create_info.pDepthStencilState = &depth_stencil_create_info;
+            pipeline_create_info.pColorBlendState = &color_blend_create_info;
+            pipeline_create_info.pDynamicState = nullptr;
+            pipeline_create_info.layout = ambient_occlusion_pipeline_layout;
+            pipeline_create_info.renderPass = ambient_occlusion_render_pass;
+            pipeline_create_info.subpass = 0;
+        
+            // TODO: Allows for recreating a pipeline from an existing pipeline
+            pipeline_create_info.basePipelineHandle = VK_NULL_HANDLE;
+            pipeline_create_info.basePipelineIndex = -1;
+        
+            // TODO: pipeline caching.
+            if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipeline_create_info, nullptr, &ambient_occlusion_pipeline) != VK_SUCCESS) {
+                throw std::runtime_error("failed to create pipeline!");
+            }
+
+            for (const VkPipelineShaderStageCreateInfo& stage : shader_stages) {
+                vkDestroyShaderModule(device, stage.module, nullptr);
+            }
+        }
+        
+        void initialize_ambient_occlusion_blur_pipeline() {
+            // Vertex data is generated directly in the vertex shader, no vertex input state to specify
+            VkPipelineVertexInputStateCreateInfo vertex_input_create_info { };
+            vertex_input_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+            
+            // Input assembly describes the topology of the geometry being rendered
+            VkPipelineInputAssemblyStateCreateInfo input_assembly_state_create_info = create_input_assembly_state(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+        
+            // The viewport describes the region of the framebuffer that the output will be rendered to
+            VkViewport viewport = create_viewport(0.0f, 0.0f, (float) swapchain_extent.width, (float) swapchain_extent.height, 0.0f, 1.0f);
+        
+            // The scissor region defines the portion of the viewport that will be drawn to the screen
+            VkRect2D scissor = create_region(0, 0, swapchain_extent.width, swapchain_extent.height);
+            
+            VkPipelineViewportStateCreateInfo viewport_create_info { };
+            viewport_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+            viewport_create_info.viewportCount = 1;
+            viewport_create_info.pViewports = &viewport;
+            viewport_create_info.scissorCount = 1;
+            viewport_create_info.pScissors = &scissor;
+            
+            // Rasterization properties
+            VkPipelineRasterizationStateCreateInfo rasterizer_create_info { };
+            rasterizer_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+            rasterizer_create_info.depthClampEnable = VK_FALSE; // Fragments beyond the near/far depth planes are clamped instead of discarded
+            rasterizer_create_info.rasterizerDiscardEnable = VK_FALSE; // Discards any / all output fragments to the framebuffer
+        
+            rasterizer_create_info.polygonMode = VK_POLYGON_MODE_FILL;
+            
+            rasterizer_create_info.lineWidth = 1.0f;
+            rasterizer_create_info.cullMode = VK_CULL_MODE_BACK_BIT;
+            rasterizer_create_info.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+            rasterizer_create_info.depthBiasEnable = VK_FALSE;
+            rasterizer_create_info.depthBiasConstantFactor = 0.0f;
+            rasterizer_create_info.depthBiasClamp = 0.0f;
+            rasterizer_create_info.depthBiasSlopeFactor = 0.0f;
+        
+            // Multisampling is disabled for this sample
+            VkPipelineMultisampleStateCreateInfo multisampling_create_info { };
+            multisampling_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+            multisampling_create_info.sampleShadingEnable = VK_FALSE;
+            multisampling_create_info.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+            multisampling_create_info.minSampleShading = 1.0f;
+            multisampling_create_info.pSampleMask = nullptr;
+            multisampling_create_info.alphaToCoverageEnable = VK_FALSE;
+            multisampling_create_info.alphaToOneEnable = VK_FALSE;
+        
+            // Depth/stencil buffers
+            VkPipelineDepthStencilStateCreateInfo depth_stencil_create_info { };
+            depth_stencil_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+            depth_stencil_create_info.depthTestEnable = VK_FALSE;
+            depth_stencil_create_info.depthWriteEnable = VK_FALSE;
+            depth_stencil_create_info.depthCompareOp = VK_COMPARE_OP_LESS; // Fragments that are closer have a lower depth value and should be kept (fragments further away are discarded)
+            
+            // Needs one color blend attachment, otherwise colorMask will be set to 0 and the attachment will not receive any color output
+            VkPipelineColorBlendAttachmentState color_blend_attachment_state = create_color_blend_attachment_state(VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT, false);
+        
+            VkPipelineColorBlendStateCreateInfo color_blend_create_info { };
+            color_blend_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+            color_blend_create_info.logicOpEnable = VK_FALSE; // Use a bitwise operation to combine the old and new color values (setting this to true disables color mixing (specified above) for all framebuffers)
+            color_blend_create_info.logicOp = VK_LOGIC_OP_COPY;
+            color_blend_create_info.attachmentCount = 1;
+            color_blend_create_info.pAttachments = &color_blend_attachment_state;
+            color_blend_create_info.blendConstants[0] = 0.0f;
+            color_blend_create_info.blendConstants[1] = 0.0f;
+            color_blend_create_info.blendConstants[2] = 0.0f;
+            color_blend_create_info.blendConstants[3] = 0.0f;
+            
+            VkPipelineLayoutCreateInfo pipeline_layout_create_info { };
+            pipeline_layout_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+            pipeline_layout_create_info.setLayoutCount = 1;
+            pipeline_layout_create_info.pSetLayouts = &ambient_occlusion_blur_descriptor_set_layout;
+            pipeline_layout_create_info.pushConstantRangeCount = 0;
+            pipeline_layout_create_info.pPushConstantRanges = nullptr;
+        
+            if (vkCreatePipelineLayout(device, &pipeline_layout_create_info, nullptr, &ambient_occlusion_blur_pipeline_layout) != VK_SUCCESS) {
+                throw std::runtime_error("failed to create pipeline layout!");
+            }
+            
+            // Bundle shader stages to assign to pipeline
+            VkPipelineShaderStageCreateInfo shader_stages[] = {
+                create_shader_stage(create_shader_module(device, "shaders/fullscreen.vert"), VK_SHADER_STAGE_VERTEX_BIT),
+                create_shader_stage(create_shader_module(device, "shaders/blur.frag"), VK_SHADER_STAGE_FRAGMENT_BIT),
+            };
+            
+            VkGraphicsPipelineCreateInfo pipeline_create_info { };
+            pipeline_create_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+            pipeline_create_info.stageCount = sizeof(shader_stages) / sizeof(shader_stages[0]);
+            pipeline_create_info.pStages = shader_stages;
+            pipeline_create_info.pVertexInputState = &vertex_input_create_info;
+            pipeline_create_info.pInputAssemblyState = &input_assembly_state_create_info;
+            pipeline_create_info.pViewportState = &viewport_create_info;
+            pipeline_create_info.pRasterizationState = &rasterizer_create_info;
+            pipeline_create_info.pMultisampleState = &multisampling_create_info;
+            pipeline_create_info.pDepthStencilState = &depth_stencil_create_info;
+            pipeline_create_info.pColorBlendState = &color_blend_create_info;
+            pipeline_create_info.pDynamicState = nullptr;
+            pipeline_create_info.layout = ambient_occlusion_blur_pipeline_layout;
+            pipeline_create_info.renderPass = ambient_occlusion_blur_render_pass;
+            pipeline_create_info.subpass = 0;
+        
+            // TODO: Allows for recreating a pipeline from an existing pipeline
+            pipeline_create_info.basePipelineHandle = VK_NULL_HANDLE;
+            pipeline_create_info.basePipelineIndex = -1;
+        
+            // TODO: pipeline caching.
+            if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipeline_create_info, nullptr, &ambient_occlusion_blur_pipeline) != VK_SUCCESS) {
+                throw std::runtime_error("failed to create pipeline!");
             }
 
             for (const VkPipelineShaderStageCreateInfo& stage : shader_stages) {
@@ -630,9 +870,8 @@ class AmbientOcclusion final : public Sample {
             VkPipelineLayoutCreateInfo pipeline_layout_create_info { };
             pipeline_layout_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
             
-            VkDescriptorSetLayout layouts[1] = { composition_global_layout };
-            pipeline_layout_create_info.setLayoutCount = sizeof(layouts) / sizeof(layouts[0]);
-            pipeline_layout_create_info.pSetLayouts = layouts;
+            pipeline_layout_create_info.setLayoutCount = 1;
+            pipeline_layout_create_info.pSetLayouts = &composition_descriptor_set_layout;
 
             pipeline_layout_create_info.pushConstantRangeCount = 0;
             pipeline_layout_create_info.pPushConstantRanges = nullptr;
@@ -672,23 +911,11 @@ class AmbientOcclusion final : public Sample {
         }
         
         void destroy_pipelines() {
-            vkDestroyPipelineLayout(device, composition_pipeline_layout, nullptr);
-            vkDestroyPipeline(device, composition_pipeline, nullptr);
-            
-            vkDestroyPipelineLayout(device, offscreen_pipeline_layout, nullptr);
-            vkDestroyPipeline(device, offscreen_pipeline, nullptr);
         }
         
-        void initialize_render_passes() {
-            initialize_offscreen_render_pass();
-            initialize_composition_render_pass();
-        }
-        
-        void initialize_offscreen_render_pass() {
-            // TODO: consolidate specifying attachment format into one place
+        void initialize_geometry_render_pass() {
             VkAttachmentDescription attachment_descriptions[] {
-                // Color attachments are transitioned to VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL to be read during the composition pass
-                // Vertex positions (64-bit floating point format)
+                // Vertex positions
                 create_attachment_description(VK_FORMAT_R16G16B16A16_SFLOAT, VK_SAMPLE_COUNT_1_BIT, VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE, VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL),
                 
                 // Vertex normals
@@ -727,13 +954,13 @@ class AmbientOcclusion final : public Sample {
             
             // Define subpass dependencies
             VkSubpassDependency subpass_dependencies[] {
-                // Ensure that color attachment read operations during the previous frame complete before resetting them for the new render pass
-                create_subpass_dependency(VK_SUBPASS_EXTERNAL, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, VK_ACCESS_MEMORY_READ_BIT,
-                                          0, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT),
+                // Ensure that color attachment read operations during the composition stage of the previous frame complete before resetting them for the new render pass
+                create_subpass_dependency(VK_SUBPASS_EXTERNAL, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT,
+                                          0, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT),
                                           
-                // Write operations to fill color attachments should complete before being read from
-                create_subpass_dependency(0, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-                                          VK_SUBPASS_EXTERNAL, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, VK_ACCESS_MEMORY_READ_BIT),
+                // Write operations to fill color attachments should complete before the ambient occlusion stage reads from them
+                create_subpass_dependency(0, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+                                          VK_SUBPASS_EXTERNAL, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT),
             };
             
             VkRenderPassCreateInfo render_pass_create_info { };
@@ -744,24 +971,95 @@ class AmbientOcclusion final : public Sample {
             render_pass_create_info.pSubpasses = &subpass_description;
             render_pass_create_info.dependencyCount = sizeof(subpass_dependencies) / sizeof(subpass_dependencies[0]);
             render_pass_create_info.pDependencies = subpass_dependencies;
-            if (vkCreateRenderPass(device, &render_pass_create_info, nullptr, &offscreen_render_pass) != VK_SUCCESS) {
-                throw std::runtime_error("failed to create offscreen render pass!");
+            if (vkCreateRenderPass(device, &render_pass_create_info, nullptr, &geometry_render_pass) != VK_SUCCESS) {
+                throw std::runtime_error("failed to create render pass!");
+            }
+        }
+        
+        void initialize_ambient_occlusion_render_pass() {
+            // Ambient occlusion output attachment only has one channel to store the occlusion factor [0.0, 1.0]
+            VkAttachmentDescription attachment_description = create_attachment_description(VK_FORMAT_R8_UNORM, VK_SAMPLE_COUNT_1_BIT, VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE, VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            VkAttachmentReference color_attachment_reference = create_attachment_reference(0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+            
+            VkSubpassDescription subpass_description { };
+            subpass_description.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+            subpass_description.colorAttachmentCount = 1;
+            subpass_description.pColorAttachments = &color_attachment_reference;
+            subpass_description.pDepthStencilAttachment = nullptr; // Not used for this pass
+            subpass_description.pResolveAttachments = nullptr; // Not used in this sample
+            subpass_description.pInputAttachments = nullptr; // Not used in this sample
+            subpass_description.pPreserveAttachments = nullptr; // Not used in this sample
+            
+            // Define subpass dependencies
+            VkSubpassDependency subpass_dependencies[] {
+                // Ensure that the previous subpass (geometry) finishes entirely before beginning to write the ambient occlusion render pass
+                create_subpass_dependency(VK_SUBPASS_EXTERNAL, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, VK_ACCESS_MEMORY_READ_BIT,
+                                          0, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT),
+                                          
+                // Write operations to fill the color attachment should complete before the ambient occlusion blur render pass reads from it
+                create_subpass_dependency(0, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+                                          VK_SUBPASS_EXTERNAL, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, VK_ACCESS_MEMORY_READ_BIT),
+            };
+            
+            VkRenderPassCreateInfo render_pass_create_info { };
+            render_pass_create_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+            render_pass_create_info.attachmentCount = 1;
+            render_pass_create_info.pAttachments = &attachment_description;
+            render_pass_create_info.subpassCount = 1;
+            render_pass_create_info.pSubpasses = &subpass_description;
+            render_pass_create_info.dependencyCount = sizeof(subpass_dependencies) / sizeof(subpass_dependencies[0]);
+            render_pass_create_info.pDependencies = subpass_dependencies;
+            if (vkCreateRenderPass(device, &render_pass_create_info, nullptr, &ambient_occlusion_render_pass) != VK_SUCCESS) {
+                throw std::runtime_error("failed to create render pass!");
+            }
+        }
+        
+        void initialize_ambient_occlusion_blur_render_pass() {
+            // Ambient occlusion blur output attachment only has one channel to store the occlusion factor [0.0, 1.0]
+            VkAttachmentDescription attachment_description = create_attachment_description(VK_FORMAT_R8_UNORM, VK_SAMPLE_COUNT_1_BIT, VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE, VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            VkAttachmentReference color_attachment_reference = create_attachment_reference(0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+            
+            VkSubpassDescription subpass_description { };
+            subpass_description.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+            subpass_description.colorAttachmentCount = 1;
+            subpass_description.pColorAttachments = &color_attachment_reference;
+            subpass_description.pDepthStencilAttachment = nullptr; // Not used for this pass
+            subpass_description.pResolveAttachments = nullptr; // Not used in this sample
+            subpass_description.pInputAttachments = nullptr; // Not used in this sample
+            subpass_description.pPreserveAttachments = nullptr; // Not used in this sample
+            
+            // Define subpass dependencies
+            VkSubpassDependency subpass_dependencies[] {
+                // Ensure that the previous subpass (ambient occlusion) finishes entirely
+                create_subpass_dependency(VK_SUBPASS_EXTERNAL, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, VK_ACCESS_MEMORY_READ_BIT,
+                                          0, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT),
+                                          
+                // Write operations to fill the color attachment should complete before the composition render pass reads from it
+                create_subpass_dependency(0, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+                                          VK_SUBPASS_EXTERNAL, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, VK_ACCESS_MEMORY_READ_BIT),
+            };
+            
+            VkRenderPassCreateInfo render_pass_create_info { };
+            render_pass_create_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+            render_pass_create_info.attachmentCount = 1;
+            render_pass_create_info.pAttachments = &attachment_description;
+            render_pass_create_info.subpassCount = 1;
+            render_pass_create_info.pSubpasses = &subpass_description;
+            render_pass_create_info.dependencyCount = sizeof(subpass_dependencies) / sizeof(subpass_dependencies[0]);
+            render_pass_create_info.pDependencies = subpass_dependencies;
+            if (vkCreateRenderPass(device, &render_pass_create_info, nullptr, &ambient_occlusion_blur_render_pass) != VK_SUCCESS) {
+                throw std::runtime_error("failed to create render pass!");
             }
         }
         
         void initialize_composition_render_pass() {
-            VkAttachmentDescription attachment_descriptions[] {
-                create_attachment_description(surface_format.format, VK_SAMPLE_COUNT_1_BIT, VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE, VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR),
-            };
-            
-            VkAttachmentReference color_attachment_references[] {
-                create_attachment_reference(0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL),
-            };
+            VkAttachmentDescription attachment_description = create_attachment_description(surface_format.format, VK_SAMPLE_COUNT_1_BIT, VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE, VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+            VkAttachmentReference color_attachment_reference = create_attachment_reference(0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
             
             VkSubpassDescription subpass_description { };
             subpass_description.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-            subpass_description.colorAttachmentCount = sizeof(color_attachment_references) / sizeof(color_attachment_references[0]);
-            subpass_description.pColorAttachments = color_attachment_references;
+            subpass_description.colorAttachmentCount = 1;
+            subpass_description.pColorAttachments = &color_attachment_reference;
             subpass_description.pDepthStencilAttachment = nullptr; // Depth information is not used for rendering a FSQ
             subpass_description.pResolveAttachments = nullptr; // Not used in this sample
             subpass_description.pInputAttachments = nullptr; // Not used in this sample
@@ -777,29 +1075,22 @@ class AmbientOcclusion final : public Sample {
             
             VkRenderPassCreateInfo render_pass_create_info { };
             render_pass_create_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-            render_pass_create_info.attachmentCount = sizeof(attachment_descriptions) / sizeof(attachment_descriptions[0]);
-            render_pass_create_info.pAttachments = attachment_descriptions;
+            render_pass_create_info.attachmentCount = 1;
+            render_pass_create_info.pAttachments = &attachment_description;
             render_pass_create_info.subpassCount = 1;
             render_pass_create_info.pSubpasses = &subpass_description;
             render_pass_create_info.dependencyCount = sizeof(subpass_dependencies) / sizeof(subpass_dependencies[0]);
             render_pass_create_info.pDependencies = subpass_dependencies;
             if (vkCreateRenderPass(device, &render_pass_create_info, nullptr, &composition_render_pass) != VK_SUCCESS) {
-                throw std::runtime_error("failed to create composition render pass!");
+                throw std::runtime_error("failed to create render pass!");
             }
         }
         
         void destroy_render_passes() {
-            vkDestroyRenderPass(device, offscreen_render_pass, nullptr);
-            vkDestroyRenderPass(device, composition_render_pass, nullptr);
         }
         
-        void initialize_framebuffers() {
-            initialize_offscreen_framebuffer();
-            initialize_composition_framebuffers();
-        }
-        
-        void initialize_offscreen_framebuffer() {
-            // Initialize color attachments
+        void initialize_geometry_framebuffer() {
+            // Color attachments
             for (std::size_t i = 0; i < 5; ++i) {
                 VkFormat format;
                 if (i == 0 || i == 1) {
@@ -810,40 +1101,78 @@ class AmbientOcclusion final : public Sample {
                     format = VK_FORMAT_R8G8B8A8_UNORM;
                 }
                 
-                create_image(physical_device, device, swapchain_extent.width, swapchain_extent.height, 1, VK_SAMPLE_COUNT_1_BIT, format, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, offscreen_framebuffer_attachments[i].image, offscreen_framebuffer_attachments[i].memory);
-                create_image_view(device, offscreen_framebuffer_attachments[i].image, format, VK_IMAGE_ASPECT_COLOR_BIT, 1, offscreen_framebuffer_attachments[i].image_view);
+                create_image(physical_device, device, swapchain_extent.width, swapchain_extent.height, 1, VK_SAMPLE_COUNT_1_BIT, format, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, geometry_framebuffer_attachments[i].image, geometry_framebuffer_attachments[i].memory);
+                create_image_view(device, geometry_framebuffer_attachments[i].image, format, VK_IMAGE_ASPECT_COLOR_BIT, 1, geometry_framebuffer_attachments[i].image_view);
             }
             
-            // Initialize depth attachment
-            create_image(physical_device, device, swapchain_extent.width, swapchain_extent.height, 1, VK_SAMPLE_COUNT_1_BIT, depth_buffer_format, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, offscreen_framebuffer_attachments[5].image, offscreen_framebuffer_attachments[5].memory);
-            create_image_view(device, offscreen_framebuffer_attachments[5].image, depth_buffer_format, VK_IMAGE_ASPECT_DEPTH_BIT, 1, offscreen_framebuffer_attachments[5].image_view);
+            // Depth attachment
+            create_image(physical_device, device, swapchain_extent.width, swapchain_extent.height, 1, VK_SAMPLE_COUNT_1_BIT, depth_buffer_format, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, geometry_framebuffer_attachments[5].image, geometry_framebuffer_attachments[5].memory);
+            create_image_view(device, geometry_framebuffer_attachments[5].image, depth_buffer_format, VK_IMAGE_ASPECT_DEPTH_BIT, 1, geometry_framebuffer_attachments[5].image_view);
             
             VkImageView attachments[] {
-                offscreen_framebuffer_attachments[0].image_view, // Positions
-                offscreen_framebuffer_attachments[1].image_view, // Normals
-                offscreen_framebuffer_attachments[2].image_view, // Ambient
-                offscreen_framebuffer_attachments[3].image_view, // Diffuse
-                offscreen_framebuffer_attachments[4].image_view, // Specular
-                offscreen_framebuffer_attachments[5].image_view // Depth
+                geometry_framebuffer_attachments[0].image_view, // Positions
+                geometry_framebuffer_attachments[1].image_view, // Normals
+                geometry_framebuffer_attachments[2].image_view, // Ambient
+                geometry_framebuffer_attachments[3].image_view, // Diffuse
+                geometry_framebuffer_attachments[4].image_view, // Specular
+                geometry_framebuffer_attachments[5].image_view // Depth
             };
             
             VkFramebufferCreateInfo framebuffer_create_info { };
             framebuffer_create_info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-            framebuffer_create_info.renderPass = offscreen_render_pass;
+            framebuffer_create_info.renderPass = geometry_render_pass;
             framebuffer_create_info.attachmentCount = sizeof(attachments) / sizeof(attachments[0]);
             framebuffer_create_info.pAttachments = attachments;
             framebuffer_create_info.width = swapchain_extent.width;
             framebuffer_create_info.height = swapchain_extent.height;
             framebuffer_create_info.layers = 1; // Number of layers in the swapchain images
             
-            if (vkCreateFramebuffer(device, &framebuffer_create_info, nullptr, &offscreen_framebuffer) != VK_SUCCESS) {
-                throw std::runtime_error("failed to create offscreen framebuffer!");
+            if (vkCreateFramebuffer(device, &framebuffer_create_info, nullptr, &geometry_framebuffer) != VK_SUCCESS) {
+                throw std::runtime_error("failed to create framebuffer!");
+            }
+        }
+        
+        void initialize_ambient_occlusion_framebuffer() {
+            // Color attachments
+            create_image(physical_device, device, swapchain_extent.width, swapchain_extent.height, 1, VK_SAMPLE_COUNT_1_BIT, VK_FORMAT_R8_UNORM, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, ambient_occlusion_attachment.image, ambient_occlusion_attachment.memory);
+            create_image_view(device, ambient_occlusion_attachment.image, VK_FORMAT_R8_UNORM, VK_IMAGE_ASPECT_COLOR_BIT, 1, ambient_occlusion_attachment.image_view);
+            
+            
+            VkFramebufferCreateInfo framebuffer_create_info { };
+            framebuffer_create_info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+            framebuffer_create_info.renderPass = ambient_occlusion_render_pass;
+            framebuffer_create_info.attachmentCount = 1;
+            framebuffer_create_info.pAttachments = &ambient_occlusion_attachment.image_view;
+            framebuffer_create_info.width = swapchain_extent.width;
+            framebuffer_create_info.height = swapchain_extent.height;
+            framebuffer_create_info.layers = 1; // Number of layers in the swapchain images
+            
+            if (vkCreateFramebuffer(device, &framebuffer_create_info, nullptr, &ambient_occlusion_framebuffer) != VK_SUCCESS) {
+                throw std::runtime_error("failed to create framebuffer!");
+            }
+        }
+        
+        void initialize_ambient_occlusion_blur_framebuffer() {
+            // Color attachment
+            create_image(physical_device, device, swapchain_extent.width, swapchain_extent.height, 1, VK_SAMPLE_COUNT_1_BIT, VK_FORMAT_R8_UNORM, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, ambient_occlusion_blur_attachment.image, ambient_occlusion_blur_attachment.memory);
+            create_image_view(device, ambient_occlusion_blur_attachment.image, VK_FORMAT_R8_UNORM, VK_IMAGE_ASPECT_COLOR_BIT, 1, ambient_occlusion_blur_attachment.image_view);
+            
+            VkFramebufferCreateInfo framebuffer_create_info { };
+            framebuffer_create_info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+            framebuffer_create_info.renderPass = ambient_occlusion_blur_render_pass;
+            framebuffer_create_info.attachmentCount = 1;
+            framebuffer_create_info.pAttachments = &ambient_occlusion_attachment.image_view;
+            framebuffer_create_info.width = swapchain_extent.width;
+            framebuffer_create_info.height = swapchain_extent.height;
+            framebuffer_create_info.layers = 1; // Number of layers in the swapchain images
+            
+            if (vkCreateFramebuffer(device, &framebuffer_create_info, nullptr, &ambient_occlusion_blur_framebuffer) != VK_SUCCESS) {
+                throw std::runtime_error("failed to create framebuffer!");
             }
         }
         
         void initialize_composition_framebuffers() {
             present_framebuffers.resize(NUM_FRAMES_IN_FLIGHT);
-            
             for (std::size_t i = 0u; i < NUM_FRAMES_IN_FLIGHT; ++i) {
                 VkImageView attachments[] = { swapchain_image_views[i] };
                 
@@ -854,16 +1183,12 @@ class AmbientOcclusion final : public Sample {
                 framebuffer_create_info.pAttachments = attachments;
                 framebuffer_create_info.width = swapchain_extent.width;
                 framebuffer_create_info.height = swapchain_extent.height;
-                framebuffer_create_info.layers = 1; // Number of layers in the swapchain images
+                framebuffer_create_info.layers = 1;
                 
                 if (vkCreateFramebuffer(device, &framebuffer_create_info, nullptr, &present_framebuffers[i]) != VK_SUCCESS) {
-                    throw std::runtime_error("failed to create present framebuffer!");
+                    throw std::runtime_error("failed to create framebuffer!");
                 }
             }
-        }
-        
-        void destroy_framebuffers() {
-            vkDestroyFramebuffer(device, offscreen_framebuffer, nullptr);
         }
         
         void initialize_geometry_global_descriptor_set() {
@@ -1066,7 +1391,7 @@ class AmbientOcclusion final : public Sample {
             // Initialize the global descriptor set used in the fragment shader for blurring
             
             // Initialize set layout
-            VkDescriptorSetLayoutBinding binding = create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 0),
+            VkDescriptorSetLayoutBinding binding = create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 0);
             
             VkDescriptorSetLayoutCreateInfo layout_create_info { };
             layout_create_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
@@ -1085,6 +1410,23 @@ class AmbientOcclusion final : public Sample {
             if (vkAllocateDescriptorSets(device, &set_create_info, &ambient_occlusion_blur_descriptor_set) != VK_SUCCESS) {
                 throw std::runtime_error("failed to allocate descriptor set!");
             }
+            
+            VkWriteDescriptorSet descriptor_write { };
+            VkDescriptorImageInfo image_info { };
+            
+            image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            image_info.imageView = ambient_occlusion_attachment.image_view;
+            image_info.sampler = sampler;
+            
+            descriptor_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            descriptor_write.dstSet = ambient_occlusion_blur_descriptor_set;
+            descriptor_write.dstBinding = 0;
+            descriptor_write.dstArrayElement = 0;
+            descriptor_write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            descriptor_write.descriptorCount = 1;
+            descriptor_write.pImageInfo = &image_info;
+            
+            vkUpdateDescriptorSets(device, 1, &descriptor_write, 0, nullptr);
         }
         
         void initialize_composition_descriptor_set() {
@@ -1123,7 +1465,7 @@ class AmbientOcclusion final : public Sample {
             
             unsigned binding_point;
             
-            // Descriptors 0 - 5 come from the geometry framebuffer (position, normal, ambient, diffuse, specular)
+            // Descriptors 0 - 4 come from the geometry framebuffer (position, normal, ambient, diffuse, specular)
             for (binding_point = 0; binding_point < 5; ++binding_point) {
                 image_infos[binding_point].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
                 image_infos[binding_point].imageView = geometry_framebuffer_attachments[binding_point].image_view;
@@ -1138,12 +1480,9 @@ class AmbientOcclusion final : public Sample {
                 descriptor_writes[binding_point].pImageInfo = &image_infos[binding_point];
             }
             
-            ++binding_point; // 6
-            
-            // Descriptor 6 comes from the ambient occlusion framebuffer
-            // This can either be the blurred or non-blurred version, depending on the desired effect
+            // Descriptor 5 comes from the ambient occlusion framebuffer
             image_infos[binding_point].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            image_infos[binding_point].imageView = ambient_occlusion_attachments[1].image_view; // 0 for non-blurred, 1 for blurred
+            image_infos[binding_point].imageView = ambient_occlusion_blur_attachment.image_view;
             image_infos[binding_point].sampler = sampler;
             
             descriptor_writes[binding_point].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -1165,7 +1504,7 @@ class AmbientOcclusion final : public Sample {
             buffer_info.offset = globals_uniform_block_size + object_uniform_block_size * scene.objects.size() + ambient_occlusion_uniform_block_size;
             buffer_info.range = sizeof(CompositionUniforms);
             
-            ++binding_point; // 7
+            ++binding_point; // 6
             
             descriptor_writes[binding_point].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             descriptor_writes[binding_point].dstSet = composition_descriptor_set;
@@ -1178,7 +1517,6 @@ class AmbientOcclusion final : public Sample {
             // Specify the buffer and region within it that contains the data for the allocated descriptors
             vkUpdateDescriptorSets(device, sizeof(descriptor_writes) / sizeof(descriptor_writes[0]), descriptor_writes, 0, nullptr);
         }
-        
         
         void initialize_buffers() {
             models.emplace_back(load_obj("assets/models/cube.obj"));
@@ -1239,8 +1577,8 @@ class AmbientOcclusion final : public Sample {
             knight.transform = Transform(glm::vec3(0, 0.5f, 0), glm::vec3(1.5f), glm::vec3(0.0f, 50.0f, 0.0f));
             
             // This sample only uses vertex position and normal
-            std::size_t vertex_buffer_size = 0u;
-            std::size_t index_buffer_size = 0u;
+            unsigned vertex_buffer_size = 0u;
+            unsigned index_buffer_size = 0u;
             
             for (std::size_t i = 0u; i < models.size(); ++i) {
                 for (Scene::Object& object : scene.objects) {
@@ -1398,10 +1736,11 @@ class AmbientOcclusion final : public Sample {
         
         void initialize_uniform_buffer() {
             std::size_t geometry_global_uniform_block_size = align_to_device_boundary(physical_device, sizeof(GeometryGlobalUniforms));
-            std::size_t geometry_object_uniform_block_size = (align_to_device_boundary(physical_device, sizeof(GeometryObjectVertexStageUniforms)) + align_to_device_boundary(physical_device, sizeof(GeometryObjectFragmentStageUniforms))) * scene.objects.size();
+            std::size_t geometry_object_uniform_block_size = align_to_device_boundary(physical_device, sizeof(GeometryObjectVertexStageUniforms)) + align_to_device_boundary(physical_device, sizeof(GeometryObjectFragmentStageUniforms));
             std::size_t ambient_occlusion_uniform_block_size = align_to_device_boundary(physical_device, sizeof(AmbientOcclusionUniforms));
+            std::size_t composition_uniform_block_size = align_to_device_boundary(physical_device, sizeof(CompositionUniforms));
             
-            std::size_t uniform_buffer_size = geometry_global_uniform_block_size + geometry_object_uniform_block_size + ambient_occlusion_uniform_block_size;
+            std::size_t uniform_buffer_size = geometry_global_uniform_block_size + geometry_object_uniform_block_size * scene.objects.size() + ambient_occlusion_uniform_block_size + composition_uniform_block_size;
 
             create_buffer(physical_device, device, uniform_buffer_size, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, uniform_buffer, uniform_buffer_memory);
             vkMapMemory(device, uniform_buffer_memory, 0, uniform_buffer_size, 0, &uniform_buffer_mapped);
@@ -1424,12 +1763,12 @@ class AmbientOcclusion final : public Sample {
             
             // Geometry pass per-object uniforms
             for (std::size_t i = 0u; i < scene.objects.size(); ++i) {
-                const Scene::Object& object = scene.objects[i];
-                const Transform& transform = object.transform;
+                Scene::Object& object = scene.objects[i];
+                Transform& transform = object.transform;
                 
                 // Vertex
                 GeometryObjectVertexStageUniforms vertex { };
-                vertex.model = transform.get_model_matrix();
+                vertex.model = transform.get_matrix();
                 vertex.normal = glm::transpose(glm::inverse(vertex.model));
                 
                 memcpy((void*)(((const char*) uniform_buffer_mapped) + offset), &vertex, sizeof(GeometryObjectVertexStageUniforms));
@@ -1437,9 +1776,9 @@ class AmbientOcclusion final : public Sample {
                 
                 // Fragment
                 GeometryObjectFragmentStageUniforms fragment { };
-                fragment.ambient = vec4(object.ambient, 1.0f);
-                fragment.diffuse = vec4(object.diffuse, 1.0f);
-                fragment.specular = vec4(object.specular, 1.0f);
+                fragment.ambient = glm::vec4(object.ambient, 1.0f);
+                fragment.diffuse = glm::vec4(object.diffuse, 1.0f);
+                fragment.specular = glm::vec4(object.specular, 1.0f);
                 fragment.exponent = object.specular_exponent;
                 
                 memcpy((void*)(((const char*) uniform_buffer_mapped) + offset), &fragment, sizeof(GeometryObjectFragmentStageUniforms));
@@ -1450,7 +1789,7 @@ class AmbientOcclusion final : public Sample {
             {
                 AmbientOcclusionUniforms uniforms { };
                 uniforms.projection = camera.get_projection_matrix();
-                uniforms.samples = samples;
+                memcpy(&uniforms.samples, &samples, sizeof(uniforms.samples));
                 
                 memcpy((void*)(((const char*) uniform_buffer_mapped) + offset), &uniforms, sizeof(AmbientOcclusionUniforms));
                 offset += align_to_device_boundary(physical_device, sizeof(AmbientOcclusionUniforms));

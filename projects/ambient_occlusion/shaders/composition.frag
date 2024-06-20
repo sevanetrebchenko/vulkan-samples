@@ -37,7 +37,7 @@ void main() {
     vec4 L = normalize((lighting.view * light_position) - view_position);
 
     // Ambient
-    color += texture(ambient, vertex_uv).rgb * texture(ambient_occlusion).r;
+    color += texture(ambient, vertex_uv).rgb * texture(ambient_occlusion, vertex_uv).r;
 
     // Diffuse
     float lambert = max(dot(N, L), 0.0f);

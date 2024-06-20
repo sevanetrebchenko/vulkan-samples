@@ -8,7 +8,7 @@
 //   .vert - VK_SHADER_STAGE_VERTEX_BIT
 //   .frag - VK_SHADER_STAGE_FRAGMENT_BIT
 VkShaderModule create_shader_module(VkDevice device, const char* filepath);
-VkPipelineShaderStageCreateInfo create_shader_stage(VkShaderModule module, VkShaderStageFlagBits stage, const char* entry = "main");
+VkPipelineShaderStageCreateInfo create_shader_stage(VkShaderModule module, VkShaderStageFlagBits stage, VkSpecializationInfo* specialization_info = nullptr, const char* entry = "main");
 
 VkVertexInputBindingDescription create_vertex_binding_description(unsigned binding, unsigned stride, VkVertexInputRate input_rate);
 VkVertexInputAttributeDescription create_vertex_attribute_description(unsigned binding, unsigned location, VkFormat format, unsigned offset);
