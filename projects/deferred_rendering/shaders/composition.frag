@@ -70,7 +70,7 @@ void main() {
         vec4 V = normalize((lighting.view * vec4(lighting.camera_position, 1.0f)) - view_position);
 
         // Hardcode one light for the time being
-        vec4 light_position = vec4(0.0f, 2.f, 0.0f, 1.0f);
+        vec4 light_position = vec4(0.0f, 3.f, 1.0f, 1.0f);
         vec3 light_color = vec3(1.0f, 1.0f, 1.0f);
 
         vec4 L = normalize((lighting.view * light_position) - view_position);

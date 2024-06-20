@@ -52,7 +52,7 @@ class Sample {
         virtual void initialize_resources() = 0;
 
         // For any updates that need to happen
-        virtual void update(double dt) = 0;
+        virtual void update() = 0;
         
         // Passes the index of the swapchain image retrieved for presentation (1:1 mapping for final present framebuffer)
         virtual void record_command_buffers(unsigned framebuffer_index) = 0;
@@ -151,6 +151,7 @@ class Sample {
         } settings;
         
         Camera camera;
+        double dt;
         
     private:
         void initialize_glfw();
@@ -209,7 +210,6 @@ class Sample {
         virtual void render();
         
         // Sample data
-        double dt;
         bool initialized;
         bool running;
         

@@ -11,8 +11,8 @@ class DeferredRendering final : public Sample {
     public:
         DeferredRendering() : Sample("Deferred Rendering") {
             debug_view = OUTPUT;
-            camera.set_position(glm::vec3(0, 0, 5));
-            camera.set_look_direction(glm::vec3(0.0f, 0.0f, -1.0f));
+            camera.set_position(glm::vec3(0, 2, 6));
+            camera.set_look_direction(glm::vec3(0.0f, 0.25f, -1.0f));
         }
         
         ~DeferredRendering() override {
@@ -133,10 +133,10 @@ class DeferredRendering final : public Sample {
         void destroy_resources() override {
         }
         
-        void update(double dt) override {
-//            Scene::Object& object = scene.objects.back();
-//            Transform& transform = object.transform;
-//            transform.set_rotation(transform.get_rotation() + glm::vec3(0.0f, 1.0f, 0.0f) * (float)dt);
+        void update() override {
+            Scene::Object& object = scene.objects.back();
+            Transform& transform = object.transform;
+            transform.set_rotation(transform.get_rotation() + (float)dt * glm::vec3(0.0f, -10.0f, 0.0f));
             
             update_uniform_buffers();
             
@@ -1051,49 +1051,52 @@ class DeferredRendering final : public Sample {
         
         void initialize_buffers() {
             models.emplace_back(load_obj("assets/models/cube.obj"));
-            models.emplace_back(load_obj("assets/models/bunny_low_poly.obj"));
+            models.emplace_back(load_obj("assets/models/knight.obj"));
             float box_size = 3.0f;
+            float height = 2.0f;
+            float thickness = 0.05f;
             
             // Walls
             Scene::Object& right = scene.objects.emplace_back();
             right.model = 0;
             right.ambient = glm::vec3(0.1f);
-            right.diffuse = glm::vec3(1.0f, 0.0f, 0.0f); // red
+            right.diffuse = glm::vec3(205,92,92) / glm::vec3(255); // red
             right.specular = glm::vec3(0.0f);
             right.specular_exponent = 0.0f;
-            right.transform = Transform(glm::vec3(box_size, 0, 0), glm::vec3(0.1f, box_size, box_size), glm::vec3(0.0f, 0.0f, 0.0f));
+            right.transform = Transform(glm::vec3(box_size, height, 0), glm::vec3(thickness, box_size, box_size), glm::vec3(0.0f, 0.0f, 0.0f));
             
             Scene::Object& left = scene.objects.emplace_back();
             left.model = 0;
             left.ambient = glm::vec3(0.1f);
-            left.diffuse = glm::vec3(0.0f, 1.0f, 0.0f); // green
+//            left.diffuse = glm::vec3(95, 158, 160) / glm::vec3(255); // green
+            left.diffuse = glm::vec3(46,139,87) / glm::vec3(255); // green
             left.specular = glm::vec3(0.0f);
             left.specular_exponent = 0.0f;
-            left.transform = Transform(glm::vec3(-box_size, 0, 0), glm::vec3(0.1f, box_size, box_size), glm::vec3(0.0f, 0.0f, 0.0f));
+            left.transform = Transform(glm::vec3(-box_size, height, 0), glm::vec3(thickness, box_size, box_size), glm::vec3(0.0f, 0.0f, 0.0f));
 
             Scene::Object& back = scene.objects.emplace_back();
             back.model = 0;
             back.ambient = glm::vec3(0.1f);
-            back.diffuse = glm::vec3(0.0f, 0.0f, 1.0f); // blue
+            back.diffuse = glm::vec3(70,130,180) / glm::vec3(255); // blue
             back.specular = glm::vec3(0.0f);
             back.specular_exponent = 0.0f;
-            back.transform = Transform(glm::vec3(0, 0, -box_size), glm::vec3(box_size, box_size, 0.1f), glm::vec3(0.0f, 0.0f, 0.0f));
+            back.transform = Transform(glm::vec3(0, height, -box_size), glm::vec3(box_size, box_size, thickness), glm::vec3(0.0f, 0.0f, 0.0f));
 
             Scene::Object& ceiling = scene.objects.emplace_back();
             ceiling.model = 0;
             ceiling.ambient = glm::vec3(0.1f);
-            ceiling.diffuse = glm::vec3(0.6f); // offwhite
+            ceiling.diffuse = glm::vec3(255,235,205) / glm::vec3(255); // offwhite
             ceiling.specular = glm::vec3(0.0f);
             ceiling.specular_exponent = 0.0f;
-            ceiling.transform = Transform(glm::vec3(0, box_size, 0), glm::vec3(box_size, 0.1f, box_size), glm::vec3(0.0f, 0.0f, 0.0f));
+            ceiling.transform = Transform(glm::vec3(0, box_size + height, 0), glm::vec3(box_size, thickness, box_size), glm::vec3(0.0f, 0.0f, 0.0f));
 
             Scene::Object& floor = scene.objects.emplace_back();
             floor.model = 0;
             floor.ambient = glm::vec3(0.1f);
-            floor.diffuse = glm::vec3(0.6f); // offwhite
+            floor.diffuse = glm::vec3(255,235,205) / glm::vec3(255); // offwhite
             floor.specular = glm::vec3(0.0f);
             floor.specular_exponent = 0.0f;
-            floor.transform = Transform(glm::vec3(0, -box_size, 0), glm::vec3(box_size, 0.1f, box_size), glm::vec3(0.0f, 0.0f, 0.0f));
+            floor.transform = Transform(glm::vec3(0, -box_size + height, 0), glm::vec3(box_size, thickness, box_size), glm::vec3(0.0f, 0.0f, 0.0f));
             
             // Center model
             Scene::Object& knight = scene.objects.emplace_back();
@@ -1102,7 +1105,7 @@ class DeferredRendering final : public Sample {
             knight.diffuse = glm::vec3(0.8f); // offwhite
             knight.specular = glm::vec3(0.0f);
             knight.specular_exponent = 0.0f;
-            knight.transform = Transform(glm::vec3(0, 0, 0), glm::vec3(1.0f), glm::vec3(0.0f, 0.0f, 0.0f));
+            knight.transform = Transform(glm::vec3(0, 0.5f, 0), glm::vec3(1.5f), glm::vec3(0.0f, 50.0f, 0.0f));
             
             // This sample only uses vertex position and normal
             std::size_t vertex_buffer_size = 0u;

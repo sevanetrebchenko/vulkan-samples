@@ -57,7 +57,9 @@ Sample::Sample(const char* name) : instance(nullptr),
                                    settings(),
                                    debug_messenger(nullptr),
                                    initialized(false),
-                                   running(false) {
+                                   running(false),
+                                   dt(0.0),
+                                   last_frame_time(0.0f) {
 }
 
 Sample::~Sample() {
@@ -155,7 +157,7 @@ void Sample::run() {
     vkWaitForFences(device, 1, &is_frame_in_flight[frame_index], VK_TRUE, std::numeric_limits<std::uint64_t>::max()); // Blocks CPU execution (fence is created in the signaled state so that the first pass through this function doesn't block execution indefinitely)
     vkResetFences(device, 1, &is_frame_in_flight[frame_index]);
     
-    update(dt);
+    update();
     render();
     
     // Present to the screen
