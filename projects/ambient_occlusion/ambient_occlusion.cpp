@@ -10,13 +10,34 @@
 class AmbientOcclusion final : public Sample {
     public:
         AmbientOcclusion() : Sample("Ambient Occlusion") {
+            camera.set_position(glm::vec3(0, 2, 6));
+            camera.set_look_direction(glm::vec3(0.0f, 0.25f, -1.0f));
         }
         
         ~AmbientOcclusion() override {
         }
         
     private:
-        Model model;
+        std::vector<Model> models;
+        std::vector<Transform> transforms;
+        
+        struct Scene {
+            struct Object {
+                unsigned model;
+                unsigned vertex_offset;
+                unsigned index_offset;
+                Transform transform;
+                
+                glm::vec3 ambient;
+                glm::vec3 diffuse;
+                glm::vec3 specular;
+                float specular_exponent;
+                
+                bool flat_shaded;
+            };
+
+            std::vector<Object> objects;
+        } scene;
         
         VkBuffer vertex_buffer;
         VkDeviceMemory vertex_buffer_memory;
@@ -31,14 +52,6 @@ class AmbientOcclusion final : public Sample {
             VkFormat format;
         };
         
-        int OUTPUT = -1;
-        
-        int POSITION = 0;
-        int NORMAL = 1;
-        int AMBIENT = 2;
-        int DIFFUSE = 3;
-        int SPECULAR = 4;
-        int DEPTH = 5;
         std::array<FramebufferAttachment, 6> offscreen_framebuffer_attachments;
         VkFramebuffer offscreen_framebuffer;
         
@@ -52,7 +65,7 @@ class AmbientOcclusion final : public Sample {
         VkDescriptorSet offscreen_global;
         
         VkDescriptorSetLayout offscreen_object_layout;
-        VkDescriptorSet offscreen_object;
+        std::vector<VkDescriptorSet> offscreen_objects;
         
         // Used to synchronize between rendering the geometry buffer and rendering the final scene
         VkSemaphore is_offscreen_rendering_complete;
@@ -72,7 +85,7 @@ class AmbientOcclusion final : public Sample {
         VkBuffer uniform_buffer; // One uniform buffer for all uniforms, across both passes
         VkDeviceMemory uniform_buffer_memory;
         void* uniform_buffer_mapped;
-
+        
         VkSampler sampler;
         
         void initialize_resources() override {
@@ -91,16 +104,17 @@ class AmbientOcclusion final : public Sample {
             
             // This sample allocates 3 descriptor sets:
             //   1. Global set (0) for the geometry pass
-            //   1. 2 per-object sets (1) for the geometry pass
+            //   1. 2 per-object sets (1) for the geometry pass, per object
             //   1. Global set (2) for the composition pass
-            initialize_descriptor_pool(4, 5);
+            initialize_descriptor_pool(1 + 2 * offscreen_objects.size() + 2, 6);
+            
+            initialize_buffers();
             
             initialize_uniform_buffer();
             
             initialize_descriptor_set_layouts();
             initialize_descriptor_sets();
             
-            initialize_buffers();
             
             initialize_pipelines();
         }
@@ -108,8 +122,15 @@ class AmbientOcclusion final : public Sample {
         void destroy_resources() override {
         }
         
-        void update(double dt) override {
+        void update() override {
+            Scene::Object& object = scene.objects.back();
+            Transform& transform = object.transform;
+            transform.set_rotation(transform.get_rotation() + (float)dt * glm::vec3(0.0f, -10.0f, 0.0f));
+            
             update_uniform_buffers();
+            
+            for (std::size_t i = 0u; i < scene.objects.size(); ++i)
+                update_object_uniform_buffers(i);
         }
         
         void render() override {
@@ -214,12 +235,12 @@ class AmbientOcclusion final : public Sample {
             render_pass_info.renderArea = create_region(0, 0, swapchain_extent.width, swapchain_extent.height);
         
             VkClearValue clear_values[6] { };
-            clear_values[POSITION].color = {{ 0.0f, 0.0f, 0.0f, 1.0f }};
-            clear_values[NORMAL].color = {{ 0.0f, 0.0f, 0.0f, 1.0f }};
-            clear_values[AMBIENT].color = {{ 0.0f, 0.0f, 0.0f, 1.0f }};
-            clear_values[DIFFUSE].color = {{ 0.0f, 0.0f, 0.0f, 1.0f }};
-            clear_values[SPECULAR].color = {{ 0.0f, 0.0f, 0.0f, 1.0f }};
-            clear_values[DEPTH].depthStencil = { 1.0f, 0 };
+            clear_values[0].color = {{ 0.0f, 0.0f, 0.0f, 1.0f }}; // Position
+            clear_values[1].color = {{ 0.0f, 0.0f, 0.0f, 1.0f }}; // Normal
+            clear_values[2].color = {{ 0.0f, 0.0f, 0.0f, 1.0f }}; // Ambient
+            clear_values[3].color = {{ 0.0f, 0.0f, 0.0f, 1.0f }}; // Diffuse
+            clear_values[4].color = {{ 0.0f, 0.0f, 0.0f, 1.0f }}; // Specular
+            clear_values[5].depthStencil = { 1.0f, 0 }; // Depth
 
             render_pass_info.clearValueCount = sizeof(clear_values) / sizeof(clear_values[0]);
             render_pass_info.pClearValues = clear_values;
@@ -235,19 +256,24 @@ class AmbientOcclusion final : public Sample {
                 set = 0;
                 vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, offscreen_pipeline_layout, set, 1, &offscreen_global, 0, nullptr);
                 
-                // Bind vertex buffer
-                VkDeviceSize offsets[] = { 0 };
-                vkCmdBindVertexBuffers(command_buffer, 0, 1, &vertex_buffer, offsets);
-                
-                // Bind index buffer
-                vkCmdBindIndexBuffer(command_buffer, index_buffer, 0, VK_INDEX_TYPE_UINT32);
-            
-                // Bind per-object descriptor set
-                set = 1;
-                vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, offscreen_pipeline_layout, set, 1, &offscreen_object, 0, nullptr);
-                
-                // Draw indices.size() vertices which make up 1 instance starting at vertex index 0 and instance index 0.
-                vkCmdDrawIndexed(command_buffer, (unsigned) model.indices.size(), 1, 0, 0, 0);
+                for (std::size_t i = 0u; i < scene.objects.size(); ++i) {
+                    const Scene::Object& object = scene.objects[i];
+                    const Model& model = models[object.model];
+                    
+                    // Bind vertex buffer
+                    VkDeviceSize offsets[] = { object.vertex_offset  };
+                    vkCmdBindVertexBuffers(command_buffer, 0, 1, &vertex_buffer, offsets);
+                    
+                    // Bind index buffer
+                    vkCmdBindIndexBuffer(command_buffer, index_buffer, object.index_offset, VK_INDEX_TYPE_UINT32);
+                    
+                    // Descriptor sets need to be bound per object
+                    set = 1;
+                    vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, offscreen_pipeline_layout, set, 1, &offscreen_objects[i], 0, nullptr);
+                    
+                    // Draw indices.size() vertices which make up 1 instance starting at vertex index 0 and instance index 0.
+                    vkCmdDrawIndexed(command_buffer, (unsigned) model.indices.size(), 1, 0, 0, 0);
+                }
             
             vkCmdEndRenderPass(command_buffer);
             
@@ -604,17 +630,17 @@ class AmbientOcclusion final : public Sample {
                 create_attachment_description(VK_FORMAT_R8G8B8A8_UNORM, VK_SAMPLE_COUNT_1_BIT, VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE, VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL),
                 
                 // Depth
-                create_attachment_description(depth_buffer_format, VK_SAMPLE_COUNT_1_BIT, VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE, VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL),
+                create_attachment_description(depth_buffer_format, VK_SAMPLE_COUNT_1_BIT, VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_DONT_CARE, VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL),
             };
             
             VkAttachmentReference color_attachment_references[] {
-                create_attachment_reference(POSITION, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL),
-                create_attachment_reference(NORMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL),
-                create_attachment_reference(AMBIENT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL),
-                create_attachment_reference(DIFFUSE, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL),
-                create_attachment_reference(SPECULAR, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL),
+                create_attachment_reference(0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL), // Position
+                create_attachment_reference(1, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL), // Normals
+                create_attachment_reference(2, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL), // Ambient
+                create_attachment_reference(3, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL), // Diffuse
+                create_attachment_reference(4, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL), // Specular
             };
-            VkAttachmentReference depth_stencil_attachment_reference = create_attachment_reference(DEPTH, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+            VkAttachmentReference depth_stencil_attachment_reference = create_attachment_reference(5, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL); // Depth
             
             VkSubpassDescription subpass_description { };
             subpass_description.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
@@ -702,11 +728,11 @@ class AmbientOcclusion final : public Sample {
             // Initialize color attachments
             for (std::size_t i = 0; i < 5; ++i) {
                 VkFormat format;
-                if (i == POSITION || i == NORMAL) {
-                    format = VK_FORMAT_R16G16B16A16_SFLOAT; // 64-bit floating point image format (for higher precision)
+                if (i == 0 || i == 1) {
+                    format = VK_FORMAT_R16G16B16A16_SFLOAT; // 64-bit floating point image format (for higher precision) for position + normal textures
                 }
                 else {
-                    // Color cannot be negative, so use an 32-bit unsigned image format
+                    // Color cannot be negative, so use an 32-bit unsigned image format for the rest
                     format = VK_FORMAT_R8G8B8A8_UNORM;
                 }
                 
@@ -715,16 +741,16 @@ class AmbientOcclusion final : public Sample {
             }
             
             // Initialize depth attachment
-            create_image(physical_device, device, swapchain_extent.width, swapchain_extent.height, 1, VK_SAMPLE_COUNT_1_BIT, depth_buffer_format, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, offscreen_framebuffer_attachments[DEPTH].image, offscreen_framebuffer_attachments[DEPTH].memory);
-            create_image_view(device, offscreen_framebuffer_attachments[DEPTH].image, depth_buffer_format, VK_IMAGE_ASPECT_DEPTH_BIT, 1, offscreen_framebuffer_attachments[DEPTH].image_view);
+            create_image(physical_device, device, swapchain_extent.width, swapchain_extent.height, 1, VK_SAMPLE_COUNT_1_BIT, depth_buffer_format, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, offscreen_framebuffer_attachments[5].image, offscreen_framebuffer_attachments[5].memory);
+            create_image_view(device, offscreen_framebuffer_attachments[5].image, depth_buffer_format, VK_IMAGE_ASPECT_DEPTH_BIT, 1, offscreen_framebuffer_attachments[5].image_view);
             
             VkImageView attachments[] {
-                offscreen_framebuffer_attachments[POSITION].image_view,
-                offscreen_framebuffer_attachments[NORMAL].image_view,
-                offscreen_framebuffer_attachments[AMBIENT].image_view,
-                offscreen_framebuffer_attachments[DIFFUSE].image_view,
-                offscreen_framebuffer_attachments[SPECULAR].image_view,
-                offscreen_framebuffer_attachments[DEPTH].image_view
+                offscreen_framebuffer_attachments[0].image_view, // Positions
+                offscreen_framebuffer_attachments[1].image_view, // Normals
+                offscreen_framebuffer_attachments[2].image_view, // Ambient
+                offscreen_framebuffer_attachments[3].image_view, // Diffuse
+                offscreen_framebuffer_attachments[4].image_view, // Specular
+                offscreen_framebuffer_attachments[5].image_view // Depth
             };
             
             VkFramebufferCreateInfo framebuffer_create_info { };
@@ -814,9 +840,7 @@ class AmbientOcclusion final : public Sample {
                 create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 2), // Ambient sampler
                 create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 3), // Diffuse sampler
                 create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 4), // Specular sampler
-                create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 5), // Depth sampler
-                create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT, 6), // Uniform buffer for lights
-                create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT, 7), // Uniform buffer for render settings
+                create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT, 5), // Uniform buffer for lights
             };
             
             // Initialize the descriptor set layout
@@ -843,9 +867,6 @@ class AmbientOcclusion final : public Sample {
         
         void initialize_offscreen_descriptor_sets() {
             // All descriptor sets are allocated from the same descriptor pool, allocated at the start of the frame
-            VkWriteDescriptorSet descriptor_writes[3] { };
-            VkDescriptorBufferInfo buffer_infos[3] { };
-            std::size_t offset = 0u;
             
             // Initialize the global descriptor set
             VkDescriptorSetAllocateInfo offscreen_global_set_allocate_info { };
@@ -857,59 +878,78 @@ class AmbientOcclusion final : public Sample {
                 throw std::runtime_error("failed to allocate global composition offscreen descriptor set!");
             }
             
-            buffer_infos[0].buffer = uniform_buffer;
-            buffer_infos[0].offset = 0;
-            buffer_infos[0].range = (sizeof(glm::mat4) * 2) + sizeof(glm::vec4);
-            offset += align_to_device_boundary(physical_device, buffer_infos[0].range);
+            std::size_t offset = 0u;
             
-            descriptor_writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            descriptor_writes[0].dstSet = offscreen_global;
-            descriptor_writes[0].dstBinding = 0;
-            descriptor_writes[0].dstArrayElement = 0;
-            descriptor_writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-            descriptor_writes[0].descriptorCount = 1;
-            descriptor_writes[0].pBufferInfo = &buffer_infos[0];
+            // Global uniforms
+            VkDescriptorBufferInfo buffer_info { };
+            buffer_info.buffer = uniform_buffer;
+            buffer_info.offset = 0;
+            buffer_info.range = (sizeof(glm::mat4) * 2) + sizeof(glm::vec4);
+            offset += align_to_device_boundary(physical_device, buffer_info.range);
             
+            VkWriteDescriptorSet descriptor_write { };
+            descriptor_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            descriptor_write.dstSet = offscreen_global;
+            descriptor_write.dstBinding = 0;
+            descriptor_write.dstArrayElement = 0;
+            descriptor_write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            descriptor_write.descriptorCount = 1;
+            descriptor_write.pBufferInfo = &buffer_info;
             
-            VkDescriptorSetAllocateInfo offscreen_object_set_allocate_info { };
-            offscreen_object_set_allocate_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-            offscreen_object_set_allocate_info.descriptorPool = descriptor_pool;
-            offscreen_object_set_allocate_info.descriptorSetCount = 1;
-            offscreen_object_set_allocate_info.pSetLayouts = &offscreen_object_layout;
-            if (vkAllocateDescriptorSets(device, &offscreen_object_set_allocate_info, &offscreen_object) != VK_SUCCESS) {
-                throw std::runtime_error("failed to allocate per-model offscreen descriptor set!");
+            vkUpdateDescriptorSets(device, 1, &descriptor_write, 0, nullptr);
+            
+            offscreen_objects.resize(scene.objects.size());
+
+            
+            // Configure per-object uniform ranges
+            std::size_t object_uniform_size = align_to_device_boundary(physical_device, (sizeof(glm::mat4) * 2)) + align_to_device_boundary(physical_device, sizeof(glm::vec4) * 3 + 4);
+            
+            for (std::size_t i = 0u; i < scene.objects.size(); ++i) {
+                VkDescriptorSetAllocateInfo offscreen_object_set_allocate_info { };
+                offscreen_object_set_allocate_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+                offscreen_object_set_allocate_info.descriptorPool = descriptor_pool;
+                offscreen_object_set_allocate_info.descriptorSetCount = 1;
+                offscreen_object_set_allocate_info.pSetLayouts = &offscreen_object_layout;
+                if (vkAllocateDescriptorSets(device, &offscreen_object_set_allocate_info, &offscreen_objects[i]) != VK_SUCCESS) {
+                    throw std::runtime_error("failed to allocate per-model offscreen descriptor set!");
+                }
+                
+                std::size_t starting_offset = offset + i * object_uniform_size;
+                
+                VkDescriptorBufferInfo buffer_infos[2] { };
+                VkWriteDescriptorSet descriptor_writes[2] { };
+                
+                // Vertex shader
+                buffer_infos[0].buffer = uniform_buffer;
+                buffer_infos[0].offset = starting_offset;
+                buffer_infos[0].range = sizeof(glm::mat4) * 2;
+                starting_offset += align_to_device_boundary(physical_device, buffer_infos[0].range);
+                
+                descriptor_writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                descriptor_writes[0].dstSet = offscreen_objects[i];
+                descriptor_writes[0].dstBinding = 0;
+                descriptor_writes[0].dstArrayElement = 0;
+                descriptor_writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+                descriptor_writes[0].descriptorCount = 1;
+                descriptor_writes[0].pBufferInfo = &buffer_infos[0];
+                
+                // Fragment shader
+                buffer_infos[1].buffer = uniform_buffer;
+                buffer_infos[1].offset = starting_offset;
+                buffer_infos[1].range = (sizeof(glm::vec4) * 3) + 4;
+                starting_offset += align_to_device_boundary(physical_device, buffer_infos[1].range);
+                
+                descriptor_writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                descriptor_writes[1].dstSet = offscreen_objects[i];
+                descriptor_writes[1].dstBinding = 1;
+                descriptor_writes[1].dstArrayElement = 0;
+                descriptor_writes[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+                descriptor_writes[1].descriptorCount = 1;
+                descriptor_writes[1].pBufferInfo = &buffer_infos[1];
+                
+                // Specify the buffer and region within it that contains the data for the allocated descriptors
+                vkUpdateDescriptorSets(device, 2, descriptor_writes, 0, nullptr);
             }
-            
-            // Specify the range of data and buffer where data for the vertex binding is located
-            buffer_infos[1].buffer = uniform_buffer;
-            buffer_infos[1].offset = offset;
-            buffer_infos[1].range = sizeof(glm::mat4) * 2;
-            offset += align_to_device_boundary(physical_device, buffer_infos[1].range);
-            
-            descriptor_writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            descriptor_writes[1].dstSet = offscreen_object;
-            descriptor_writes[1].dstBinding = 0;
-            descriptor_writes[1].dstArrayElement = 0;
-            descriptor_writes[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-            descriptor_writes[1].descriptorCount = 1;
-            descriptor_writes[1].pBufferInfo = &buffer_infos[1];
-            
-            // Specify the range of data and buffer where data for the fragment binding is located
-            buffer_infos[2].buffer = uniform_buffer;
-            buffer_infos[2].offset = offset;
-            buffer_infos[2].range = (sizeof(glm::vec4) * 3) + 4;
-            offset += align_to_device_boundary(physical_device, buffer_infos[2].range);
-            
-            descriptor_writes[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            descriptor_writes[2].dstSet = offscreen_object;
-            descriptor_writes[2].dstBinding = 1;
-            descriptor_writes[2].dstArrayElement = 0;
-            descriptor_writes[2].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-            descriptor_writes[2].descriptorCount = 1;
-            descriptor_writes[2].pBufferInfo = &buffer_infos[2];
-            
-            // Specify the buffer and region within it that contains the data for the allocated descriptors
-            vkUpdateDescriptorSets(device, sizeof(descriptor_writes) / sizeof(descriptor_writes[0]), descriptor_writes, 0, nullptr);
         }
         
         void initialize_composition_descriptor_sets() {
@@ -922,20 +962,14 @@ class AmbientOcclusion final : public Sample {
                 throw std::runtime_error("failed to allocate global composition descriptor set!");
             }
             
-            VkWriteDescriptorSet descriptor_writes[8] { };
-            VkDescriptorImageInfo image_infos[6] { };
+            VkWriteDescriptorSet descriptor_writes[6] { };
+            VkDescriptorImageInfo image_infos[5] { };
             
             unsigned binding;
             
-            // Descriptors 0 - 5 - combined image sampler (position, normal, ambient, diffuse, specular, depth)
-            for (binding = 0; binding < 6; ++binding) {
-                if (binding == DEPTH) {
-                    image_infos[binding].imageLayout = VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL;
-                }
-                else {
-                    image_infos[binding].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-                }
-                
+            // Descriptors 0 - 5 - combined image sampler (position, normal, ambient, diffuse, specular)
+            for (binding = 0; binding < 5; ++binding) {
+                image_infos[binding].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
                 image_infos[binding].imageView = offscreen_framebuffer_attachments[binding].image_view;
                 image_infos[binding].sampler = sampler;
                 
@@ -953,12 +987,14 @@ class AmbientOcclusion final : public Sample {
             // The same uniform buffer is used for both offscreen and composition passes
             // Composition uniforms are located directly after all the offscreen uniforms
             
-            std::size_t offset = align_to_device_boundary(physical_device, sizeof(glm::mat4) * 2 + sizeof(glm::vec4)) + align_to_device_boundary(physical_device, sizeof(glm::mat4) * 2) + align_to_device_boundary(physical_device, sizeof(glm::vec4) * 3 + 4);
+            // vertex uniforms + fragment uniforms
+            std::size_t object_uniform_size = align_to_device_boundary(physical_device, (sizeof(glm::mat4) * 2)) + align_to_device_boundary(physical_device, sizeof(glm::vec4) * 3 + 4);
+            std::size_t offset = align_to_device_boundary(physical_device, sizeof(glm::mat4) * 2 + sizeof(glm::vec4)) + scene.objects.size() * object_uniform_size;
             
-            // Descriptor 6 - uniform buffer for lighting data
+            // Descriptor 5 - uniform buffer for lighting data
             buffer_infos[0].buffer = uniform_buffer;
             buffer_infos[0].offset = offset;
-            buffer_infos[0].range = sizeof(glm::mat4) + sizeof(glm::vec4) * 2;
+            buffer_infos[0].range = sizeof(glm::mat4) + sizeof(glm::vec4);
             
             offset += align_to_device_boundary(physical_device, buffer_infos[0].range);
             
@@ -972,21 +1008,6 @@ class AmbientOcclusion final : public Sample {
             
             ++binding;
             
-            // Descriptor 7 - uniform buffer for settings
-            buffer_infos[1].buffer = uniform_buffer;
-            buffer_infos[1].offset = offset;
-            buffer_infos[1].range = sizeof(int);
-            
-            offset += align_to_device_boundary(physical_device, buffer_infos[1].range);
-            
-            descriptor_writes[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            descriptor_writes[binding].dstSet = composition_global;
-            descriptor_writes[binding].dstBinding = binding;
-            descriptor_writes[binding].dstArrayElement = 0;
-            descriptor_writes[binding].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-            descriptor_writes[binding].descriptorCount = 1;
-            descriptor_writes[binding].pBufferInfo = &buffer_infos[1];
-            
             // Specify the buffer and region within it that contains the data for the allocated descriptors
             vkUpdateDescriptorSets(device, sizeof(descriptor_writes) / sizeof(descriptor_writes[0]), descriptor_writes, 0, nullptr);
         }
@@ -995,11 +1016,78 @@ class AmbientOcclusion final : public Sample {
         }
         
         void initialize_buffers() {
-            model = load_obj("assets/models/bunny_high_poly.obj");
+            models.emplace_back(load_obj("assets/models/cube.obj"));
+            models.emplace_back(load_obj("assets/models/knight.obj"));
+            float box_size = 3.0f;
+            float height = 2.0f;
+            float thickness = 0.05f;
+            
+            // Walls
+            Scene::Object& right = scene.objects.emplace_back();
+            right.model = 0;
+            right.ambient = glm::vec3(0.1f);
+            right.diffuse = glm::vec3(205,92,92) / glm::vec3(255); // red
+            right.specular = glm::vec3(0.0f);
+            right.specular_exponent = 0.0f;
+            right.transform = Transform(glm::vec3(box_size, height, 0), glm::vec3(thickness, box_size, box_size), glm::vec3(0.0f, 0.0f, 0.0f));
+            
+            Scene::Object& left = scene.objects.emplace_back();
+            left.model = 0;
+            left.ambient = glm::vec3(0.1f);
+//            left.diffuse = glm::vec3(95, 158, 160) / glm::vec3(255); // green
+            left.diffuse = glm::vec3(46,139,87) / glm::vec3(255); // green
+            left.specular = glm::vec3(0.0f);
+            left.specular_exponent = 0.0f;
+            left.transform = Transform(glm::vec3(-box_size, height, 0), glm::vec3(thickness, box_size, box_size), glm::vec3(0.0f, 0.0f, 0.0f));
+
+            Scene::Object& back = scene.objects.emplace_back();
+            back.model = 0;
+            back.ambient = glm::vec3(0.1f);
+            back.diffuse = glm::vec3(70,130,180) / glm::vec3(255); // blue
+            back.specular = glm::vec3(0.0f);
+            back.specular_exponent = 0.0f;
+            back.transform = Transform(glm::vec3(0, height, -box_size), glm::vec3(box_size, box_size, thickness), glm::vec3(0.0f, 0.0f, 0.0f));
+
+            Scene::Object& ceiling = scene.objects.emplace_back();
+            ceiling.model = 0;
+            ceiling.ambient = glm::vec3(0.1f);
+            ceiling.diffuse = glm::vec3(255,235,205) / glm::vec3(255); // offwhite
+            ceiling.specular = glm::vec3(0.0f);
+            ceiling.specular_exponent = 0.0f;
+            ceiling.transform = Transform(glm::vec3(0, box_size + height, 0), glm::vec3(box_size, thickness, box_size), glm::vec3(0.0f, 0.0f, 0.0f));
+
+            Scene::Object& floor = scene.objects.emplace_back();
+            floor.model = 0;
+            floor.ambient = glm::vec3(0.1f);
+            floor.diffuse = glm::vec3(255,235,205) / glm::vec3(255); // offwhite
+            floor.specular = glm::vec3(0.0f);
+            floor.specular_exponent = 0.0f;
+            floor.transform = Transform(glm::vec3(0, -box_size + height, 0), glm::vec3(box_size, thickness, box_size), glm::vec3(0.0f, 0.0f, 0.0f));
+            
+            // Center model
+            Scene::Object& knight = scene.objects.emplace_back();
+            knight.model = 1;
+            knight.ambient = glm::vec3(0.3f);
+            knight.diffuse = glm::vec3(0.8f); // offwhite
+            knight.specular = glm::vec3(0.0f);
+            knight.specular_exponent = 0.0f;
+            knight.transform = Transform(glm::vec3(0, 0.5f, 0), glm::vec3(1.5f), glm::vec3(0.0f, 50.0f, 0.0f));
             
             // This sample only uses vertex position and normal
-            std::size_t vertex_buffer_size = model.vertices.size() * sizeof(Model::Vertex);
-            std::size_t index_buffer_size = model.indices.size() * sizeof(unsigned);
+            std::size_t vertex_buffer_size = 0u;
+            std::size_t index_buffer_size = 0u;
+            
+            for (std::size_t i = 0u; i < models.size(); ++i) {
+                for (Scene::Object& object : scene.objects) {
+                    if (object.model == i) {
+                        object.vertex_offset = vertex_buffer_size;
+                        object.index_offset = index_buffer_size;
+                    }
+                }
+                
+                vertex_buffer_size += models[i].vertices.size() * sizeof(Model::Vertex);
+                index_buffer_size += models[i].indices.size() * sizeof(unsigned);
+            }
             
             VkBuffer staging_buffer { };
             VkDeviceMemory staging_buffer_memory { };
@@ -1009,15 +1097,36 @@ class AmbientOcclusion final : public Sample {
             create_buffer(physical_device, device, vertex_buffer_size + index_buffer_size, staging_buffer_usage, staging_buffer_memory_properties, staging_buffer, staging_buffer_memory);
             
             // Upload vertex data into staging buffer
-            void* data;
-            vkMapMemory(device, staging_buffer_memory, 0, vertex_buffer_size, 0, &data);
-                memcpy(data, model.vertices.data(), vertex_buffer_size);
-            vkUnmapMemory(device, staging_buffer_memory);
+            {
+                std::size_t offset = 0u;
+                
+                for (const Model& model : models) {
+                    std::size_t model_vertices_size = model.vertices.size() * sizeof(Model::Vertex);
+                    
+                    void* data;
+                    vkMapMemory(device, staging_buffer_memory, offset, model_vertices_size, 0, &data);
+                        memcpy(data, model.vertices.data(), model_vertices_size);
+                    vkUnmapMemory(device, staging_buffer_memory);
+                    
+                    offset += model_vertices_size;
+                }
+            }
             
             // Upload index data into staging buffer
-            vkMapMemory(device, staging_buffer_memory, vertex_buffer_size, index_buffer_size, 0, &data);
-                memcpy(data, model.indices.data(), index_buffer_size);
-            vkUnmapMemory(device, staging_buffer_memory);
+            {
+                std::size_t offset = 0u;
+                
+                for (const Model& model : models) {
+                    std::size_t model_indices_size = model.indices.size() * sizeof(unsigned);
+                    
+                    void* data;
+                    vkMapMemory(device, staging_buffer_memory, vertex_buffer_size + offset, model_indices_size, 0, &data);
+                        memcpy(data, model.indices.data(), model_indices_size);
+                    vkUnmapMemory(device, staging_buffer_memory);
+                    
+                    offset += model_indices_size;
+                }
+            }
             
             // Create device-local buffers
             VkBufferUsageFlags vertex_buffer_usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
@@ -1123,13 +1232,49 @@ class AmbientOcclusion final : public Sample {
         }
         
         void initialize_uniform_buffer() {
-            // set 0 binding 0 (globals) + set 1 binding 0 (per-object vertex) + set 1 binding 1 (per-object fragment)
-            std::size_t offscreen_buffer_size = align_to_device_boundary(physical_device, (sizeof(glm::mat4) * 2) + sizeof(glm::vec4)) + align_to_device_boundary(physical_device, sizeof(glm::mat4) * 2) + align_to_device_boundary(physical_device, sizeof(glm::vec4) * 3 + 4);
-            std::size_t composition_buffer_size = align_to_device_boundary(physical_device, sizeof(glm::mat4) + sizeof(glm::vec4) * 2) + align_to_device_boundary(physical_device, sizeof(int));
+            std::size_t offscreen_buffer_size = align_to_device_boundary(physical_device, (sizeof(glm::mat4) * 2) + sizeof(glm::vec4));
+            
+            // Per-object uniforms
+            offscreen_buffer_size += (align_to_device_boundary(physical_device, sizeof(glm::mat4) * 2) + align_to_device_boundary(physical_device, sizeof(glm::vec4) * 3 + 4)) * scene.objects.size();
+            
+            std::size_t composition_buffer_size = align_to_device_boundary(physical_device, sizeof(glm::mat4) + sizeof(glm::vec4) * 2);
             
             std::size_t uniform_buffer_size = offscreen_buffer_size + composition_buffer_size;
+            
             create_buffer(physical_device, device, uniform_buffer_size, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, uniform_buffer, uniform_buffer_memory);
             vkMapMemory(device, uniform_buffer_memory, 0, uniform_buffer_size, 0, &uniform_buffer_mapped);
+        }
+        
+        void update_object_uniform_buffers(unsigned id) {
+            Scene::Object& object = scene.objects[id];
+            std::size_t offset = align_to_device_boundary(physical_device, sizeof(glm::mat4) * 2 + sizeof(glm::vec4)) + (align_to_device_boundary(physical_device, sizeof(glm::mat4) * 2) + align_to_device_boundary(physical_device, sizeof(glm::vec4) * 3 + 4)) * id;
+            
+            struct ObjectData {
+                glm::mat4 model;
+                glm::mat4 normal;
+            };
+            ObjectData object_data { };
+            object_data.model = object.transform.get_matrix();
+            object_data.normal = glm::transpose(glm::inverse(object_data.model));
+            
+            memcpy((void*)((const char*) (uniform_buffer_mapped) + offset), &object_data, sizeof(ObjectData));
+            offset += align_to_device_boundary(physical_device, sizeof(glm::mat4) * 2);
+            
+            struct MaterialData {
+                // Must be aligned to vec4
+                glm::vec4 ambient;
+                glm::vec4 diffuse;
+                glm::vec4 specular;
+                float exponent;
+            };
+            MaterialData material_data { };
+            material_data.ambient = glm::vec4(object.ambient, 1.0f);
+            material_data.diffuse = glm::vec4(object.diffuse, 1.0f);
+            material_data.specular = glm::vec4(object.specular, 1.0f);
+            material_data.exponent = object.specular_exponent;
+            
+            memcpy((void*)((const char*) (uniform_buffer_mapped) + offset), &material_data, sizeof(MaterialData));
+            offset += align_to_device_boundary(physical_device, sizeof(glm::vec4) * 3 + 4);
         }
         
         void update_uniform_buffers() {
@@ -1143,31 +1288,9 @@ class AmbientOcclusion final : public Sample {
             globals.projection = camera.get_projection_matrix();
             globals.eye = camera.get_position();
             memcpy(uniform_buffer_mapped, &globals, sizeof(CameraData));
-            
-            struct ObjectData {
-                glm::mat4 model;
-                glm::mat4 normal;
-            };
-            ObjectData object { };
-            object.model = glm::scale(glm::vec3(3.0f));
-            object.normal = glm::inverse(glm::transpose(object.model));
-            
             std::size_t offset = align_to_device_boundary(physical_device, sizeof(glm::mat4) * 2 + sizeof(glm::vec4));
             
-            memcpy((void*)((const char*) (uniform_buffer_mapped) + offset), &object, sizeof(ObjectData));
-            offset += align_to_device_boundary(physical_device, sizeof(glm::mat4) * 2);
-            
-            struct MaterialData {
-                // Must be aligned to vec4
-                glm::vec4 ambient = glm::vec4(0.1f, 0.1f, 0.1f, 1.0f);
-                glm::vec4 diffuse = glm::vec4(0.5f, 0.5f, 0.5f, 1.0f);
-                glm::vec4 specular = glm::vec4(0.8f, 0.8f, 0.8f, 1.0f);
-                float exponent = 15.0f;
-            };
-            MaterialData material { };
-            
-            memcpy((void*)((const char*) (uniform_buffer_mapped) + offset), &material, sizeof(MaterialData));
-            offset += align_to_device_boundary(physical_device, sizeof(glm::vec4) * 3 + 4);
+            offset += (align_to_device_boundary(physical_device, sizeof(glm::mat4) * 2) + align_to_device_boundary(physical_device, sizeof(glm::vec4) * 3 + 4)) * scene.objects.size();
             
             struct LightingData {
                 glm::mat4 view;
@@ -1178,14 +1301,6 @@ class AmbientOcclusion final : public Sample {
             light_data.camera_position = camera.get_position();
             memcpy((void*)((const char*) (uniform_buffer_mapped) + offset), &light_data, sizeof(LightingData));
             offset += align_to_device_boundary(physical_device, sizeof(glm::mat4) + sizeof(glm::vec4) * 2);
-            
-            struct RenderSettings {
-                int view;
-            };
-            RenderSettings render_settings { };
-            render_settings.view = debug_view;
-            memcpy((void*)((const char*) (uniform_buffer_mapped) + offset), &render_settings, sizeof(RenderSettings));
-            offset += align_to_device_boundary(physical_device, sizeof(int));
         }
         
         void destroy_uniform_buffer() {
@@ -1193,30 +1308,6 @@ class AmbientOcclusion final : public Sample {
             vkDestroyBuffer(device, uniform_buffer, nullptr);
         }
         
-        void on_key_pressed(int key) override {
-            if (key == GLFW_KEY_1) {
-                debug_view = OUTPUT;
-            }
-            else if (key == GLFW_KEY_2) {
-                debug_view = POSITION;
-            }
-            else if (key == GLFW_KEY_3) {
-                debug_view = NORMAL;
-            }
-            else if (key == GLFW_KEY_4) {
-                debug_view = AMBIENT;
-            }
-            else if (key == GLFW_KEY_5) {
-                debug_view = DIFFUSE;
-            }
-            else if (key == GLFW_KEY_6) {
-                debug_view = SPECULAR;
-            }
-            else if (key == GLFW_KEY_7) {
-                debug_view = DEPTH;
-            }
-        }
-        
 };
 
-DEFINE_SAMPLE_MAIN(DeferredRendering);
+DEFINE_SAMPLE_MAIN(AmbientOcclusion);
