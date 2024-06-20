@@ -1418,7 +1418,7 @@ class AmbientOcclusion final : public Sample {
                 uniforms.view = camera.get_view_matrix();
                 uniforms.projection = camera.get_projection_matrix();
                 
-                memset((void*)((const char*) uniform_buffer_mapped) + offset, &uniforms, sizeof(uniforms));
+                memcpy((void*)(((const char*) uniform_buffer_mapped) + offset), &uniforms, sizeof(uniforms));
                 offset += align_to_device_boundary(physical_device, sizeof(GeometryGlobalUniforms));
             }
             
@@ -1432,7 +1432,7 @@ class AmbientOcclusion final : public Sample {
                 vertex.model = transform.get_model_matrix();
                 vertex.normal = glm::transpose(glm::inverse(vertex.model));
                 
-                memset((void*)((const char*) uniform_buffer_mapped) + offset, &vertex, sizeof(GeometryObjectVertexStageUniforms));
+                memcpy((void*)(((const char*) uniform_buffer_mapped) + offset), &vertex, sizeof(GeometryObjectVertexStageUniforms));
                 offset += align_to_device_boundary(physical_device, sizeof(GeometryObjectVertexStageUniforms));
                 
                 // Fragment
@@ -1442,7 +1442,7 @@ class AmbientOcclusion final : public Sample {
                 fragment.specular = vec4(object.specular, 1.0f);
                 fragment.exponent = object.specular_exponent;
                 
-                memset((void*)((const char*) uniform_buffer_mapped) + offset, &fragment, sizeof(GeometryObjectFragmentStageUniforms));
+                memcpy((void*)(((const char*) uniform_buffer_mapped) + offset), &fragment, sizeof(GeometryObjectFragmentStageUniforms));
                 offset += align_to_device_boundary(physical_device, sizeof(GeometryObjectFragmentStageUniforms));
             }
             
@@ -1452,7 +1452,7 @@ class AmbientOcclusion final : public Sample {
                 uniforms.projection = camera.get_projection_matrix();
                 uniforms.samples = samples;
                 
-                memset((void*)((const char*) uniform_buffer_mapped) + offset, &uniforms, sizeof(AmbientOcclusionUniforms));
+                memcpy((void*)(((const char*) uniform_buffer_mapped) + offset), &uniforms, sizeof(AmbientOcclusionUniforms));
                 offset += align_to_device_boundary(physical_device, sizeof(AmbientOcclusionUniforms));
             }
             
@@ -1460,9 +1460,9 @@ class AmbientOcclusion final : public Sample {
             {
                 CompositionUniforms uniforms { };
                 uniforms.view = camera.get_view_matrix();
-                uniforms.camera_position = camera.get_position();
+                uniforms.camera_position = glm::vec4(camera.get_position(), 1.0f);
                 
-                memset((void*)((const char*) uniform_buffer_mapped) + offset, &uniforms, sizeof(CompositionUniforms));
+                memcpy((void*)(((const char*) uniform_buffer_mapped) + offset), &uniforms, sizeof(CompositionUniforms));
                 offset += align_to_device_boundary(physical_device, sizeof(CompositionUniforms));
             }
         }
