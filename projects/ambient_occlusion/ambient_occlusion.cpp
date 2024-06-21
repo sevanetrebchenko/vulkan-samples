@@ -19,6 +19,7 @@ class AmbientOcclusion final : public Sample {
         AmbientOcclusion() : Sample("Ambient Occlusion"),
                              ambient_occlusion_noise({}) {
             enabled_queue_types = VK_QUEUE_TRANSFER_BIT;
+            debug_view = AO;
             
             camera.set_position(glm::vec3(0, 2, 6));
             camera.set_look_direction(glm::vec3(0.0f, 0.25f, -1.0f));
@@ -50,13 +51,17 @@ class AmbientOcclusion final : public Sample {
             std::vector<Object> objects;
         } scene;
         
+        int OUTPUT = -1;
+        int AO = 0;
+        int debug_view;
+        
         VkBuffer vertex_buffer;
         VkDeviceMemory vertex_buffer_memory;
         
         VkBuffer index_buffer;
         VkDeviceMemory index_buffer_memory;
         
-        constexpr static const int KERNEL_SIZE = 64;
+        constexpr static const int KERNEL_SIZE = 36;
         constexpr static const float SAMPLE_RADIUS = 0.5f;
         
         glm::vec4 samples[KERNEL_SIZE];
@@ -94,8 +99,9 @@ class AmbientOcclusion final : public Sample {
         struct GeometryObjectFragmentStageUniforms {
             glm::vec4 ambient; // Padded vec3
             glm::vec4 diffuse; // Padded vec3
-            glm::vec4 specular; // Padded vec3
+            glm::vec3 specular; // Padded vec3
             float exponent;
+            int flat_shaded;
         };
         
         // Ambient occlusion
@@ -136,7 +142,8 @@ class AmbientOcclusion final : public Sample {
         VkDescriptorSet composition_descriptor_set;
         struct CompositionUniforms {
             glm::mat4 view;
-            glm::vec4 camera_position; // Padded vec3
+            glm::vec3 camera_position;
+            int debug_view;
         };
         
         // Uniform buffers
@@ -307,20 +314,20 @@ class AmbientOcclusion final : public Sample {
                 render_pass_info.renderPass = ambient_occlusion_blur_render_pass;
                 render_pass_info.framebuffer = ambient_occlusion_blur_framebuffer;
                 render_pass_info.renderArea = create_region(0, 0, swapchain_extent.width, swapchain_extent.height);
-                
+
                 // Ambient occlusion blur pass writes to one color attachment, no depth
                 VkClearValue clear_value { };
                 clear_value.color = {{ 0.0f, 0.0f, 0.0f, 1.0f }};
                 render_pass_info.clearValueCount = 1;
                 render_pass_info.pClearValues = &clear_value;
-                
+
                 vkCmdBeginRenderPass(command_buffer, &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
                     // Bind graphics pipeline
                     vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, ambient_occlusion_blur_pipeline);
-    
+
                     // Bind global descriptor set
                     vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, ambient_occlusion_blur_pipeline_layout, 0, 1, &ambient_occlusion_blur_descriptor_set, 0, nullptr);
-                    
+
                     // Draw FSQ
                     vkCmdDraw(command_buffer, 3, 1, 0, 0);
                 vkCmdEndRenderPass(command_buffer);
@@ -897,7 +904,7 @@ class AmbientOcclusion final : public Sample {
                 create_attachment_description(VK_FORMAT_R8G8B8A8_UNORM, VK_SAMPLE_COUNT_1_BIT, VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE, VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL),
                 
                 // Depth
-                create_attachment_description(depth_buffer_format, VK_SAMPLE_COUNT_1_BIT, VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_DONT_CARE, VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL),
+                create_attachment_description(depth_buffer_format, VK_SAMPLE_COUNT_1_BIT, VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE, VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL),
             };
             
             VkAttachmentReference color_attachment_references[] {
@@ -944,7 +951,7 @@ class AmbientOcclusion final : public Sample {
         
         void initialize_ambient_occlusion_render_pass() {
             // Ambient occlusion output attachment only has one channel to store the occlusion factor [0.0, 1.0]
-            VkAttachmentDescription attachment_description = create_attachment_description(VK_FORMAT_R8_UNORM, VK_SAMPLE_COUNT_1_BIT, VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE, VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            VkAttachmentDescription attachment_description = create_attachment_description(VK_FORMAT_R16G16B16A16_SFLOAT, VK_SAMPLE_COUNT_1_BIT, VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE, VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
             VkAttachmentReference color_attachment_reference = create_attachment_reference(0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
             
             VkSubpassDescription subpass_description { };
@@ -1100,8 +1107,8 @@ class AmbientOcclusion final : public Sample {
         
         void initialize_ambient_occlusion_framebuffer() {
             // Color attachments
-            create_image(physical_device, device, swapchain_extent.width, swapchain_extent.height, 1, VK_SAMPLE_COUNT_1_BIT, VK_FORMAT_R8_UNORM, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, ambient_occlusion_attachment.image, ambient_occlusion_attachment.memory);
-            create_image_view(device, ambient_occlusion_attachment.image, VK_FORMAT_R8_UNORM, VK_IMAGE_ASPECT_COLOR_BIT, 1, ambient_occlusion_attachment.image_view);
+            create_image(physical_device, device, swapchain_extent.width, swapchain_extent.height, 1, VK_SAMPLE_COUNT_1_BIT, VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, ambient_occlusion_attachment.image, ambient_occlusion_attachment.memory);
+            create_image_view(device, ambient_occlusion_attachment.image, VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_ASPECT_COLOR_BIT, 1, ambient_occlusion_attachment.image_view);
             
             VkFramebufferCreateInfo framebuffer_create_info { };
             framebuffer_create_info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
@@ -1303,10 +1310,11 @@ class AmbientOcclusion final : public Sample {
             
             // Initialize set layout
             VkDescriptorSetLayoutBinding bindings[] {
-                create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 0),
-                create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 1),
-                create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 2),
-                create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT, 3),
+                create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 0), // Positions
+                create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 1), // Normals
+                create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 2), // Depth
+                create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 3), // Noise
+                create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT, 4),
             };
             
             VkDescriptorSetLayoutCreateInfo layout_create_info { };
@@ -1327,8 +1335,8 @@ class AmbientOcclusion final : public Sample {
                 throw std::runtime_error("failed to allocate descriptor set!");
             }
             
-            VkWriteDescriptorSet descriptor_writes[4] { };
-            VkDescriptorImageInfo image_infos[3] { };
+            VkWriteDescriptorSet descriptor_writes[5] { };
+            VkDescriptorImageInfo image_infos[4] { };
             
             unsigned binding_point = 0;
             
@@ -1348,6 +1356,20 @@ class AmbientOcclusion final : public Sample {
             
             image_infos[binding_point].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
             image_infos[binding_point].imageView = geometry_framebuffer_attachments[1].image_view; // Normals
+            image_infos[binding_point].sampler = sampler;
+            
+            descriptor_writes[binding_point].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            descriptor_writes[binding_point].dstSet = ambient_occlusion_descriptor_set;
+            descriptor_writes[binding_point].dstBinding = binding_point;
+            descriptor_writes[binding_point].dstArrayElement = 0;
+            descriptor_writes[binding_point].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            descriptor_writes[binding_point].descriptorCount = 1;
+            descriptor_writes[binding_point].pImageInfo = &image_infos[binding_point];
+            
+            ++binding_point;
+            
+            image_infos[binding_point].imageLayout = VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL;
+            image_infos[binding_point].imageView = geometry_framebuffer_attachments[5].image_view; // Depth
             image_infos[binding_point].sampler = sampler;
             
             descriptor_writes[binding_point].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -1542,15 +1564,16 @@ class AmbientOcclusion final : public Sample {
             right.specular = glm::vec3(0.0f);
             right.specular_exponent = 0.0f;
             right.transform = Transform(glm::vec3(box_size, height, 0), glm::vec3(thickness, box_size, box_size), glm::vec3(0.0f, 0.0f, 0.0f));
+            right.flat_shaded = true;
             
             Scene::Object& left = scene.objects.emplace_back();
             left.model = 0;
             left.ambient = glm::vec3(0.1f);
-//            left.diffuse = glm::vec3(95, 158, 160) / glm::vec3(255); // green
             left.diffuse = glm::vec3(46,139,87) / glm::vec3(255); // green
             left.specular = glm::vec3(0.0f);
             left.specular_exponent = 0.0f;
             left.transform = Transform(glm::vec3(-box_size, height, 0), glm::vec3(thickness, box_size, box_size), glm::vec3(0.0f, 0.0f, 0.0f));
+            left.flat_shaded = true;
 
             Scene::Object& back = scene.objects.emplace_back();
             back.model = 0;
@@ -1559,6 +1582,7 @@ class AmbientOcclusion final : public Sample {
             back.specular = glm::vec3(0.0f);
             back.specular_exponent = 0.0f;
             back.transform = Transform(glm::vec3(0, height, -box_size), glm::vec3(box_size, box_size, thickness), glm::vec3(0.0f, 0.0f, 0.0f));
+            back.flat_shaded = true;
 
             Scene::Object& ceiling = scene.objects.emplace_back();
             ceiling.model = 0;
@@ -1567,6 +1591,7 @@ class AmbientOcclusion final : public Sample {
             ceiling.specular = glm::vec3(0.0f);
             ceiling.specular_exponent = 0.0f;
             ceiling.transform = Transform(glm::vec3(0, box_size + height, 0), glm::vec3(box_size, thickness, box_size), glm::vec3(0.0f, 0.0f, 0.0f));
+            ceiling.flat_shaded = true;
 
             Scene::Object& floor = scene.objects.emplace_back();
             floor.model = 0;
@@ -1575,6 +1600,7 @@ class AmbientOcclusion final : public Sample {
             floor.specular = glm::vec3(0.0f);
             floor.specular_exponent = 0.0f;
             floor.transform = Transform(glm::vec3(0, -box_size + height, 0), glm::vec3(box_size, thickness, box_size), glm::vec3(0.0f, 0.0f, 0.0f));
+            floor.flat_shaded = true;
             
             // Center model
             Scene::Object& knight = scene.objects.emplace_back();
@@ -1584,6 +1610,7 @@ class AmbientOcclusion final : public Sample {
             knight.specular = glm::vec3(0.0f);
             knight.specular_exponent = 0.0f;
             knight.transform = Transform(glm::vec3(0, 0.5f, 0), glm::vec3(1.5f), glm::vec3(0.0f, 50.0f, 0.0f));
+            knight.flat_shaded = true;
             
             // This sample only uses vertex position and normal
             unsigned vertex_buffer_size = 0u;
@@ -1686,9 +1713,9 @@ class AmbientOcclusion final : public Sample {
             //   - VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE - takes the color of the edge closest to the coordinate beyond the image dimensions
             //   - VK_SAMPLER_ADDRESS_MODE_MIRROR_CLAMP_TO_EDGE - like VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, but takes the edge opposite to the closest edge
             //   - VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER - returns a solid color when sampled beyond the image dimensions
-            sampler_create_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE; // x
-            sampler_create_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE; // y
-            sampler_create_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE; // z (for 3D textures)
+            sampler_create_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT; // x
+            sampler_create_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT; // y
+            sampler_create_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT; // z (for 3D textures)
             
             // Anisotropic filtering helps deal with oversampling (where there are more texels than fragments) at very steep viewing angles, taking into consideration each texture's location on the screen relative to the camera angle
             if (enabled_physical_device_features.samplerAnisotropy) {
@@ -1706,7 +1733,7 @@ class AmbientOcclusion final : public Sample {
         
             // Specify what color to return when sampling beyond image dimensions when using VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER
             // Choose between black, white, or transparent (FLOAT/INT formats)
-            sampler_create_info.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK;
+            sampler_create_info.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE;
             
             // Specify if sample coordinates should use the unnormalized [0, texture_width) to [0, texture_height) range instead of the normalized [0, 1) range on all axes
             sampler_create_info.unnormalizedCoordinates = VK_FALSE;
@@ -1771,8 +1798,7 @@ class AmbientOcclusion final : public Sample {
             }
             
             // Geometry pass per-object uniforms
-            for (std::size_t i = 0u; i < scene.objects.size(); ++i) {
-                Scene::Object& object = scene.objects[i];
+            for (Scene::Object& object : scene.objects) {
                 Transform& transform = object.transform;
                 
                 // Vertex
@@ -1789,6 +1815,7 @@ class AmbientOcclusion final : public Sample {
                 fragment.diffuse = glm::vec4(object.diffuse, 1.0f);
                 fragment.specular = glm::vec4(object.specular, 1.0f);
                 fragment.exponent = object.specular_exponent;
+                fragment.flat_shaded = (int) object.flat_shaded;
                 
                 memcpy((void*)(((const char*) uniform_buffer_mapped) + offset), &fragment, sizeof(GeometryObjectFragmentStageUniforms));
                 offset += align_to_device_boundary(physical_device, sizeof(GeometryObjectFragmentStageUniforms));
@@ -1798,7 +1825,7 @@ class AmbientOcclusion final : public Sample {
             {
                 AmbientOcclusionUniforms uniforms { };
                 uniforms.projection = camera.get_projection_matrix();
-                memcpy(&uniforms.samples, &samples, sizeof(uniforms.samples));
+                memcpy(&uniforms.samples, &samples, KERNEL_SIZE * sizeof(glm::vec4));
                 
                 memcpy((void*)(((const char*) uniform_buffer_mapped) + offset), &uniforms, sizeof(AmbientOcclusionUniforms));
                 offset += align_to_device_boundary(physical_device, sizeof(AmbientOcclusionUniforms));
@@ -1808,7 +1835,8 @@ class AmbientOcclusion final : public Sample {
             {
                 CompositionUniforms uniforms { };
                 uniforms.view = camera.get_view_matrix();
-                uniforms.camera_position = glm::vec4(camera.get_position(), 1.0f);
+                uniforms.camera_position = camera.get_position();
+                uniforms.debug_view = debug_view;
                 
                 memcpy((void*)(((const char*) uniform_buffer_mapped) + offset), &uniforms, sizeof(CompositionUniforms));
                 offset += align_to_device_boundary(physical_device, sizeof(CompositionUniforms));
@@ -1831,14 +1859,14 @@ class AmbientOcclusion final : public Sample {
             
             // Generate samples in tangent space, with the normal vector pointing at +z
             for (std::size_t i = 0u; i < KERNEL_SIZE; ++i) {
-                // Generate x and y coordinates on the range [-1.0, 1.0], but z on the range [0.0, 1.0] to generates samples within a unit hemisphere around the surface normal
+                // Generate x and y coordinates on the range [-1.0, 1.0], but z on the range [0.0, 1.0] to generates samples within a unit hemisphere oriented along the z axis
                 glm::vec3 sample(distribution(generator) * 2.0f - 1.0f, distribution(generator) * 2.0f - 1.0f, distribution(generator));
                 sample = glm::normalize(sample);
                 
                 // Uniformly randomize around the unit hemisphere
                 sample *= distribution(generator);
                 
-                // Apply an accelerating scaling factor so that more samples are distributed towards the origin
+                // Distance from the origin should fall off as more points are generated (more points should be closer to the origin of the hemisphere)
                 float scale = (float) i / (float) KERNEL_SIZE;
                 scale = lerp(0.1f, 1.0f, scale * scale);
                 
@@ -1850,15 +1878,15 @@ class AmbientOcclusion final : public Sample {
             // A better approach would be to tile a smaller subset of of randomized rotation vectors across the image
             
             std::vector<glm::vec4> noise_values;
-            unsigned dimension = 8;
+            unsigned dimension = 6;
             noise_values.resize(dimension * dimension); // 64 random rotation vectors
             
             for (std::size_t i = 0u; i < dimension * dimension; ++i) {
-                // Rotation vectors should be oriented around the tangent-space surface normal
+                // Rotation kernel (initialized above) is oriented along the z axis, so keep the z component of the random offset 0 to rotate around this axis
                 noise_values[i] = glm::vec4(distribution(generator) * 2.0f - 1.0f, distribution(generator) * 2.0f - 1.0f, 0.0f, 0.0f);
             }
             
-            // Generate texture for noise values
+            // Generate texture for storing noise values
             unsigned mip_levels = 1;
             create_image(physical_device, device, dimension, dimension, mip_levels, VK_SAMPLE_COUNT_1_BIT, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, ambient_occlusion_noise.image, ambient_occlusion_noise.memory);
 
@@ -1925,6 +1953,15 @@ class AmbientOcclusion final : public Sample {
             // Staging buffer resources are no longer necessary
             vkFreeMemory(device, staging_buffer_memory, nullptr);
             vkDestroyBuffer(device, staging_buffer, nullptr);
+        }
+        
+        void on_key_pressed(int key) {
+            if (key == GLFW_KEY_1) {
+                debug_view = OUTPUT;
+            }
+            else if (key == GLFW_KEY_2) {
+                debug_view = AO;
+            }
         }
         
 };

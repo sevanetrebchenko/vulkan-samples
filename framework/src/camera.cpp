@@ -52,7 +52,7 @@ void Camera::recalculate() {
     double fov = 45.0;
     double aspect = 16.0 / 9.0;
     double near = 0.01; // Near plane distance
-    double far = 1000.0; // Far plane distance
+    double far = 100.0; // Far plane distance
     
     projection = glm::perspective(glm::radians(fov), aspect, near, far);
     projection[1][1] *= -1; // Account for Vulkan clip coordinate origin starting at the top left
