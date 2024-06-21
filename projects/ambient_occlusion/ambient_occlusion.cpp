@@ -123,7 +123,6 @@ class AmbientOcclusion final : public Sample {
         VkDescriptorSet ambient_occlusion_blur_descriptor_set;
         
         Texture ambient_occlusion_noise;
-        VkSampler ambient_occlusion_sampler;
         
         // Composition
         VkRenderPass composition_render_pass;
@@ -1402,7 +1401,7 @@ class AmbientOcclusion final : public Sample {
             
             image_infos[binding_point].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
             image_infos[binding_point].imageView = ambient_occlusion_noise.image_view; // Random noise
-            image_infos[binding_point].sampler = ambient_occlusion_sampler; // TODO: initialize
+            image_infos[binding_point].sampler = sampler;
             
             descriptor_writes[binding_point].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             descriptor_writes[binding_point].dstSet = ambient_occlusion_descriptor_set;
@@ -1711,14 +1710,14 @@ class AmbientOcclusion final : public Sample {
         void initialize_samplers() {
             // Texture access in shaders is typically done through image samplers
             // Image samplers apply filtering and transformations to compute the final color retrieved from the image
-            VkSamplerCreateInfo texture_sampler_create_info { };
-            texture_sampler_create_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+            VkSamplerCreateInfo sampler_create_info { };
+            sampler_create_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
             
             // Filters help deal with oversampling (when there is more geometry fragments than texels) and blend between texture colors
             //   - VK_FILTER_LINEAR - bilinear filtering (interpolates from texel neighbors)
             //   - VK_FILTER_NEAREST - no filtering, takes the nearest texel value
-            texture_sampler_create_info.magFilter = VK_FILTER_NEAREST;
-            texture_sampler_create_info.minFilter = VK_FILTER_NEAREST;
+            sampler_create_info.magFilter = VK_FILTER_NEAREST;
+            sampler_create_info.minFilter = VK_FILTER_NEAREST;
             
             // Samplers also take care of transformations (what happens when texels are read from outside the image)
             //   - VK_SAMPLER_ADDRESS_MODE_REPEAT - texture is repeated when sampled beyond the original image dimension
@@ -1726,33 +1725,33 @@ class AmbientOcclusion final : public Sample {
             //   - VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE - takes the color of the edge closest to the coordinate beyond the image dimensions
             //   - VK_SAMPLER_ADDRESS_MODE_MIRROR_CLAMP_TO_EDGE - like VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, but takes the edge opposite to the closest edge
             //   - VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER - returns a solid color when sampled beyond the image dimensions
-            texture_sampler_create_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT; // x
-            texture_sampler_create_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT; // y
-            texture_sampler_create_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT; // z (for 3D textures)
+            sampler_create_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE; // x
+            sampler_create_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE; // y
+            sampler_create_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE; // z (for 3D textures)
             
             // Anisotropic filtering helps deal with oversampling (where there are more texels than fragments) at very steep viewing angles, taking into consideration each texture's location on the screen relative to the camera angle
             if (enabled_physical_device_features.samplerAnisotropy) {
-                texture_sampler_create_info.anisotropyEnable = VK_TRUE;
+                sampler_create_info.anisotropyEnable = VK_TRUE;
                 
                 // Set to the maximum supported number of texel samples that should be used to calculate the final pixel color
                 // A lower number yields higher performance but has a lower quality final image
-                texture_sampler_create_info.maxAnisotropy = physical_device_properties.limits.maxSamplerAnisotropy;
+                sampler_create_info.maxAnisotropy = physical_device_properties.limits.maxSamplerAnisotropy;
             }
             else {
                 // Selected physical device does not support anisotropic filtering
-                texture_sampler_create_info.anisotropyEnable = VK_FALSE;
-                texture_sampler_create_info.maxAnisotropy = 1.0f;
+                sampler_create_info.anisotropyEnable = VK_FALSE;
+                sampler_create_info.maxAnisotropy = 1.0f;
             }
         
             // Specify what color to return when sampling beyond image dimensions when using VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER
             // Choose between black, white, or transparent (FLOAT/INT formats)
-            texture_sampler_create_info.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK;
+            sampler_create_info.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK;
             
             // Specify if sample coordinates should use the unnormalized [0, texture_width) to [0, texture_height) range instead of the normalized [0, 1) range on all axes
-            texture_sampler_create_info.unnormalizedCoordinates = VK_FALSE;
+            sampler_create_info.unnormalizedCoordinates = VK_FALSE;
             
-            texture_sampler_create_info.compareEnable = VK_FALSE;
-            texture_sampler_create_info.compareOp = VK_COMPARE_OP_ALWAYS;
+            sampler_create_info.compareEnable = VK_FALSE;
+            sampler_create_info.compareOp = VK_COMPARE_OP_ALWAYS;
             
             // Pseudocode for selecting mip level during rendering:
             // lod = get_lod_from_screensize(); // Note: smaller when the object is closer, may be negative
@@ -1773,12 +1772,12 @@ class AmbientOcclusion final : public Sample {
             // } else {
             //     color = readTexture(uv, minFilter);
             // }
-            texture_sampler_create_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-            texture_sampler_create_info.mipLodBias = 0.0f;
-            texture_sampler_create_info.minLod = 0.0f;
-            texture_sampler_create_info.maxLod = 1.0f;
+            sampler_create_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+            sampler_create_info.mipLodBias = 0.0f;
+            sampler_create_info.minLod = 0.0f;
+            sampler_create_info.maxLod = 1.0f;
             
-            if (vkCreateSampler(device, &texture_sampler_create_info, nullptr, &sampler) != VK_SUCCESS) {
+            if (vkCreateSampler(device, &sampler_create_info, nullptr, &sampler) != VK_SUCCESS) {
                 throw std::runtime_error("failed to create texture sampler!");
             }
         }
@@ -1899,7 +1898,74 @@ class AmbientOcclusion final : public Sample {
             }
             
             // Generate texture for noise values
-            // TODO:
+            unsigned mip_levels = 1;
+            create_image(physical_device, device, dimension, dimension, mip_levels, VK_SAMPLE_COUNT_1_BIT, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, ambient_occlusion_noise.image, ambient_occlusion_noise.memory);
+            create_image_view(device, ambient_occlusion_noise.image, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_ASPECT_COLOR_BIT, 1, ambient_occlusion_noise.image_view);
+
+            // Use staging buffer to upload image into device local memory for optimal layout
+            std::size_t image_size = dimension * dimension * sizeof(glm::vec4);
+            
+            VkBuffer staging_buffer { };
+            VkDeviceMemory staging_buffer_memory { };
+            create_buffer(physical_device, device, image_size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, staging_buffer, staging_buffer_memory);
+            
+            // Upload image data into staging buffer
+            void* data;
+            vkMapMemory(device, staging_buffer_memory, 0, image_size, 0, &data);
+                memcpy(data, noise_values.data(), image_size);
+            vkUnmapMemory(device, staging_buffer_memory);
+            
+            // Copy over image data from staging buffer using a transient command buffer
+            VkCommandBuffer command_buffer = begin_transient_command_buffer();
+                VkImageSubresourceRange subresource_range { };
+                subresource_range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                subresource_range.baseMipLevel = 0;
+                subresource_range.levelCount = mip_levels;
+                subresource_range.layerCount = 1;
+                subresource_range.baseArrayLayer = 0; // Image is not an array
+                
+                // Transition the device-local image to VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
+                transition_image(command_buffer, ambient_occlusion_noise.image, mip_levels, VK_FORMAT_R32G32B32A32_SFLOAT,
+                                 VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, subresource_range,
+                                 // Image initial layout is undefined, no access flags are required
+                                 0, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+                                 // Ensure any writes to the image have completed before transitioning the image layout
+                                 VK_ACCESS_HOST_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
+                
+                // Copy buffer to image
+                VkImageSubresourceLayers subresource_layers { };
+                subresource_layers.layerCount = mip_levels;
+                subresource_layers.baseArrayLayer = 0;
+                subresource_layers.mipLevel = 0;
+                subresource_layers.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                
+                VkBufferImageCopy copy_region { };
+                copy_region.imageSubresource = subresource_layers;
+                copy_region.imageExtent.width = dimension;
+                copy_region.imageExtent.height = dimension;
+                copy_region.imageExtent.depth = 1;
+                copy_region.bufferOffset = 0;
+                
+                vkCmdCopyBufferToImage(command_buffer, staging_buffer, ambient_occlusion_noise.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy_region);
+            
+                // Transition image layout to a layout for optimal reads from shaders (VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) after all mip levels have been copied
+                transition_image(command_buffer, ambient_occlusion_noise.image, mip_levels, VK_FORMAT_R32G32B32A32_SFLOAT,
+                                 VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, subresource_range,
+                                 // Wait until the image is fully written to
+                                 VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+                                 // Ensure any writes to the image have completed before transitioning the image layout
+                                 VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
+                
+            submit_transient_command_buffer(command_buffer);
+            
+            // Create a sampler for the noise image
+            
+            
+            
+            
+            // Staging buffer resources are no longer necessary
+            vkFreeMemory(device, staging_buffer_memory, nullptr);
+            vkDestroyBuffer(device, staging_buffer, nullptr);
         }
         
 };

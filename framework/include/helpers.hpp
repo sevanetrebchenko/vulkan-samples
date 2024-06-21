@@ -17,4 +17,7 @@ VkDescriptorSetLayoutBinding create_descriptor_set_layout_binding(VkDescriptorTy
 
 std::size_t align_to_device_boundary(VkPhysicalDevice physical_device, std::size_t size);
 
+// TODO: determine access masks from src/dsk pipeline stage
+void transition_image(VkCommandBuffer command_buffer, VkImage image, unsigned mip_levels, VkFormat format, VkImageLayout src, VkImageLayout dst, VkImageSubresourceRange subresource_range, VkAccessFlags src_access_mask, VkPipelineStageFlags src_stage_mask, VkAccessFlags dst_access_mask, VkPipelineStageFlags dst_stage_mask);
+
 #endif // HELPERS_HPP

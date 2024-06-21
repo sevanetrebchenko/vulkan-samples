@@ -171,3 +171,29 @@ void copy_buffer(VkCommandBuffer command_buffer, VkBuffer src, VkDeviceSize src_
     copy_region.size = size;
     vkCmdCopyBuffer(command_buffer, src, dst, 1, &copy_region);
 }
+
+void transition_image(VkCommandBuffer command_buffer, VkImage image, unsigned mip_levels, VkFormat format, VkImageLayout src, VkImageLayout dst, VkImageSubresourceRange subresource_range, VkAccessFlags src_access_mask, VkPipelineStageFlags src_stage_mask, VkAccessFlags dst_access_mask, VkPipelineStageFlags dst_stage_mask) {
+    // One of the most common ways to transition layouts for images is using an image memory barrier, which is a type of pipeline barrier
+    // Pipeline barriers are used to synchronize access to resources - in this case it is used to transition the layout of the image before any subsequent reads happen from it
+    VkImageMemoryBarrier image_memory_barrier { };
+    image_memory_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    image_memory_barrier.oldLayout = src;
+    image_memory_barrier.newLayout = dst;
+    
+    // Used for transferring ownership between two different queue families when VK_SHARING_MODE_EXCLUSIVE is enabled on the image (image can only be used by one queue family at a time)
+    image_memory_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    image_memory_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    
+    image_memory_barrier.image = image;
+    image_memory_barrier.subresourceRange = subresource_range;
+    image_memory_barrier.srcAccessMask = src_access_mask; // Define which operations that involve the image must happen before the barrier
+    image_memory_barrier.dstAccessMask = dst_access_mask; // Define which operations that involve the image must wait on the barrier
+    
+    vkCmdPipelineBarrier(command_buffer,
+                         src_stage_mask, // Define the pipeline stage(s) that Vulkan should wait for completion on before proceeding with execution after the barrier
+                         dst_stage_mask, // Define the pipeline stage(s) in which operations should occur after the memory barrier
+                         0,
+                         0, nullptr, // Memory barriers
+                         0, nullptr, // Pipeline barriers
+                         1, &image_memory_barrier); // Image barriers
+}
