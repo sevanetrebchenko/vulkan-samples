@@ -16,7 +16,10 @@
 
 class AmbientOcclusion final : public Sample {
     public:
-        AmbientOcclusion() : Sample("Ambient Occlusion") {
+        AmbientOcclusion() : Sample("Ambient Occlusion"),
+                             ambient_occlusion_noise({}) {
+            enabled_queue_types = VK_QUEUE_TRANSFER_BIT;
+            
             camera.set_position(glm::vec3(0, 2, 6));
             camera.set_look_direction(glm::vec3(0.0f, 0.25f, -1.0f));
         }
@@ -59,10 +62,9 @@ class AmbientOcclusion final : public Sample {
         glm::vec4 samples[KERNEL_SIZE];
         
         struct Texture {
-            VkImage image;
-            VkDeviceMemory memory;
-            VkImageView image_view;
-            VkFormat format;
+            VkImage image { };
+            VkDeviceMemory memory { };
+            VkImageView image_view { };
         };
         
         // Geometry buffer
@@ -137,10 +139,6 @@ class AmbientOcclusion final : public Sample {
             glm::vec4 camera_position; // Padded vec3
         };
         
-        // Descriptor sets
-        
-        std::vector<VkCommandBuffer> offscreen_command_buffers;
-        
         // Uniform buffers
         VkBuffer uniform_buffer; // One uniform buffer for all uniforms, across both passes
         VkDeviceMemory uniform_buffer_memory;
@@ -150,9 +148,7 @@ class AmbientOcclusion final : public Sample {
         
         void initialize_resources() override {
             initialize_samplers();
-            initialize_ambient_occlusion();
-
-            initialize_command_buffer();
+            initialize_ambient_occlusion_resources();
 
             initialize_geometry_render_pass();
             initialize_ambient_occlusion_render_pass();
@@ -187,210 +183,178 @@ class AmbientOcclusion final : public Sample {
         }
         
         void update() override {
-//            Scene::Object& object = scene.objects.back();
-//            Transform& transform = object.transform;
-//            transform.set_rotation(transform.get_rotation() + (float)dt * glm::vec3(0.0f, -10.0f, 0.0f));
-//
-//            update_uniform_buffers();
-//
-//            for (std::size_t i = 0u; i < scene.objects.size(); ++i)
-//                update_object_uniform_buffers(i);
+            Scene::Object& object = scene.objects.back();
+            Transform& transform = object.transform;
+            transform.set_rotation(transform.get_rotation() + (float)dt * glm::vec3(0.0f, -10.0f, 0.0f));
+            update_uniform_buffers();
         }
         
         void render() override {
-//            VkSemaphore is_image_available = is_presentation_complete[frame_index];
-//
-//            unsigned image_index;
-//            VkResult result = vkAcquireNextImageKHR(device, swapchain, std::numeric_limits<std::uint64_t>::max(), is_image_available, VK_NULL_HANDLE, &image_index);
-//
-//            // Record command buffer(s)
-//            record_command_buffers(image_index);
-//
-//            VkSubmitInfo submit_info { };
-//            submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-//
-//            // Ensure that the swapchain image is available before executing any color operations (writes) by waiting on the pipeline stage that writes to the color attachment (discussed in detail during render pass creation above)
-//            // Another approach that can be taken here is to wait on VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, which would ensure that no command buffers are executed before the image swapchain image is ready (vkAcquireNextImageKHR signals is_image_available, queue execution waits on is_image_available)
-//            // However, this is not the preferred approach - waiting on VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT will completely block the pipeline until the swapchain image is ready
-//            // Instead, waiting on the pipeline stage where writes are performed to the color attachment allows Vulkan to begin scheduling other work that happens before the VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT stage is reached for execution (such as invoking the vertex shader)
-//            // This way, the implementation waits only the time that is absolutely necessary for coherent memory operations
-//
-//            // Presentation -> geometry buffer pass
-//            {
-//                VkSemaphore wait_semaphores[] = { is_image_available, is_offscreen_rendering_complete }; // Semaphore(s) to wait on before the command buffers can begin execution
-//                VkPipelineStageFlags wait_stage_flags[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT }; // Note: wait_stage_flags and wait_semaphores have a 1:1 correlation, meaning it is possible to wait on and signal different semaphores at different pipeline stages
-//
-//                // Waiting on the swapchain image to be ready (if not yet) when the pipeline is ready to perform writes to color attachments
-//                submit_info.waitSemaphoreCount = 1;
-//                submit_info.pWaitSemaphores = wait_semaphores;
-//                submit_info.pWaitDstStageMask = wait_stage_flags;
-//
-//                submit_info.commandBufferCount = 1;
-//                submit_info.pCommandBuffers = &offscreen_command_buffers[frame_index]; // Command buffer(s) to execute
-//
-//                submit_info.signalSemaphoreCount = 1;
-//                submit_info.pSignalSemaphores = &is_offscreen_rendering_complete; // Signal offscreen semaphore
-//
-//                // Submit
-//                if (vkQueueSubmit(queue, 1, &submit_info, VK_NULL_HANDLE) != VK_SUCCESS) {
-//                    throw std::runtime_error("failed to submit offscreen command buffer!");
-//                }
-//            }
-//
-//            // Geometry buffer pass -> presentation
-//            {
-//                VkSemaphore wait_semaphores[] = { is_offscreen_rendering_complete };
-//                VkPipelineStageFlags wait_stage_flags[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
-//
-//                submit_info.waitSemaphoreCount = 1;
-//                submit_info.pWaitSemaphores = wait_semaphores;
-//                submit_info.pWaitDstStageMask = wait_stage_flags;
-//                submit_info.commandBufferCount = 1;
-//                submit_info.pCommandBuffers = &command_buffers[frame_index];
-//
-//                submit_info.signalSemaphoreCount = 1;
-//                submit_info.pSignalSemaphores = &is_rendering_complete[frame_index];
-//
-//                // Submit
-//                // TODO: fence is not necessary here
-//                if (vkQueueSubmit(queue, 1, &submit_info, is_frame_in_flight[frame_index]) != VK_SUCCESS) {
-//                    throw std::runtime_error("failed to submit presentation command buffer!");
-//                }
-//            }
-        }
+            VkSemaphore is_image_available = is_presentation_complete[frame_index];
+
+            unsigned image_index;
+            VkResult result = vkAcquireNextImageKHR(device, swapchain, std::numeric_limits<std::uint64_t>::max(), is_image_available, VK_NULL_HANDLE, &image_index);
+
+            // Record command buffer for this frame
+            record_command_buffers(image_index);
+
+            VkSubmitInfo submit_info { };
+            submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+            
+            VkSemaphore wait_semaphores[] = { is_image_available }; // Semaphore(s) to wait on before the command buffers can begin execution
+            VkPipelineStageFlags wait_stage_flags[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT }; // Note: wait_stage_flags and wait_semaphores have a 1:1 correlation, meaning it is possible to wait on and signal different semaphores at different pipeline stages
+            
+            // Waiting on the swapchain image to be ready (if not yet) when the pipeline is ready to perform writes to color attachments
+            submit_info.waitSemaphoreCount = 1;
+            submit_info.pWaitSemaphores = wait_semaphores;
+            submit_info.pWaitDstStageMask = wait_stage_flags;
+            
+            submit_info.commandBufferCount = 1;
+            submit_info.pCommandBuffers = &command_buffers[frame_index]; // Execute recorded command buffer for ambient occlusion
         
-        void initialize_command_buffer() {
-//            VkCommandBufferAllocateInfo command_buffer_allocate_info { };
-//            command_buffer_allocate_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-//            command_buffer_allocate_info.commandPool = command_pool;
-//            command_buffer_allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-//            command_buffer_allocate_info.commandBufferCount = NUM_FRAMES_IN_FLIGHT;
-//
-//            offscreen_command_buffers.resize(NUM_FRAMES_IN_FLIGHT);
-//
-//            // Command buffer will get released with the command pool at the end of the sample
-//            if (vkAllocateCommandBuffers(device, &command_buffer_allocate_info, offscreen_command_buffers.data()) != VK_SUCCESS) {
-//                throw std::runtime_error("failed to allocate offscreen command buffer!");
-//            }
+            submit_info.signalSemaphoreCount = 1;
+            submit_info.pSignalSemaphores = &is_rendering_complete[frame_index];
+        
+            // Submit
+            if (vkQueueSubmit(queue, 1, &submit_info, is_frame_in_flight[frame_index]) != VK_SUCCESS) {
+                throw std::runtime_error("failed to submit command buffer!");
+            }
         }
         
         void record_command_buffers(unsigned image_index) override {
-//            record_offscreen_command_buffer();
-//            record_composition_command_buffer(image_index);
-        }
+            VkCommandBuffer command_buffer = command_buffers[frame_index];
+            vkResetCommandBuffer(command_buffer, 0);
+            
+            VkCommandBufferBeginInfo command_buffer_begin_info { };
+            command_buffer_begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+            command_buffer_begin_info.flags = 0;
+            if (vkBeginCommandBuffer(command_buffer, &command_buffer_begin_info) != VK_SUCCESS) {
+                throw std::runtime_error("failed to begin command buffer recording!");
+            }
         
-        void record_offscreen_command_buffer() {
-//            VkCommandBuffer command_buffer = offscreen_command_buffers[frame_index];
-//            vkResetCommandBuffer(command_buffer, 0);
-//
-//            VkCommandBufferBeginInfo command_buffer_begin_info { };
-//            command_buffer_begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-//            command_buffer_begin_info.flags = 0;
-//            if (vkBeginCommandBuffer(command_buffer, &command_buffer_begin_info) != VK_SUCCESS) {
-//                throw std::runtime_error("failed to begin command buffer recording!");
-//            }
-//
-//            VkRenderPassBeginInfo render_pass_info { };
-//            render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-//            render_pass_info.renderPass = offscreen_render_pass;
-//            render_pass_info.framebuffer = offscreen_framebuffer; // Only one geometry buffer
-//
-//            // Specify render area and offset
-//            render_pass_info.renderArea = create_region(0, 0, swapchain_extent.width, swapchain_extent.height);
-//
-//            VkClearValue clear_values[6] { };
-//            clear_values[0].color = {{ 0.0f, 0.0f, 0.0f, 1.0f }}; // Position
-//            clear_values[1].color = {{ 0.0f, 0.0f, 0.0f, 1.0f }}; // Normal
-//            clear_values[2].color = {{ 0.0f, 0.0f, 0.0f, 1.0f }}; // Ambient
-//            clear_values[3].color = {{ 0.0f, 0.0f, 0.0f, 1.0f }}; // Diffuse
-//            clear_values[4].color = {{ 0.0f, 0.0f, 0.0f, 1.0f }}; // Specular
-//            clear_values[5].depthStencil = { 1.0f, 0 }; // Depth
-//
-//            render_pass_info.clearValueCount = sizeof(clear_values) / sizeof(clear_values[0]);
-//            render_pass_info.pClearValues = clear_values;
-//
-//            unsigned set;
-//
-//            // Record command for starting the offscreen render pass
-//            vkCmdBeginRenderPass(command_buffer, &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
-//                // Bind graphics pipeline
-//                vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, offscreen_pipeline);
-//
-//                // Bind pipeline-global descriptor sets
-//                set = 0;
-//                vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, offscreen_pipeline_layout, set, 1, &offscreen_global, 0, nullptr);
-//
-//                for (std::size_t i = 0u; i < scene.objects.size(); ++i) {
-//                    const Scene::Object& object = scene.objects[i];
-//                    const Model& model = models[object.model];
-//
-//                    // Bind vertex buffer
-//                    VkDeviceSize offsets[] = { object.vertex_offset  };
-//                    vkCmdBindVertexBuffers(command_buffer, 0, 1, &vertex_buffer, offsets);
-//
-//                    // Bind index buffer
-//                    vkCmdBindIndexBuffer(command_buffer, index_buffer, object.index_offset, VK_INDEX_TYPE_UINT32);
-//
-//                    // Descriptor sets need to be bound per object
-//                    set = 1;
-//                    vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, offscreen_pipeline_layout, set, 1, &offscreen_objects[i], 0, nullptr);
-//
-//                    // Draw indices.size() vertices which make up 1 instance starting at vertex index 0 and instance index 0.
-//                    vkCmdDrawIndexed(command_buffer, (unsigned) model.indices.size(), 1, 0, 0, 0);
-//                }
-//
-//            vkCmdEndRenderPass(command_buffer);
-//
-//            if (vkEndCommandBuffer(command_buffer) != VK_SUCCESS) {
-//                throw std::runtime_error("failed to record command buffer!");
-//            }
-        }
-        
-        void record_composition_command_buffer(unsigned image_index) {
-//            VkCommandBuffer command_buffer = command_buffers[frame_index];
-//            vkResetCommandBuffer(command_buffer, 0);
-//
-//            VkCommandBufferBeginInfo command_buffer_begin_info { };
-//            command_buffer_begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-//            command_buffer_begin_info.flags = 0;
-//            if (vkBeginCommandBuffer(command_buffer, &command_buffer_begin_info) != VK_SUCCESS) {
-//                throw std::runtime_error("failed to begin command buffer recording!");
-//            }
-//
-//            VkRenderPassBeginInfo render_pass_info { };
-//            render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-//            render_pass_info.renderPass = composition_render_pass;
-//            render_pass_info.framebuffer = present_framebuffers[image_index]; // Bind the framebuffer for the swapchain image being rendered to
-//
-//            // Specify render area and offset
-//            render_pass_info.renderArea = create_region(0, 0, swapchain_extent.width, swapchain_extent.height);
-//
-//            VkClearValue clear_value { };
-//
-//            // Clear value for color attachment
-//            clear_value.color = {{ 0.0f, 0.0f, 0.0f, 1.0f }};
-//            render_pass_info.clearValueCount = 1;
-//
-//            render_pass_info.pClearValues = &clear_value;
-//
-//            // Record command for starting the composition render pass
-//            vkCmdBeginRenderPass(command_buffer, &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
-//                // Bind graphics pipeline
-//                vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, composition_pipeline);
-//
-//                // Bind pipeline-global descriptor sets
-//                unsigned set = 0;
-//                vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, composition_pipeline_layout, set, 1, &composition_global, 0, nullptr);
-//
-//                // Draw a full screen triangle
-//                vkCmdDraw(command_buffer, 3, 1, 0, 0);
-//
-//            // Finish recording the command buffer
-//            vkCmdEndRenderPass(command_buffer);
-//
-//            if (vkEndCommandBuffer(command_buffer) != VK_SUCCESS) {
-//                throw std::runtime_error("failed to record command buffer!");
-//            }
+            // Generate geometry buffer
+            {
+                VkRenderPassBeginInfo render_pass_info { };
+                render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+                render_pass_info.renderPass = geometry_render_pass;
+                render_pass_info.framebuffer = geometry_framebuffer;
+                render_pass_info.renderArea = create_region(0, 0, swapchain_extent.width, swapchain_extent.height);
+                
+                VkClearValue clear_values[6] { };
+                clear_values[0].color = {{ 0.0f, 0.0f, 0.0f, 1.0f }}; // Position
+                clear_values[1].color = {{ 0.0f, 0.0f, 0.0f, 1.0f }}; // Normal
+                clear_values[2].color = {{ 0.0f, 0.0f, 0.0f, 1.0f }}; // Ambient
+                clear_values[3].color = {{ 0.0f, 0.0f, 0.0f, 1.0f }}; // Diffuse
+                clear_values[4].color = {{ 0.0f, 0.0f, 0.0f, 1.0f }}; // Specular
+                clear_values[5].depthStencil = { 1.0f, 0 }; // Depth
+                render_pass_info.clearValueCount = sizeof(clear_values) / sizeof(clear_values[0]);
+                render_pass_info.pClearValues = clear_values;
+                
+                vkCmdBeginRenderPass(command_buffer, &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
+                    // Bind graphics pipeline
+                    vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, geometry_pipeline);
+    
+                    // Bind global descriptor set
+                    vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, geometry_pipeline_layout, 0, 1, &geometry_global_descriptor_set, 0, nullptr);
+    
+                    for (std::size_t i = 0u; i < scene.objects.size(); ++i) {
+                        const Scene::Object& object = scene.objects[i];
+                        const Model& model = models[object.model];
+    
+                        // Bind vertex + index buffers buffer
+                        VkDeviceSize offsets[] = { object.vertex_offset  };
+                        vkCmdBindVertexBuffers(command_buffer, 0, 1, &vertex_buffer, offsets);
+                        vkCmdBindIndexBuffer(command_buffer, index_buffer, object.index_offset, VK_INDEX_TYPE_UINT32);
+    
+                        // Bind per-object descriptor set
+                        vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, geometry_pipeline_layout, 1, 1, &geometry_object_descriptor_sets[i], 0, nullptr);
+    
+                        vkCmdDrawIndexed(command_buffer, (unsigned) model.indices.size(), 1, 0, 0, 0);
+                    }
+                vkCmdEndRenderPass(command_buffer);
+            }
+            
+            // Ambient occlusion pass
+            {
+                VkRenderPassBeginInfo render_pass_info { };
+                render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+                render_pass_info.renderPass = ambient_occlusion_render_pass;
+                render_pass_info.framebuffer = ambient_occlusion_framebuffer;
+                render_pass_info.renderArea = create_region(0, 0, swapchain_extent.width, swapchain_extent.height);
+                
+                // Ambient occlusion pass writes to one color attachment, no depth
+                VkClearValue clear_value { };
+                clear_value.color = {{ 0.0f, 0.0f, 0.0f, 1.0f }};
+                render_pass_info.clearValueCount = 1;
+                render_pass_info.pClearValues = &clear_value;
+                
+                vkCmdBeginRenderPass(command_buffer, &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
+                    // Bind graphics pipeline
+                    vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, ambient_occlusion_pipeline);
+    
+                    // Bind global descriptor set
+                    vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, ambient_occlusion_pipeline_layout, 0, 1, &ambient_occlusion_descriptor_set, 0, nullptr);
+                    
+                    // Draw FSQ
+                    vkCmdDraw(command_buffer, 3, 1, 0, 0);
+                vkCmdEndRenderPass(command_buffer);
+            }
+            
+            // Ambient occlusion blur pass
+            {
+                VkRenderPassBeginInfo render_pass_info { };
+                render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+                render_pass_info.renderPass = ambient_occlusion_blur_render_pass;
+                render_pass_info.framebuffer = ambient_occlusion_blur_framebuffer;
+                render_pass_info.renderArea = create_region(0, 0, swapchain_extent.width, swapchain_extent.height);
+                
+                // Ambient occlusion blur pass writes to one color attachment, no depth
+                VkClearValue clear_value { };
+                clear_value.color = {{ 0.0f, 0.0f, 0.0f, 1.0f }};
+                render_pass_info.clearValueCount = 1;
+                render_pass_info.pClearValues = &clear_value;
+                
+                vkCmdBeginRenderPass(command_buffer, &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
+                    // Bind graphics pipeline
+                    vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, ambient_occlusion_blur_pipeline);
+    
+                    // Bind global descriptor set
+                    vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, ambient_occlusion_blur_pipeline_layout, 0, 1, &ambient_occlusion_blur_descriptor_set, 0, nullptr);
+                    
+                    // Draw FSQ
+                    vkCmdDraw(command_buffer, 3, 1, 0, 0);
+                vkCmdEndRenderPass(command_buffer);
+            }
+            
+            // Composition pass
+            {
+                VkRenderPassBeginInfo render_pass_info { };
+                render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+                render_pass_info.renderPass = composition_render_pass;
+                render_pass_info.framebuffer = present_framebuffers[image_index];
+                render_pass_info.renderArea = create_region(0, 0, swapchain_extent.width, swapchain_extent.height);
+                
+                // Composition pipeline writes to one color attachment, no depth
+                VkClearValue clear_value { };
+                clear_value.color = {{ 0.0f, 0.0f, 0.0f, 1.0f }};
+                render_pass_info.clearValueCount = 1;
+                render_pass_info.pClearValues = &clear_value;
+                
+                vkCmdBeginRenderPass(command_buffer, &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
+                    // Bind graphics pipeline
+                    vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, composition_pipeline);
+    
+                    // Bind global descriptor set
+                    vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, composition_pipeline_layout, 0, 1, &composition_descriptor_set, 0, nullptr);
+                    
+                    // Draw FSQ
+                    vkCmdDraw(command_buffer, 3, 1, 0, 0);
+                vkCmdEndRenderPass(command_buffer);
+            }
+            
+            if (vkEndCommandBuffer(command_buffer) != VK_SUCCESS) {
+                throw std::runtime_error("failed to record command buffer!");
+            }
         }
         
         void initialize_geometry_pipeline() {
@@ -1139,7 +1103,6 @@ class AmbientOcclusion final : public Sample {
             create_image(physical_device, device, swapchain_extent.width, swapchain_extent.height, 1, VK_SAMPLE_COUNT_1_BIT, VK_FORMAT_R8_UNORM, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, ambient_occlusion_attachment.image, ambient_occlusion_attachment.memory);
             create_image_view(device, ambient_occlusion_attachment.image, VK_FORMAT_R8_UNORM, VK_IMAGE_ASPECT_COLOR_BIT, 1, ambient_occlusion_attachment.image_view);
             
-            
             VkFramebufferCreateInfo framebuffer_create_info { };
             framebuffer_create_info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
             framebuffer_create_info.renderPass = ambient_occlusion_render_pass;
@@ -1163,7 +1126,7 @@ class AmbientOcclusion final : public Sample {
             framebuffer_create_info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
             framebuffer_create_info.renderPass = ambient_occlusion_blur_render_pass;
             framebuffer_create_info.attachmentCount = 1;
-            framebuffer_create_info.pAttachments = &ambient_occlusion_attachment.image_view;
+            framebuffer_create_info.pAttachments = &ambient_occlusion_blur_attachment.image_view;
             framebuffer_create_info.width = swapchain_extent.width;
             framebuffer_create_info.height = swapchain_extent.height;
             framebuffer_create_info.layers = 1; // Number of layers in the swapchain images
@@ -1176,13 +1139,11 @@ class AmbientOcclusion final : public Sample {
         void initialize_composition_framebuffers() {
             present_framebuffers.resize(NUM_FRAMES_IN_FLIGHT);
             for (std::size_t i = 0u; i < NUM_FRAMES_IN_FLIGHT; ++i) {
-                VkImageView attachments[] = { swapchain_image_views[i] };
-                
                 VkFramebufferCreateInfo framebuffer_create_info { };
                 framebuffer_create_info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
                 framebuffer_create_info.renderPass = composition_render_pass;
-                framebuffer_create_info.attachmentCount = sizeof(attachments) / sizeof(attachments[0]);
-                framebuffer_create_info.pAttachments = attachments;
+                framebuffer_create_info.attachmentCount = 1;
+                framebuffer_create_info.pAttachments = &swapchain_image_views[i];
                 framebuffer_create_info.width = swapchain_extent.width;
                 framebuffer_create_info.height = swapchain_extent.height;
                 framebuffer_create_info.layers = 1;
@@ -1863,7 +1824,7 @@ class AmbientOcclusion final : public Sample {
             return a + f * (b - a);
         }
         
-        void initialize_ambient_occlusion() {
+        void initialize_ambient_occlusion_resources() {
             // Initialize sample kernel
             std::uniform_real_distribution<float> distribution(0.0f, 1.0f); // Uniform distribution of floats in the range [0.0, 1.0]
             std::default_random_engine generator(time(nullptr));
@@ -1889,7 +1850,7 @@ class AmbientOcclusion final : public Sample {
             // A better approach would be to tile a smaller subset of of randomized rotation vectors across the image
             
             std::vector<glm::vec4> noise_values;
-            std::size_t dimension = 8;
+            unsigned dimension = 8;
             noise_values.resize(dimension * dimension); // 64 random rotation vectors
             
             for (std::size_t i = 0u; i < dimension * dimension; ++i) {
@@ -1900,7 +1861,6 @@ class AmbientOcclusion final : public Sample {
             // Generate texture for noise values
             unsigned mip_levels = 1;
             create_image(physical_device, device, dimension, dimension, mip_levels, VK_SAMPLE_COUNT_1_BIT, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, ambient_occlusion_noise.image, ambient_occlusion_noise.memory);
-            create_image_view(device, ambient_occlusion_noise.image, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_ASPECT_COLOR_BIT, 1, ambient_occlusion_noise.image_view);
 
             // Use staging buffer to upload image into device local memory for optimal layout
             std::size_t image_size = dimension * dimension * sizeof(glm::vec4);
@@ -1915,53 +1875,52 @@ class AmbientOcclusion final : public Sample {
                 memcpy(data, noise_values.data(), image_size);
             vkUnmapMemory(device, staging_buffer_memory);
             
+            VkImageSubresourceRange subresource_range { };
+            subresource_range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            subresource_range.baseMipLevel = 0;
+            subresource_range.levelCount = mip_levels;
+            subresource_range.layerCount = 1;
+            subresource_range.baseArrayLayer = 0; // Image is not an array
+            
+            VkImageSubresourceLayers subresource_layers { };
+            subresource_layers.layerCount = 1;
+            subresource_layers.baseArrayLayer = 0;
+            subresource_layers.mipLevel = 0;
+            subresource_layers.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            
+            VkBufferImageCopy copy_region { };
+            copy_region.imageSubresource = subresource_layers;
+            copy_region.imageExtent = { dimension, dimension, 1 };
+            copy_region.imageOffset = { 0, 0, 0 };
+            
+            // Applicable only if tiling is VK_IMAGE_TILING_LINEAR, which allows for direct memory access
+            copy_region.bufferOffset = 0; // Pixels are tightly packed
+            copy_region.bufferImageHeight = 0;
+            copy_region.bufferRowLength = 0;
+            
             // Copy over image data from staging buffer using a transient command buffer
             VkCommandBuffer command_buffer = begin_transient_command_buffer();
-                VkImageSubresourceRange subresource_range { };
-                subresource_range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-                subresource_range.baseMipLevel = 0;
-                subresource_range.levelCount = mip_levels;
-                subresource_range.layerCount = 1;
-                subresource_range.baseArrayLayer = 0; // Image is not an array
-                
                 // Transition the device-local image to VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
-                transition_image(command_buffer, ambient_occlusion_noise.image, mip_levels, VK_FORMAT_R32G32B32A32_SFLOAT,
+                transition_image(command_buffer, ambient_occlusion_noise.image,
                                  VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, subresource_range,
                                  // Image initial layout is undefined, no access flags are required
-                                 0, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
-                                 // Ensure any writes to the image have completed before transitioning the image layout
-                                 VK_ACCESS_HOST_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
+                                 0, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                                 // Ensure any writes to the image are done after transitioning the image layout
+                                 VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
                 
                 // Copy buffer to image
-                VkImageSubresourceLayers subresource_layers { };
-                subresource_layers.layerCount = mip_levels;
-                subresource_layers.baseArrayLayer = 0;
-                subresource_layers.mipLevel = 0;
-                subresource_layers.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-                
-                VkBufferImageCopy copy_region { };
-                copy_region.imageSubresource = subresource_layers;
-                copy_region.imageExtent.width = dimension;
-                copy_region.imageExtent.height = dimension;
-                copy_region.imageExtent.depth = 1;
-                copy_region.bufferOffset = 0;
-                
                 vkCmdCopyBufferToImage(command_buffer, staging_buffer, ambient_occlusion_noise.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy_region);
             
                 // Transition image layout to a layout for optimal reads from shaders (VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) after all mip levels have been copied
-                transition_image(command_buffer, ambient_occlusion_noise.image, mip_levels, VK_FORMAT_R32G32B32A32_SFLOAT,
+                transition_image(command_buffer, ambient_occlusion_noise.image,
                                  VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, subresource_range,
                                  // Wait until the image is fully written to
-                                 VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
-                                 // Ensure any writes to the image have completed before transitioning the image layout
-                                 VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
-                
+                                 VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                 // Ensure any reads from the image are done after transitioning the image layout
+                                 VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
             submit_transient_command_buffer(command_buffer);
             
-            // Create a sampler for the noise image
-            
-            
-            
+            create_image_view(device, ambient_occlusion_noise.image, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_ASPECT_COLOR_BIT, 1, ambient_occlusion_noise.image_view);
             
             // Staging buffer resources are no longer necessary
             vkFreeMemory(device, staging_buffer_memory, nullptr);

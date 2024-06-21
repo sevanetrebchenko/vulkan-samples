@@ -21,5 +21,8 @@ layout (set = 0, binding = 3) uniform GlobalUniforms {
 layout (location = 0) out float out_occlusion;
 
 void main() {
+    vec4 a = texture(positions, vertex_uv);
+    vec4 b = texture(normals, vertex_uv);
+    vec4 c = texture(noise, vertex_uv);
     out_occlusion = 0.0f;
 }

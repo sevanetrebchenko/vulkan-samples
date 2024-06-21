@@ -1246,18 +1246,37 @@ VkCommandBuffer Sample::begin_transient_command_buffer() {
 }
 
 void Sample::submit_transient_command_buffer(VkCommandBuffer command_buffer) {
-    vkEndCommandBuffer(command_buffer);
+    if (vkEndCommandBuffer(command_buffer) != VK_SUCCESS) {
+        throw std::runtime_error("failed to record transient command buffer!");
+    }
     
     VkSubmitInfo submit_info { };
     submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
     submit_info.commandBufferCount = 1;
     submit_info.pCommandBuffers = &command_buffer;
     
-    vkQueueSubmit(queue, 1, &submit_info, VK_NULL_HANDLE);
+    VkFenceCreateInfo fence_create_info { };
+    fence_create_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    fence_create_info.flags = 0;
+    
+    VkFence fence { };
+    if (vkCreateFence(device, &fence_create_info, nullptr, &fence) != VK_SUCCESS) {
+        throw std::runtime_error("failed to create fence!");
+    }
+    
+    if (vkQueueSubmit(queue, 1, &submit_info, fence) != VK_SUCCESS) {
+        throw std::runtime_error("failed to submit transient command buffer!");
+    }
 
-    // This transfer is a one-time operation, easier just to wait for it to complete
+    // Easier just to wait for the one time operation to complete
     // An alternative approach here would be to use a fence, which would allow scheduling multiple transfers in parallel and give the GPU more opportunities to optimize
-    vkQueueWaitIdle(queue);
+    
+    VkResult r = vkWaitForFences(device, 1, &fence, VK_TRUE, 2'000'000'000);
+    if (r != VK_SUCCESS) {
+        throw std::runtime_error("failed to wait on fence!");
+    }
+    
+    // vkQueueWaitIdle(queue);
     
     vkFreeCommandBuffers(device, transient_command_pool, 1, &command_buffer);
 }

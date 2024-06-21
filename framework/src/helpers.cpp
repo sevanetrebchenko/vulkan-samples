@@ -172,7 +172,7 @@ void copy_buffer(VkCommandBuffer command_buffer, VkBuffer src, VkDeviceSize src_
     vkCmdCopyBuffer(command_buffer, src, dst, 1, &copy_region);
 }
 
-void transition_image(VkCommandBuffer command_buffer, VkImage image, unsigned mip_levels, VkFormat format, VkImageLayout src, VkImageLayout dst, VkImageSubresourceRange subresource_range, VkAccessFlags src_access_mask, VkPipelineStageFlags src_stage_mask, VkAccessFlags dst_access_mask, VkPipelineStageFlags dst_stage_mask) {
+void transition_image(VkCommandBuffer command_buffer, VkImage image, VkImageLayout src, VkImageLayout dst, VkImageSubresourceRange subresource_range, VkAccessFlags src_access_mask, VkPipelineStageFlags src_stage_mask, VkAccessFlags dst_access_mask, VkPipelineStageFlags dst_stage_mask) {
     // One of the most common ways to transition layouts for images is using an image memory barrier, which is a type of pipeline barrier
     // Pipeline barriers are used to synchronize access to resources - in this case it is used to transition the layout of the image before any subsequent reads happen from it
     VkImageMemoryBarrier image_memory_barrier { };
