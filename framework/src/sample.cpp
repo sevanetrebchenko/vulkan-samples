@@ -1074,12 +1074,12 @@ void Sample::create_depth_buffer() {
         vkGetPhysicalDeviceFormatProperties(physical_device, format, &physical_device_format_properties);
         
         if (tiling == VK_IMAGE_TILING_OPTIMAL) {
-            if ((physical_device_format_properties.optimalTilingFeatures & depth_image_features) == depth_image_features) {
+            if ((physical_device_format_properties.optimalTilingFeatures & depth_image_features) == depth_image_features && format > image_format) {
                 image_format = format;
             }
         }
         else if (tiling == VK_IMAGE_TILING_LINEAR) {
-            if ((physical_device_format_properties.linearTilingFeatures & depth_image_features) == depth_image_features) {
+            if ((physical_device_format_properties.linearTilingFeatures & depth_image_features) == depth_image_features && format > image_format) {
                 image_format = format;
             }
         }

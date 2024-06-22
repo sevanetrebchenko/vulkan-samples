@@ -37,10 +37,13 @@ void main() {
     vec2 framebuffer_size = vec2(textureSize(positions, 0)); // Use base image (lowest LOD)
     vec2 noise_texture_size = vec2(textureSize(noise, 0));
     vec2 noise_uv = (framebuffer_size / noise_texture_size) * vertex_uv;
-    vec3 random_direction = texture(noise, noise_uv).xyz;
+    vec3 random_direction = normalize(texture(noise, noise_uv).xyz);
 
     // Create change-of-basis matrix to reorient the random vector around the surface normal
     // https://math.hmc.edu/calculus/hmc-mathematics-calculus-online-tutorials/linear-algebra/gram-schmidt-method/
+
+    // Project the random vector onto the normal
+    // Subtract the projection from the random vector to get a vector that lies in the tangent plane perpendicular to the normal
     vec3 tangent = normalize(random_direction - normal * dot(random_direction, normal));
     vec3 bitangent = cross(normal, tangent);
     mat3 tbn = mat3(tangent, bitangent, normal);
@@ -49,8 +52,7 @@ void main() {
 
     vec4 ndc = globals.projection * vec4(position, 1.0f);
     ndc.xy /= ndc.w;
-//    float actual_depth = texture(depth, ndc.xy * 0.5f + 0.5f).r;
-    float actual_depth = linearize_depth(texture(depth, ndc.xy * 0.5f + 0.5f).r);
+    float actual_depth = texture(depth, ndc.xy * 0.5f + 0.5f).r;
 
     for (int i = 0; i < KERNEL_SIZE; ++i) {
         // Get the view space position of the sample
@@ -64,7 +66,7 @@ void main() {
 
         // Use the modified sample to test the depth of the fragment at that sample from the perspective of the user
         // This operations retrieves the depth of the first non-occluded (closest) fragment that is rendered to the geometry buffer
-        float sample_depth = linearize_depth(texture(depth, offset.xy * 0.5f + 0.5f).r);
+        float sample_depth = texture(depth, offset.xy * 0.5f + 0.5f).r;
         float range_check = smoothstep(0.0f, 1.0f, SAMPLE_RADIUS / abs(actual_depth - sample_depth));
         occlusion_factor += (sample_depth >= actual_depth ? 1.0f : 0.0f) * range_check;
     }
