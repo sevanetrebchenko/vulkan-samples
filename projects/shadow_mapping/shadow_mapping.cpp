@@ -625,11 +625,12 @@ class ShadowMapping final : public Sample {
             depth_stencil_create_info.depthWriteEnable = VK_FALSE;
             depth_stencil_create_info.depthCompareOp = VK_COMPARE_OP_LESS;
             
+            // Additive blending
             VkPipelineColorBlendAttachmentState color_blend_attachment_create_info { };
             color_blend_attachment_create_info.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-            color_blend_attachment_create_info.blendEnable = VK_FALSE;
-            color_blend_attachment_create_info.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
-            color_blend_attachment_create_info.dstColorBlendFactor = VK_BLEND_FACTOR_ZERO;
+            color_blend_attachment_create_info.blendEnable = VK_TRUE;
+            color_blend_attachment_create_info.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+            color_blend_attachment_create_info.dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
             color_blend_attachment_create_info.colorBlendOp = VK_BLEND_OP_ADD;
             color_blend_attachment_create_info.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
             color_blend_attachment_create_info.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
@@ -1302,16 +1303,16 @@ class ShadowMapping final : public Sample {
                 glm::mat4 view = glm::lookAt(light.position, glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
                 light.transform = projection * view;
                 light.direction = glm::normalize(glm::vec3(0.0f) - light.position);
-                light.color = glm::vec3(1.0f);
+                light.color = glm::vec3(0.6f);
             }
-            {
-                Scene::Light& light = scene.lights.emplace_back();
-                light.position = glm::vec3(-distance, height, -distance);
-                glm::mat4 view = glm::lookAt(light.position, glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-                light.transform = projection * view;
-                light.direction = glm::normalize(glm::vec3(0.0f) - light.position);
-                light.color = glm::vec3(1.0f, 0.0f, 0.0f);
-            }
+//            {
+//                Scene::Light& light = scene.lights.emplace_back();
+//                light.position = glm::vec3(-distance, height, distance);
+//                glm::mat4 view = glm::lookAt(light.position, glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+//                light.transform = projection * view;
+//                light.direction = glm::normalize(glm::vec3(0.0f) - light.position);
+//                light.color = glm::vec3(0.2f);
+//            }
         }
         
         void initialize_samplers() {

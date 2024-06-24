@@ -42,8 +42,8 @@ float linearize(float d) {
     return (2.0 * camera_near) / (camera_far + camera_near - d * (camera_far - camera_near));
 }
 
-float shadowing(vec3 position, vec3 normal, int light_index) {
-    Light light = lighting.lights[light_index];
+float shadowing(vec3 position, vec3 normal, int i) {
+    Light light = lighting.lights[i];
 
     vec4 shadow_position = light.transform * vec4(position, 1.0f);
     shadow_position /= shadow_position.w; // Perspective divide
@@ -56,7 +56,7 @@ float shadowing(vec3 position, vec3 normal, int light_index) {
     }
 
     // Depth value from the perspective of the light
-    float shadow_map_depth = texture(shadow, vec3(shadow_position.xy, light_index)).r;
+    float shadow_map_depth = texture(shadow, vec3(shadow_position.xy, i)).r;
 
     // When transformed, the fragment has a greater depth than when rendered from the light, meaning it is obstructed and cannot be seen by the light
     // It is in shadow
@@ -67,36 +67,38 @@ float shadowing(vec3 position, vec3 normal, int light_index) {
 void main() {
     vec3 color = vec3(0.0f);
 
-    vec3 world_position = texture(positions, vertex_uv).xyz;
+    vec3 position = texture(positions, vertex_uv).xyz;
     vec3 N = texture(normals, vertex_uv).xyz;
-    vec3 V = normalize(global.camera_position - world_position);
+    vec3 V = normalize(global.camera_position - position);
 
-    int light_index = 0;
-    Light light = lighting.lights[light_index];
+    for (int i = 0; i < LIGHT_COUNT; ++i) {
+        Light light = lighting.lights[i];
 
-//    vec3 L = normalize(light_position - world_position);
-    vec3 L = -normalize(light.direction); // Directional light
+    //    vec3 L = normalize(light_position - world_position);
+        vec3 L = -normalize(light.direction); // Directional light
 
-    // Ambient
-    vec3 ambient_component = texture(ambient, vertex_uv).xyz;
+        // Ambient
+        vec3 ambient_component = texture(ambient, vertex_uv).xyz;
 
-    // Diffuse
-    float lambert = max(dot(N, L), 0.0f);
-    vec3 diffuse_component = light.color * texture(diffuse, vertex_uv).rgb * lambert;
+        // Diffuse
+        float lambert = max(dot(N, L), 0.0f);
+        vec3 diffuse_component = light.color * texture(diffuse, vertex_uv).rgb * lambert;
 
-    // Specular
-    vec3 specular_component = vec3(0.0f);
-    if (lambert > 0.0f) {
-        vec4 s = texture(specular, vertex_uv); // specular color.rgb, specular exponent
+        // Specular
+        vec3 specular_component = vec3(0.0f);
+        if (lambert > 0.0f) {
+            vec4 s = texture(specular, vertex_uv); // specular color.rgb, specular exponent
 
-        // Specular highlights only happen with visible faces
-        vec3 R = normalize(2 * lambert * N - L); // 2 N.L * N - L
-        if (max(dot(R, V), 0.0f) > 0.0f) {
-            specular_component = s.rgb * pow(max(dot(R, V), 0.0f), s.a);
+            // Specular highlights only happen with visible faces
+            vec3 R = normalize(2 * lambert * N - L); // 2 N.L * N - L
+            if (max(dot(R, V), 0.0f) > 0.0f) {
+                specular_component = s.rgb * pow(max(dot(R, V), 0.0f), s.a);
+            }
         }
+
+        // Shadowing affects diffuse + specular components, but leaves the ambient component untouched
+        color += ambient_component + (1.0f - shadowing(position, N, i)) * (diffuse_component + specular_component);
     }
 
-    // Shadowing affects diffuse + specular components, but leaves the ambient component untouched
-    vec3 lighting = ambient_component + (1.0f - shadowing(world_position, N, light_index)) * (diffuse_component + specular_component);
-    out_color = vec4(lighting, 1.0f);
+    out_color = vec4(color, 1.0f);
 }
