@@ -323,7 +323,7 @@ class ShadowMapping final : public Sample {
             rasterizer_create_info.rasterizerDiscardEnable = VK_FALSE;
             rasterizer_create_info.polygonMode = VK_POLYGON_MODE_FILL;
             rasterizer_create_info.lineWidth = 1.0f;
-            rasterizer_create_info.cullMode = VK_CULL_MODE_NONE; // Cull front-facing polygons to prevent peter panning of shadows
+            rasterizer_create_info.cullMode = VK_CULL_MODE_FRONT_BIT; // Cull front-facing polygons to prevent peter panning of shadows
             rasterizer_create_info.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
             rasterizer_create_info.depthBiasEnable = VK_FALSE;
             rasterizer_create_info.depthBiasConstantFactor = 0.0f;
@@ -452,7 +452,7 @@ class ShadowMapping final : public Sample {
             rasterizer_create_info.polygonMode = VK_POLYGON_MODE_FILL;
             
             rasterizer_create_info.lineWidth = 1.0f;
-            rasterizer_create_info.cullMode = VK_CULL_MODE_NONE;
+            rasterizer_create_info.cullMode = VK_CULL_MODE_BACK_BIT;
             rasterizer_create_info.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
             rasterizer_create_info.depthBiasEnable = VK_FALSE;
             rasterizer_create_info.depthBiasConstantFactor = 0.0f;
@@ -601,7 +601,7 @@ class ShadowMapping final : public Sample {
             rasterizer_create_info.polygonMode = VK_POLYGON_MODE_FILL;
             
             rasterizer_create_info.lineWidth = 1.0f;
-            rasterizer_create_info.cullMode = VK_CULL_MODE_NONE;
+            rasterizer_create_info.cullMode = VK_CULL_MODE_BACK_BIT;
             rasterizer_create_info.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
             rasterizer_create_info.depthBiasEnable = VK_FALSE;
             rasterizer_create_info.depthBiasConstantFactor = 0.0f;
@@ -1308,7 +1308,7 @@ class ShadowMapping final : public Sample {
             
             {
                 Scene::Light& light = scene.lights.emplace_back();
-                light.position = glm::vec3(-5.0f, 5.0f, -5.0f);
+                light.position = glm::vec3(5.0f, 5.0f, 5.0f);
                 glm::mat4 view = glm::lookAt(light.position, glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
                 light.transform = projection * view;
             }
