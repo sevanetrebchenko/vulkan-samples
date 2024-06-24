@@ -23,9 +23,6 @@ class ShadowMapping final : public Sample {
         std::vector<Model> models;
         std::vector<Transform> transforms;
         
-        // Maximum number of supported lights
-        constexpr static const int LIGHT_COUNT = 32;
-        
         struct Scene {
             struct Object {
                 unsigned model;
@@ -491,8 +488,8 @@ class ShadowMapping final : public Sample {
             // Depth/stencil buffers
             VkPipelineDepthStencilStateCreateInfo depth_stencil_create_info { };
             depth_stencil_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-            depth_stencil_create_info.depthTestEnable = VK_FALSE;
-            depth_stencil_create_info.depthWriteEnable = VK_FALSE;
+            depth_stencil_create_info.depthTestEnable = VK_TRUE;
+            depth_stencil_create_info.depthWriteEnable = VK_TRUE;
             depth_stencil_create_info.depthCompareOp = VK_COMPARE_OP_LESS;
             
             VkPipelineColorBlendAttachmentState color_blend_attachment_create_info { };
@@ -1182,39 +1179,39 @@ class ShadowMapping final : public Sample {
             float height = 2.0f;
             float thickness = 0.05f;
             
-            // Walls
-            Scene::Object& right = scene.objects.emplace_back();
-            right.model = 0;
-            right.ambient = glm::vec3(0.1f);
-            right.diffuse = glm::vec3(205,92,92) / glm::vec3(255); // red
-            right.specular = glm::vec3(0.0f);
-            right.specular_exponent = 0.0f;
-            right.transform = Transform(glm::vec3(box_size, height, 0), glm::vec3(thickness, box_size, box_size), glm::vec3(0.0f, 0.0f, 0.0f));
-            
-            Scene::Object& left = scene.objects.emplace_back();
-            left.model = 0;
-            left.ambient = glm::vec3(0.1f);
-//            left.diffuse = glm::vec3(95, 158, 160) / glm::vec3(255); // green
-            left.diffuse = glm::vec3(46,139,87) / glm::vec3(255); // green
-            left.specular = glm::vec3(0.0f);
-            left.specular_exponent = 0.0f;
-            left.transform = Transform(glm::vec3(-box_size, height, 0), glm::vec3(thickness, box_size, box_size), glm::vec3(0.0f, 0.0f, 0.0f));
-
-            Scene::Object& back = scene.objects.emplace_back();
-            back.model = 0;
-            back.ambient = glm::vec3(0.1f);
-            back.diffuse = glm::vec3(70,130,180) / glm::vec3(255); // blue
-            back.specular = glm::vec3(0.0f);
-            back.specular_exponent = 0.0f;
-            back.transform = Transform(glm::vec3(0, height, -box_size), glm::vec3(box_size, box_size, thickness), glm::vec3(0.0f, 0.0f, 0.0f));
-
-            Scene::Object& ceiling = scene.objects.emplace_back();
-            ceiling.model = 0;
-            ceiling.ambient = glm::vec3(0.1f);
-            ceiling.diffuse = glm::vec3(255,235,205) / glm::vec3(255); // offwhite
-            ceiling.specular = glm::vec3(0.0f);
-            ceiling.specular_exponent = 0.0f;
-            ceiling.transform = Transform(glm::vec3(0, box_size + height, 0), glm::vec3(box_size, thickness, box_size), glm::vec3(0.0f, 0.0f, 0.0f));
+//            // Walls
+//            Scene::Object& right = scene.objects.emplace_back();
+//            right.model = 0;
+//            right.ambient = glm::vec3(0.1f);
+//            right.diffuse = glm::vec3(205,92,92) / glm::vec3(255); // red
+//            right.specular = glm::vec3(0.0f);
+//            right.specular_exponent = 0.0f;
+//            right.transform = Transform(glm::vec3(box_size, height, 0), glm::vec3(thickness, box_size, box_size), glm::vec3(0.0f, 0.0f, 0.0f));
+//
+//            Scene::Object& left = scene.objects.emplace_back();
+//            left.model = 0;
+//            left.ambient = glm::vec3(0.1f);
+////            left.diffuse = glm::vec3(95, 158, 160) / glm::vec3(255); // green
+//            left.diffuse = glm::vec3(46,139,87) / glm::vec3(255); // green
+//            left.specular = glm::vec3(0.0f);
+//            left.specular_exponent = 0.0f;
+//            left.transform = Transform(glm::vec3(-box_size, height, 0), glm::vec3(thickness, box_size, box_size), glm::vec3(0.0f, 0.0f, 0.0f));
+//
+//            Scene::Object& back = scene.objects.emplace_back();
+//            back.model = 0;
+//            back.ambient = glm::vec3(0.1f);
+//            back.diffuse = glm::vec3(70,130,180) / glm::vec3(255); // blue
+//            back.specular = glm::vec3(0.0f);
+//            back.specular_exponent = 0.0f;
+//            back.transform = Transform(glm::vec3(0, height, -box_size), glm::vec3(box_size, box_size, thickness), glm::vec3(0.0f, 0.0f, 0.0f));
+//
+//            Scene::Object& ceiling = scene.objects.emplace_back();
+//            ceiling.model = 0;
+//            ceiling.ambient = glm::vec3(0.1f);
+//            ceiling.diffuse = glm::vec3(255,235,205) / glm::vec3(255); // offwhite
+//            ceiling.specular = glm::vec3(0.0f);
+//            ceiling.specular_exponent = 0.0f;
+//            ceiling.transform = Transform(glm::vec3(0, box_size + height, 0), glm::vec3(box_size, thickness, box_size), glm::vec3(0.0f, 0.0f, 0.0f));
 
             Scene::Object& floor = scene.objects.emplace_back();
             floor.model = 0;
@@ -1317,8 +1314,22 @@ class ShadowMapping final : public Sample {
         }
         
         void initialize_lights() {
-            scene.lights.emplace_back();
-            scene.lights.emplace_back();
+            glm::mat4 projection = glm::ortho(-10.0f, 10.0f, -10.0f, 10.0f, 0.01f, 100.0f);
+            projection[1][1] *= -1;
+            
+            {
+                Scene::Light& light = scene.lights.emplace_back();
+                light.position = glm::vec3(5.0f);
+                glm::mat4 view = glm::lookAt(light.position, glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+                light.transform = projection * view;
+            }
+            
+            {
+                Scene::Light& light = scene.lights.emplace_back();
+                light.position = glm::vec3(-5.0f, 5.0f, -5.0f);
+                glm::mat4 view = glm::lookAt(light.position, glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+                light.transform = projection * view;
+            }
         }
         
         void initialize_samplers() {
@@ -1424,37 +1435,54 @@ class ShadowMapping final : public Sample {
         }
         
         void update_uniform_buffers() {
-//            struct CameraData {
-//                glm::mat4 view;
-//                glm::mat4 projection;
-//                glm::vec3 eye;
-//            };
-//            CameraData globals { };
-//            globals.view = camera.get_view_matrix();
-//            globals.projection = camera.get_projection_matrix();
-//            globals.eye = camera.get_position();
-//            memcpy(uniform_buffer_mapped, &globals, sizeof(CameraData));
-//            std::size_t offset = align_to_device_boundary(physical_device, sizeof(glm::mat4) * 2 + sizeof(glm::vec4));
-//
-//            offset += (align_to_device_boundary(physical_device, sizeof(glm::mat4) * 2) + align_to_device_boundary(physical_device, sizeof(glm::vec4) * 3 + 4)) * scene.objects.size();
-//
-//            struct LightingData {
-//                glm::mat4 view;
-//                glm::vec3 camera_position;
-//            };
-//            LightingData light_data { };
-//            light_data.view = camera.get_view_matrix();
-//            light_data.camera_position = camera.get_position();
-//            memcpy((void*)((const char*) (uniform_buffer_mapped) + offset), &light_data, sizeof(LightingData));
-//            offset += align_to_device_boundary(physical_device, sizeof(glm::mat4) + sizeof(glm::vec4) * 2);
-//
-//            struct RenderSettings {
-//                int view;
-//            };
-//            RenderSettings render_settings { };
-//            render_settings.view = debug_view;
-//            memcpy((void*)((const char*) (uniform_buffer_mapped) + offset), &render_settings, sizeof(RenderSettings));
-//            offset += align_to_device_boundary(physical_device, sizeof(int));
+            std::size_t offset = 0u;
+            
+            // set 0 binding 0
+            {
+                GlobalUniforms uniforms { };
+                uniforms.view = camera.get_view_matrix();
+                uniforms.projection = camera.get_projection_matrix();
+                uniforms.camera_position = camera.get_position();
+                uniforms.debug_view = 0;
+                
+                memcpy((void*)(((const char*) uniform_buffer_mapped) + offset), &uniforms, sizeof(uniforms));
+                offset += align_to_device_boundary(physical_device, sizeof(GlobalUniforms));
+            }
+            
+            // set 0 binding 1
+            {
+                std::size_t light_uniform_block_size = sizeof(Scene::Light);
+                
+                // Only set lighting data for active lights
+                // LIGHT_COUNT represents the maximum supported number of lights
+                memcpy((void*)(((const char*) uniform_buffer_mapped) + offset), scene.lights.data(), light_uniform_block_size * scene.lights.size());
+                offset += align_to_device_boundary(physical_device, light_uniform_block_size * scene.lights.size());
+            }
+            
+            for (Scene::Object& object : scene.objects) {
+                Transform& transform = object.transform;
+                
+                // Vertex
+                // set 1 binding 0
+                ObjectUniforms vertex { };
+                vertex.model = transform.get_matrix();
+                vertex.normal = glm::transpose(glm::inverse(vertex.model));
+                
+                memcpy((void*)(((const char*) uniform_buffer_mapped) + offset), &vertex, sizeof(ObjectUniforms));
+                offset += align_to_device_boundary(physical_device, sizeof(ObjectUniforms));
+                
+                // Fragment
+                // set 1 binding 1
+                PhongUniforms fragment { };
+                fragment.ambient = glm::vec4(object.ambient, 1.0f);
+                fragment.diffuse = glm::vec4(object.diffuse, 1.0f);
+                fragment.specular = glm::vec4(object.specular, 1.0f);
+                fragment.specular_exponent = object.specular_exponent;
+                fragment.flat_shaded = (int) object.flat_shaded;
+                
+                memcpy((void*)(((const char*) uniform_buffer_mapped) + offset), &fragment, sizeof(PhongUniforms));
+                offset += align_to_device_boundary(physical_device, sizeof(PhongUniforms));
+            }
         }
         
         void destroy_uniform_buffer() {
