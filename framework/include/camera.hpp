@@ -20,16 +20,23 @@ class Camera {
         void set_up_vector(glm::vec3 direction);
         glm::vec3 get_up_vector() const;
 
+        float get_near_plane_distance() const;
+        float get_far_plane_distance() const;
+        
         // Camera matrix is projection * view
         glm::mat4 get_view_matrix();
         glm::mat4 get_projection_matrix();
         
+
         bool is_dirty() const;
         
     private:
         void recalculate();
         
         bool dirty;
+        
+        float near;
+        float far;
         
         glm::vec3 eye; // Eye position
         glm::vec3 look_at;

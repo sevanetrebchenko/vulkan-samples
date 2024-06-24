@@ -1207,6 +1207,7 @@ class ShadowMapping final : public Sample {
             floor.specular = glm::vec3(0.0f);
             floor.specular_exponent = 0.0f;
             floor.transform = Transform(glm::vec3(0, -box_size + height, 0), glm::vec3(box_size, thickness, box_size), glm::vec3(0.0f, 0.0f, 0.0f));
+            floor.flat_shaded = true;
             
             // Center model
             Scene::Object& knight = scene.objects.emplace_back();
@@ -1216,6 +1217,7 @@ class ShadowMapping final : public Sample {
             knight.specular = glm::vec3(0.0f);
             knight.specular_exponent = 0.0f;
             knight.transform = Transform(glm::vec3(0, 0.5f, 0), glm::vec3(1.5f), glm::vec3(0.0f, 50.0f, 0.0f));
+            knight.flat_shaded = true;
             
             // This sample only uses vertex position and normal
             std::size_t vertex_buffer_size = 0u;
@@ -1301,9 +1303,8 @@ class ShadowMapping final : public Sample {
         }
         
         void initialize_lights() {
-            float near = 0.01f;
-            float far = 25.0f;
-            glm::mat4 projection = glm::ortho(-5.0f, 5.0f, -5.0f, 5.0f, near, far);
+            // Use the same near / far plane distances as the main camera
+            glm::mat4 projection = glm::ortho(-5.0f, 5.0f, -5.0f, 5.0f, camera.get_near_plane_distance(), camera.get_far_plane_distance());
             projection[1][1] *= -1;
             
             {
@@ -1311,6 +1312,7 @@ class ShadowMapping final : public Sample {
                 light.position = glm::vec3(5.0f, 5.0f, 5.0f);
                 glm::mat4 view = glm::lookAt(light.position, glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
                 light.transform = projection * view;
+                light.direction = glm::normalize(glm::vec3(0.0f) - light.position);
             }
             
             {
@@ -1318,6 +1320,7 @@ class ShadowMapping final : public Sample {
                 light.position = glm::vec3(-5.0f, 5.0f, -5.0f);
                 glm::mat4 view = glm::lookAt(light.position, glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
                 light.transform = projection * view;
+                light.direction = glm::normalize(glm::vec3(0.0f) - light.position);
             }
         }
         

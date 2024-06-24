@@ -8,7 +8,9 @@ Camera::Camera(glm::vec3 position) : dirty(true),
                                      look_at(glm::normalize(glm::vec3(0.0f) - eye)),
                                      up(glm::vec3(0.0f, 1.0f, 0.0f)),
                                      view(),
-                                     projection() {
+                                     projection(),
+                                     near(0.01f),
+                                     far(100.0f) {
 }
 
 Camera::~Camera() {
@@ -51,9 +53,6 @@ void Camera::recalculate() {
     
     float fov = 45.0;
     float aspect = 16.0 / 9.0;
-    float near = 0.01; // Near plane distance
-    float far = 100.0; // Far plane distance
-    
     bool orthographic = false;
     
     if (orthographic) {
@@ -74,6 +73,15 @@ void Camera::set_up_vector(glm::vec3 direction) {
     dirty = true;
 }
 
+float Camera::get_near_plane_distance() const {
+    return near;
+}
+
+float Camera::get_far_plane_distance() const {
+    return far;
+}
+
+
 glm::vec3 Camera::get_up_vector() const {
     return up;
 }
@@ -81,3 +89,4 @@ glm::vec3 Camera::get_up_vector() const {
 bool Camera::is_dirty() const {
     return dirty;
 }
+
