@@ -5,7 +5,7 @@
 #include <filesystem> // std::filesystem
 #include <fstream> // std::ifstream
 
-VkShaderModule create_shader_module(VkDevice device, const char* filepath) {
+VkShaderModule create_shader_module(VkDevice device, const char* filepath, std::initializer_list<std::pair<std::string, std::string>> preprocessor_definitions) {
     // Read shader into memory
     std::ifstream file(filepath, std::ios::ate | std::ios::binary);
     if (!file.is_open()) {
@@ -22,9 +22,10 @@ VkShaderModule create_shader_module(VkDevice device, const char* filepath) {
     file.close();
 
     shaderc::CompileOptions options { };
+    for (const auto&[directive, value] : preprocessor_definitions) {
+        options.AddMacroDefinition(directive, value);
+    }
     
-    // TODO: configure shader defines
-
     // TODO: support multiple shader languages
     shaderc_shader_kind type;
     std::filesystem::path path = std::filesystem::path(filepath);

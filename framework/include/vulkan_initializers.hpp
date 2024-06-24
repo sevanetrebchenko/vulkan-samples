@@ -3,11 +3,15 @@
 #define VULKAN_INITIALIZERS_HPP
 
 #include <vulkan/vulkan.h>
+#include <initializer_list> // std::initializer_list
+#include <utility> // std::pair
+#include <string> // std::string
 
 // Stage gets determined from the shader extension
 //   .vert - VK_SHADER_STAGE_VERTEX_BIT
 //   .frag - VK_SHADER_STAGE_FRAGMENT_BIT
-VkShaderModule create_shader_module(VkDevice device, const char* filepath);
+//   .geom - VK_SHADER_STAGE_GEOMETRY_BIT
+VkShaderModule create_shader_module(VkDevice device, const char* filepath, std::initializer_list<std::pair<std::string, std::string>> preprocessor_definitions = { });
 VkPipelineShaderStageCreateInfo create_shader_stage(VkShaderModule module, VkShaderStageFlagBits stage, VkSpecializationInfo* specialization_info = nullptr, const char* entry = "main");
 
 VkVertexInputBindingDescription create_vertex_binding_description(unsigned binding, unsigned stride, VkVertexInputRate input_rate);

@@ -49,14 +49,23 @@ glm::mat4 Camera::get_projection_matrix() {
 void Camera::recalculate() {
     view = glm::lookAt(eye, look_at, up);
     
-    double fov = 45.0;
-    double aspect = 16.0 / 9.0;
-    double near = 0.01; // Near plane distance
-    double far = 100.0; // Far plane distance
+    float fov = 45.0;
+    float aspect = 16.0 / 9.0;
+    float near = 0.01; // Near plane distance
+    float far = 100.0; // Far plane distance
     
-    projection = glm::perspective(glm::radians(fov), aspect, near, far);
+    bool orthographic = false;
+    
+    if (orthographic) {
+        float height = 2.0f;
+        float width = height * aspect;
+        projection = glm::ortho(-width, width, -height, height, near, far);
+    }
+    else {
+        projection = glm::perspective(glm::radians(fov), aspect, near, far);
+    }
+    
     projection[1][1] *= -1; // Account for Vulkan clip coordinate origin starting at the top left
-    
     dirty = false;
 }
 

@@ -2,6 +2,7 @@
 #ifndef CAMERA_HPP
 #define CAMERA_HPP
 
+#define GLM_FORCE_DEPTH_ZERO_TO_ONE // Vulkan requires depth values to range [0.0, 1.0], not the default [-1.0, 1.0] that OpenGL uses
 #include <glm/glm.hpp>
 
 // Camera assumes 16:9 aspect ratio, 75 degree FOV

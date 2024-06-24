@@ -1,13 +1,10 @@
 
 #version 450
 
-layout (constant_id = 0) const int LIGHT_COUNT = 32;
-
-// Geometry shader inputs are in world space
-layout (location = 0) in vec3 vertex_positions[];
+#define LIGHT_COUNT 32
 
 layout (triangles) in;
-layout (triangle_strip, max_vertices = 3) out;
+layout (triangle_strip, max_vertices = 3 * LIGHT_COUNT) out;
 
 struct Light {
     mat4 transform; // Stores projection * view
@@ -23,14 +20,15 @@ layout (set = 0, binding = 1) uniform LightingData {
     Light lights[LIGHT_COUNT];
 } lighting;
 
+// The geometry shader receives all vertices of a primitive as input
+
 void main() {
 	for (int layer = 0; layer < LIGHT_COUNT; ++layer) {
 		// The shadow framebuffer has one color attachment with many layers (one layer for each light)
         Light light = lighting.lights[layer];
-        for (int i = 0; i < 3; ++i) {
-            gl_Position = light.transform * vec4(vertex_positions[i], 1.0f);
+        for (int i = 0; i < gl_in.length(); ++i) { // Input length = 3
             gl_Layer = layer; // Render the shadow map to this layer
-
+            gl_Position = light.transform * gl_in[i].gl_Position;
             EmitVertex();
         }
         EndPrimitive();

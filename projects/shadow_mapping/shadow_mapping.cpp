@@ -5,7 +5,9 @@
 #include "loaders/obj.hpp"
 
 #define GLM_ENABLE_EXPERIMENTAL
+#define GLM_FORCE_DEPTH_ZERO_TO_ONE // Vulkan requires depth values to range [0.0, 1.0], not the default [-1.0, 1.0] that OpenGL uses
 #include <glm/gtx/transform.hpp>
+#include <string> // std::string, std::to_string
 
 class ShadowMapping final : public Sample {
     public:
@@ -297,28 +299,10 @@ class ShadowMapping final : public Sample {
             vertex_input_create_info.pVertexAttributeDescriptions = vertex_attribute_descriptions;
             
             // Bundle shader stages to assign to pipeline
-            
-            // Shader constants
-            VkSpecializationMapEntry specialization { };
-            
-            // layout (constant_id = 0) const int LIGHT_COUNT = 32;
-            specialization.constantID = 0;
-            specialization.size = sizeof(int);
-            specialization.offset = 0;
-            
-            
-            VkSpecializationInfo specialization_info { };
-            specialization_info.mapEntryCount = 1;
-            specialization_info.pMapEntries = &specialization;
-            specialization_info.dataSize = sizeof(int);
-            
-            int light_count = scene.lights.size();
-            specialization_info.pData = &light_count;
-            
             // A custom fragment shader stage is not necessary, since the only thing we care about is depth information and that gets written automatically
             VkPipelineShaderStageCreateInfo shader_stages[] = {
                 create_shader_stage(create_shader_module(device, "shaders/shadow_map.vert"), VK_SHADER_STAGE_VERTEX_BIT),
-                create_shader_stage(create_shader_module(device, "shaders/shadow_map.geom"), VK_SHADER_STAGE_GEOMETRY_BIT, &specialization_info),
+                create_shader_stage(create_shader_module(device, "shaders/shadow_map.geom", { { "LIGHT_COUNT", std::to_string(scene.lights.size()) } }), VK_SHADER_STAGE_GEOMETRY_BIT),
             };
             
             VkPipelineInputAssemblyStateCreateInfo input_assembly_state_create_info = create_input_assembly_state(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
@@ -339,7 +323,7 @@ class ShadowMapping final : public Sample {
             rasterizer_create_info.rasterizerDiscardEnable = VK_FALSE;
             rasterizer_create_info.polygonMode = VK_POLYGON_MODE_FILL;
             rasterizer_create_info.lineWidth = 1.0f;
-            rasterizer_create_info.cullMode = VK_CULL_MODE_FRONT_BIT; // Cull front-facing polygons to prevent peter panning of shadows
+            rasterizer_create_info.cullMode = VK_CULL_MODE_NONE; // Cull front-facing polygons to prevent peter panning of shadows
             rasterizer_create_info.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
             rasterizer_create_info.depthBiasEnable = VK_FALSE;
             rasterizer_create_info.depthBiasConstantFactor = 0.0f;
@@ -468,7 +452,7 @@ class ShadowMapping final : public Sample {
             rasterizer_create_info.polygonMode = VK_POLYGON_MODE_FILL;
             
             rasterizer_create_info.lineWidth = 1.0f;
-            rasterizer_create_info.cullMode = VK_CULL_MODE_BACK_BIT;
+            rasterizer_create_info.cullMode = VK_CULL_MODE_NONE;
             rasterizer_create_info.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
             rasterizer_create_info.depthBiasEnable = VK_FALSE;
             rasterizer_create_info.depthBiasConstantFactor = 0.0f;
@@ -617,7 +601,7 @@ class ShadowMapping final : public Sample {
             rasterizer_create_info.polygonMode = VK_POLYGON_MODE_FILL;
             
             rasterizer_create_info.lineWidth = 1.0f;
-            rasterizer_create_info.cullMode = VK_CULL_MODE_BACK_BIT;
+            rasterizer_create_info.cullMode = VK_CULL_MODE_NONE;
             rasterizer_create_info.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
             rasterizer_create_info.depthBiasEnable = VK_FALSE;
             rasterizer_create_info.depthBiasConstantFactor = 0.0f;
@@ -879,12 +863,15 @@ class ShadowMapping final : public Sample {
             
             // Create a layered depth attachment for rendering light depth maps to, one for each light
             // Note: this will have to get recreated if the number of lights change
+            
+            // Create an image with VK_IMAGE_CREATE_2D_ARRAY_COMPATIBLE_BIT enabled so that the image view can be of type VK_IMAGE_VIEW_TYPE_2D_ARRAY
             create_image(physical_device, device,
                          swapchain_extent.width, swapchain_extent.height, mip_levels, layers,
                          VK_SAMPLE_COUNT_1_BIT,
                          depth_buffer_format, // Use the same format for the shadow map as what is used for the depth buffer
                          VK_IMAGE_TILING_OPTIMAL,
                          VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                         0,
                          VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
                          shadow_attachment.image, shadow_attachment.memory);
             create_image_view(device, shadow_attachment.image, VK_IMAGE_VIEW_TYPE_2D_ARRAY, depth_buffer_format, VK_IMAGE_ASPECT_DEPTH_BIT, mip_levels, layers, shadow_attachment.image_view);
@@ -912,7 +899,7 @@ class ShadowMapping final : public Sample {
             unsigned layers = 1;
             
             for (std::size_t i = 0u; i < 2; ++i) {
-                create_image(physical_device, device, swapchain_extent.width, swapchain_extent.height, mip_levels, layers, VK_SAMPLE_COUNT_1_BIT, format, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, geometry_framebuffer_attachments[i].image, geometry_framebuffer_attachments[i].memory);
+                create_image(physical_device, device, swapchain_extent.width, swapchain_extent.height, mip_levels, layers, VK_SAMPLE_COUNT_1_BIT, format, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 0, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, geometry_framebuffer_attachments[i].image, geometry_framebuffer_attachments[i].memory);
                 create_image_view(device, geometry_framebuffer_attachments[i].image, VK_IMAGE_VIEW_TYPE_2D, format, VK_IMAGE_ASPECT_COLOR_BIT, mip_levels, layers, geometry_framebuffer_attachments[i].image_view);
             }
             
@@ -921,7 +908,7 @@ class ShadowMapping final : public Sample {
             format = VK_FORMAT_R8G8B8A8_UNORM;
             
             for (std::size_t i = 2u; i < 5; ++i) {
-                create_image(physical_device, device, swapchain_extent.width, swapchain_extent.height, mip_levels, layers, VK_SAMPLE_COUNT_1_BIT, format, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, geometry_framebuffer_attachments[i].image, geometry_framebuffer_attachments[i].memory);
+                create_image(physical_device, device, swapchain_extent.width, swapchain_extent.height, mip_levels, layers, VK_SAMPLE_COUNT_1_BIT, format, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 0, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, geometry_framebuffer_attachments[i].image, geometry_framebuffer_attachments[i].memory);
                 create_image_view(device, geometry_framebuffer_attachments[i].image, VK_IMAGE_VIEW_TYPE_2D, format, VK_IMAGE_ASPECT_COLOR_BIT, mip_levels, layers, geometry_framebuffer_attachments[i].image_view);
             }
             
@@ -1314,12 +1301,14 @@ class ShadowMapping final : public Sample {
         }
         
         void initialize_lights() {
-            glm::mat4 projection = glm::ortho(-10.0f, 10.0f, -10.0f, 10.0f, 0.01f, 100.0f);
+            float near = 0.01f;
+            float far = 25.0f;
+            glm::mat4 projection = glm::ortho(-5.0f, 5.0f, -5.0f, 5.0f, near, far);
             projection[1][1] *= -1;
             
             {
                 Scene::Light& light = scene.lights.emplace_back();
-                light.position = glm::vec3(5.0f);
+                light.position = glm::vec3(-5.0f, 5.0f, -5.0f);
                 glm::mat4 view = glm::lookAt(light.position, glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
                 light.transform = projection * view;
             }

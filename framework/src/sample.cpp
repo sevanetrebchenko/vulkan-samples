@@ -1100,7 +1100,8 @@ void Sample::create_depth_buffer() {
                  // Depth buffers do not require a separate resolve step and can be used directly in render passes for resolving to a single sample / presentation
                  depth_buffer_format,
                  VK_IMAGE_TILING_OPTIMAL,
-                 VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT + VK_IMAGE_USAGE_SAMPLED_BIT,
+                 VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                 0,
                  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, // The most optimal memory type for GPU reads is VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT (meant for device read, not accessible by the CPU)
                  depth_buffer, depth_buffer_memory);
     create_image_view(device, depth_buffer, VK_IMAGE_VIEW_TYPE_2D, image_format, VK_IMAGE_ASPECT_DEPTH_BIT, depth_mip_levels, 1, depth_buffer_view);

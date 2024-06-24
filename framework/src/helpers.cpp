@@ -56,7 +56,7 @@ void create_image_view(VkDevice device, VkImage image, VkImageViewType type, VkF
     }
 }
 
-void create_image(VkPhysicalDevice physical_device, VkDevice device, unsigned image_width, unsigned image_height, unsigned mip_levels, unsigned layers, VkSampleCountFlagBits samples, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags desired_memory_properties, VkImage& image, VkDeviceMemory& memory) {
+void create_image(VkPhysicalDevice physical_device, VkDevice device, unsigned image_width, unsigned image_height, unsigned mip_levels, unsigned layers, VkSampleCountFlagBits samples, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkImageCreateFlags flags, VkMemoryPropertyFlags desired_memory_properties, VkImage& image, VkDeviceMemory& memory) {
     VkImageCreateInfo image_ci { };
     image_ci.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     image_ci.imageType = VK_IMAGE_TYPE_2D;
@@ -82,7 +82,7 @@ void create_image(VkPhysicalDevice physical_device, VkDevice device, unsigned im
     
     image_ci.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
     image_ci.samples = samples;
-    image_ci.flags = 0; // TODO: look into sparse 3D textures for something like voxel terrain (allows avoiding allocations for large chunks of 'air' voxels)
+    image_ci.flags = flags; // TODO: look into sparse 3D textures for something like voxel terrain (allows avoiding allocations for large chunks of 'air' voxels)
     
     if (vkCreateImage(device, &image_ci, nullptr, &image) != VK_SUCCESS) {
         throw std::runtime_error("failed to create image!");
