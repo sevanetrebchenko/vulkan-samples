@@ -681,7 +681,7 @@ void Sample::initialize_swapchain() {
     // Retrieve swapchain image views
     // Image views describe how to access the image and which part of the image to access
     for (unsigned i = 0u; i < swapchain_image_count; ++i) {
-        create_image_view(device, swapchain_images[i], surface_format.format, VK_IMAGE_ASPECT_COLOR_BIT, 1, swapchain_image_views[i]);
+        create_image_view(device, swapchain_images[i], VK_IMAGE_VIEW_TYPE_2D, surface_format.format, VK_IMAGE_ASPECT_COLOR_BIT, 1, 1, swapchain_image_views[i]);
     }
 }
 
@@ -1095,14 +1095,15 @@ void Sample::create_depth_buffer() {
     create_image(physical_device, device,
                  swapchain_extent.width, swapchain_extent.height, // Depth image needs to be the same size as any other framebuffer attachment
                  depth_mip_levels,
+                 1,
                  VK_SAMPLE_COUNT_1_BIT, // TODO: this assumes 1 sample per pixel, which is not the case for multisampling (this method should be virtual)
                  // Depth buffers do not require a separate resolve step and can be used directly in render passes for resolving to a single sample / presentation
                  depth_buffer_format,
                  VK_IMAGE_TILING_OPTIMAL,
-                 VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+                 VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT + VK_IMAGE_USAGE_SAMPLED_BIT,
                  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, // The most optimal memory type for GPU reads is VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT (meant for device read, not accessible by the CPU)
                  depth_buffer, depth_buffer_memory);
-    create_image_view(device, depth_buffer, image_format, VK_IMAGE_ASPECT_DEPTH_BIT, depth_mip_levels, depth_buffer_view);
+    create_image_view(device, depth_buffer, VK_IMAGE_VIEW_TYPE_2D_ARRAY, image_format, VK_IMAGE_ASPECT_DEPTH_BIT, depth_mip_levels, 1, depth_buffer_view);
 }
 
 void Sample::create_command_pools() {

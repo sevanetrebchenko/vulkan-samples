@@ -28,11 +28,11 @@ unsigned get_memory_type_index(VkPhysicalDevice physical_device, VkMemoryRequire
     return selected_memory_type;
 }
 
-void create_image_view(VkDevice device, VkImage image, VkFormat format, VkImageAspectFlags aspect, unsigned mip_levels, VkImageView& image_view) {
+void create_image_view(VkDevice device, VkImage image, VkImageViewType type, VkFormat format, VkImageAspectFlags aspect, unsigned mip_levels, unsigned layer_count, VkImageView& image_view) {
     VkImageViewCreateInfo image_view_ci { };
     image_view_ci.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     image_view_ci.image = image;
-    image_view_ci.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    image_view_ci.viewType = type; // TODO: can type be determined from the number of layers?
     image_view_ci.format = format;
     
     image_view_ci.components = {
@@ -49,14 +49,14 @@ void create_image_view(VkDevice device, VkImage image, VkFormat format, VkImageA
     
     // Only one image layer
     image_view_ci.subresourceRange.baseArrayLayer = 0;
-    image_view_ci.subresourceRange.layerCount = 1;
+    image_view_ci.subresourceRange.layerCount = layer_count;
     
     if (vkCreateImageView(device, &image_view_ci, nullptr, &image_view) != VK_SUCCESS) {
         throw std::runtime_error("failed to create image view!");
     }
 }
 
-void create_image(VkPhysicalDevice physical_device, VkDevice device, unsigned image_width, unsigned image_height, unsigned mip_levels, VkSampleCountFlagBits samples, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags desired_memory_properties, VkImage& image, VkDeviceMemory& memory) {
+void create_image(VkPhysicalDevice physical_device, VkDevice device, unsigned image_width, unsigned image_height, unsigned mip_levels, unsigned layers, VkSampleCountFlagBits samples, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags desired_memory_properties, VkImage& image, VkDeviceMemory& memory) {
     VkImageCreateInfo image_ci { };
     image_ci.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     image_ci.imageType = VK_IMAGE_TYPE_2D;
@@ -64,7 +64,7 @@ void create_image(VkPhysicalDevice physical_device, VkDevice device, unsigned im
     image_ci.extent.height = image_height;
     image_ci.extent.depth = 1; // 2D image must have a depth of 1
     image_ci.mipLevels = mip_levels;
-    image_ci.arrayLayers = 1; // No image array
+    image_ci.arrayLayers = layers; // No image array
     
     image_ci.format = format; // TODO: format must be supported by the graphics hardware (VkSurfaceFormatKHR) (check?)
     

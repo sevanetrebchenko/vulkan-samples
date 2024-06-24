@@ -35,6 +35,9 @@ VkShaderModule create_shader_module(VkDevice device, const char* filepath) {
     else if (extension == ".frag") {
         type = shaderc_glsl_fragment_shader;
     }
+    else if (extension == ".geom") {
+        type = shaderc_glsl_geometry_shader;
+    }
     else {
         throw std::runtime_error("unknown shader type!");
     }
@@ -46,7 +49,7 @@ VkShaderModule create_shader_module(VkDevice device, const char* filepath) {
     shaderc::SpvCompilationResult result = compiler.CompileGlslToSpv(source, type, filename.c_str());
     
     if (result.GetCompilationStatus() != shaderc_compilation_status_success) {
-        throw std::runtime_error("failed to compile shader: " + result.GetErrorMessage());
+        throw std::runtime_error("failed to compile " + std::string(filepath) + ": " + result.GetErrorMessage());
     }
     
     std::vector<unsigned> spirv = { result.cbegin(), result.cend() };
