@@ -33,12 +33,15 @@ layout (set = 0, binding = 4) uniform sampler2D ambient;
 layout (set = 0, binding = 5) uniform sampler2D diffuse;
 layout (set = 0, binding = 6) uniform sampler2D specular;
 layout (set = 0, binding = 7) uniform sampler2D depth;
-layout (set = 0, binding = 8) uniform sampler2D shadow;
+layout (set = 0, binding = 8) uniform sampler2DArray shadow;
 
 layout (location = 0) out vec4 out_color;
 
 void main() {
     vec3 color = vec3(0.0f);
+
+    float d = texture(depth, vertex_uv).r;
+    float s = texture(shadow, vec3(vertex_uv, 0)).r;
 
     vec4 view_position = texture(positions, vertex_uv);
     vec4 N = texture(normals, vertex_uv);

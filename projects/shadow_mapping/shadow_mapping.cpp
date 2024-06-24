@@ -309,11 +309,14 @@ class ShadowMapping final : public Sample {
             specialization.size = sizeof(int);
             specialization.offset = 0;
             
+            
             VkSpecializationInfo specialization_info { };
             specialization_info.mapEntryCount = 1;
             specialization_info.pMapEntries = &specialization;
             specialization_info.dataSize = sizeof(int);
-            specialization_info.pData = &LIGHT_COUNT;
+            
+            int light_count = scene.lights.size();
+            specialization_info.pData = &light_count;
             
             // A custom fragment shader stage is not necessary, since the only thing we care about is depth information and that gets written automatically
             VkPipelineShaderStageCreateInfo shader_stages[] = {
@@ -437,24 +440,10 @@ class ShadowMapping final : public Sample {
             vertex_input_create_info.vertexAttributeDescriptionCount = sizeof(vertex_attribute_descriptions) / sizeof(vertex_attribute_descriptions[0]);
             vertex_input_create_info.pVertexAttributeDescriptions = vertex_attribute_descriptions;
             
-            // Shader constants
-            VkSpecializationMapEntry specialization { };
-            
-            // layout (constant_id = 0) const int LIGHT_COUNT = 32;
-            specialization.constantID = 0;
-            specialization.size = sizeof(int);
-            specialization.offset = 0;
-            
-            VkSpecializationInfo specialization_info { };
-            specialization_info.mapEntryCount = 1;
-            specialization_info.pMapEntries = &specialization;
-            specialization_info.dataSize = sizeof(int);
-            specialization_info.pData = &LIGHT_COUNT;
-            
             // Bundle shader stages to assign to pipeline
             VkPipelineShaderStageCreateInfo shader_stages[] = {
                 create_shader_stage(create_shader_module(device, "shaders/geometry_buffer.vert"), VK_SHADER_STAGE_VERTEX_BIT),
-                create_shader_stage(create_shader_module(device, "shaders/geometry_buffer.frag"), VK_SHADER_STAGE_FRAGMENT_BIT, &specialization_info),
+                create_shader_stage(create_shader_module(device, "shaders/geometry_buffer.frag"), VK_SHADER_STAGE_FRAGMENT_BIT),
             };
             
             // Input assembly describes the topology of the geometry being rendered
@@ -585,14 +574,25 @@ class ShadowMapping final : public Sample {
             VkPipelineVertexInputStateCreateInfo vertex_input_create_info { };
             vertex_input_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
             
-            VkVertexInputBindingDescription vertex_binding_descriptions[] {
-                create_vertex_binding_description(0, sizeof(glm::vec3), VK_VERTEX_INPUT_RATE_VERTEX) // One element is vertex position (vec3) + normal (vec3)
-            };
+            // Shader constants
+            VkSpecializationMapEntry specialization { };
+            
+            // layout (constant_id = 0) const int LIGHT_COUNT = 32;
+            specialization.constantID = 0;
+            specialization.size = sizeof(int);
+            specialization.offset = 0;
+            
+            VkSpecializationInfo specialization_info { };
+            specialization_info.mapEntryCount = 1;
+            specialization_info.pMapEntries = &specialization;
+            specialization_info.dataSize = sizeof(int);
+            int light_count = scene.lights.size();
+            specialization_info.pData = &light_count;
             
             // Bundle shader stages to assign to pipeline
             VkPipelineShaderStageCreateInfo shader_stages[] = {
                 create_shader_stage(create_shader_module(device, "shaders/composition.vert"), VK_SHADER_STAGE_VERTEX_BIT),
-                create_shader_stage(create_shader_module(device, "shaders/composition.frag"), VK_SHADER_STAGE_FRAGMENT_BIT),
+                create_shader_stage(create_shader_module(device, "shaders/composition.frag"), VK_SHADER_STAGE_FRAGMENT_BIT, &specialization_info),
             };
             
             // Input assembly describes the topology of the geometry being rendered
@@ -722,7 +722,7 @@ class ShadowMapping final : public Sample {
         
         void initialize_shadow_map_render_pass() {
             // TODO: consolidate specifying attachment format into one place
-            VkAttachmentDescription attachment_description = create_attachment_description(depth_buffer_format, VK_SAMPLE_COUNT_1_BIT, VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE, VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_STORE, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            VkAttachmentDescription attachment_description = create_attachment_description(depth_buffer_format, VK_SAMPLE_COUNT_1_BIT, VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE, VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_STORE, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL);
             VkAttachmentReference depth_attachment_reference = create_attachment_reference(0, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
             
             VkSubpassDescription subpass_description { };
@@ -1064,18 +1064,18 @@ class ShadowMapping final : public Sample {
             unsigned starting_binding = ++binding;
             for (; binding < 9; ++binding) {
                 if (binding == 7) {
+                    // Depth attachment
+                    image_infos[binding - starting_binding].imageLayout = VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL;
+                    image_infos[binding - starting_binding].imageView = depth_buffer_view;
+                    image_infos[binding - starting_binding].sampler = depth_sampler;
+                }
+                else if (binding == 8) {
                     // Shadow map attachment
                     // Shadow map uses depth format
                     image_infos[binding - starting_binding].imageLayout = VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL;
                     
                     // Shadow map image view comes from the shadow map framebuffer
                     image_infos[binding - starting_binding].imageView = shadow_attachment.image_view;
-                    image_infos[binding - starting_binding].sampler = depth_sampler;
-                }
-                else if (binding == 8) {
-                    // Depth attachment
-                    image_infos[binding - starting_binding].imageLayout = VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL;
-                    image_infos[binding - starting_binding].imageView = depth_buffer_view;
                     image_infos[binding - starting_binding].sampler = depth_sampler;
                 }
                 else {
