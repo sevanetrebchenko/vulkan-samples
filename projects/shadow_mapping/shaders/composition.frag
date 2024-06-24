@@ -27,49 +27,76 @@ layout (set = 0, binding = 1) uniform LightingUniforms {
     Light lights[LIGHT_COUNT];
 } lighting;
 
-layout (set = 0, binding = 2) uniform sampler2D positions;
-layout (set = 0, binding = 3) uniform sampler2D normals;
+layout (set = 0, binding = 2) uniform sampler2D positions; // world space
+layout (set = 0, binding = 3) uniform sampler2D normals; // world space
 layout (set = 0, binding = 4) uniform sampler2D ambient;
 layout (set = 0, binding = 5) uniform sampler2D diffuse;
 layout (set = 0, binding = 6) uniform sampler2D specular;
-layout (set = 0, binding = 7) uniform sampler2D depth;
-layout (set = 0, binding = 8) uniform sampler2DArray shadow;
+layout (set = 0, binding = 7) uniform sampler2DArray shadow;
 
 layout (location = 0) out vec4 out_color;
+
+float linearize(float d) {
+    float camera_near = 0.01f;
+    float camera_far = 100.0f;
+    return (2.0 * camera_near) / (camera_far + camera_near - d * (camera_far - camera_near));
+}
+
+float shadowing(vec3 position, vec3 normal, int light_index) {
+    Light light = lighting.lights[light_index];
+
+    vec4 shadow_position = light.transform * vec4(position, 1.0f);
+    shadow_position /= shadow_position.w; // Perspective divide
+    shadow_position.xy = shadow_position.xy * 0.5f + 0.5f; // [0.0, 1.0]
+
+    if (shadow_position.z < 0.0f || shadow_position.z > 1.0f) {
+        // Point is behind the light view frustum
+        // Return this point as fully illuminated
+        return 0.0f;
+    }
+
+    // Depth value from the perspective of the light
+    float shadow_map_depth = texture(shadow, vec3(shadow_position.xy, light_index)).r;
+
+    // When transformed, the fragment has a greater depth than when rendered from the light, meaning it is obstructed and cannot be seen by the light
+    // It is in shadow
+    float bias = 0.0001f; // max(0.005f * (1.0f - dot(normal, light.direction)), 0.0005f);
+    return shadow_position.z - bias >= shadow_map_depth ? 1.0f : 0.0f;
+}
 
 void main() {
     vec3 color = vec3(0.0f);
 
-    float d = texture(depth, vertex_uv).r;
-    float s = texture(shadow, vec3(vertex_uv, 0)).r;
+    vec3 world_position = texture(positions, vertex_uv).xyz;
+    vec3 N = texture(normals, vertex_uv).xyz;
+    vec3 V = normalize(global.camera_position - world_position);
 
-    vec4 view_position = texture(positions, vertex_uv);
-    vec4 N = texture(normals, vertex_uv);
-    vec4 V = normalize((global.view * vec4(global.camera_position, 1.0f)) - view_position);
+    int light_index = 0;
+    Light light = lighting.lights[light_index];
 
-    // Hardcode one light for the time being
-    vec4 light_position = vec4(0.0f, 3.f, 1.0f, 1.0f);
-    vec3 light_color = vec3(1.0f, 1.0f, 1.0f);
-
-    vec4 L = normalize((global.view * light_position) - view_position);
+//    vec3 L = normalize(light_position - world_position);
+    vec3 L = -normalize(light.direction); // Directional light
 
     // Ambient
-    color += texture(ambient, vertex_uv).xyz;
+    vec3 ambient_component = texture(ambient, vertex_uv).xyz;
 
     // Diffuse
     float lambert = max(dot(N, L), 0.0f);
-    color += light_color * texture(diffuse, vertex_uv).rgb * lambert;
+    vec3 diffuse_component = light.color * texture(diffuse, vertex_uv).rgb * lambert;
 
     // Specular
+    vec3 specular_component = vec3(0.0f);
     if (lambert > 0.0f) {
-        vec4 specular = texture(specular, vertex_uv);
+        vec4 s = texture(specular, vertex_uv); // specular color.rgb, specular exponent
 
         // Specular highlights only happen with visible faces
-        vec4 R = normalize(2 * lambert * N - L); // 2 N.L * N - L
+        vec3 R = normalize(2 * lambert * N - L); // 2 N.L * N - L
         if (max(dot(R, V), 0.0f) > 0.0f) {
-            color += specular.rgb * pow(max(dot(R, V), 0.0f), specular.a);
+            specular_component = s.rgb * pow(max(dot(R, V), 0.0f), s.a);
         }
     }
 
-    out_color = vec4(color, 1.0f);
+    // Shadowing affects diffuse + specular components, but leaves the ambient component untouched
+    vec3 lighting = ambient_component + (1.0f - shadowing(world_position, N, light_index)) * (diffuse_component + specular_component);
+    out_color = vec4(lighting, 1.0f);
 }

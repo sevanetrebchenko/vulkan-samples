@@ -58,7 +58,7 @@ void Camera::recalculate() {
     if (orthographic) {
         float height = 2.0f;
         float width = height * aspect;
-        projection = glm::ortho(-width, width, -height, height, near, far);
+        projection = glm::ortho(-5.0f, 5.0f, -5.0f, 5.0f, near, far);
     }
     else {
         projection = glm::perspective(glm::radians(fov), aspect, near, far);

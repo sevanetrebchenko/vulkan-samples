@@ -162,9 +162,9 @@ class ShadowMapping final : public Sample {
         }
         
         void update() override {
-            Scene::Object& object = scene.objects.back();
-            Transform& transform = object.transform;
-            transform.set_rotation(transform.get_rotation() + (float)dt * glm::vec3(0.0f, -10.0f, 0.0f));
+//            Scene::Object& object = scene.objects.back();
+//            Transform& transform = object.transform;
+//            transform.set_rotation(transform.get_rotation() + (float)dt * glm::vec3(0.0f, -10.0f, 0.0f));
             
             update_uniform_buffers();
         }
@@ -323,7 +323,7 @@ class ShadowMapping final : public Sample {
             rasterizer_create_info.rasterizerDiscardEnable = VK_FALSE;
             rasterizer_create_info.polygonMode = VK_POLYGON_MODE_FILL;
             rasterizer_create_info.lineWidth = 1.0f;
-            rasterizer_create_info.cullMode = VK_CULL_MODE_FRONT_BIT; // Cull front-facing polygons to prevent peter panning of shadows
+            rasterizer_create_info.cullMode = VK_CULL_MODE_BACK_BIT;
             rasterizer_create_info.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
             rasterizer_create_info.depthBiasEnable = VK_FALSE;
             rasterizer_create_info.depthBiasConstantFactor = 0.0f;
@@ -799,18 +799,13 @@ class ShadowMapping final : public Sample {
         }
         
         void initialize_composition_render_pass() {
-            VkAttachmentDescription attachment_descriptions[] {
-                create_attachment_description(surface_format.format, VK_SAMPLE_COUNT_1_BIT, VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE, VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR),
-            };
-            
-            VkAttachmentReference color_attachment_references[] {
-                create_attachment_reference(0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL),
-            };
+            VkAttachmentDescription attachment_description = create_attachment_description(surface_format.format, VK_SAMPLE_COUNT_1_BIT, VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE, VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+            VkAttachmentReference color_attachment_reference = create_attachment_reference(0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
             
             VkSubpassDescription subpass_description { };
             subpass_description.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-            subpass_description.colorAttachmentCount = sizeof(color_attachment_references) / sizeof(color_attachment_references[0]);
-            subpass_description.pColorAttachments = color_attachment_references;
+            subpass_description.colorAttachmentCount = 1;
+            subpass_description.pColorAttachments = &color_attachment_reference;
             subpass_description.pDepthStencilAttachment = nullptr; // Depth information is not used for rendering a FSQ
             subpass_description.pResolveAttachments = nullptr; // Not used in this sample
             subpass_description.pInputAttachments = nullptr; // Not used in this sample
@@ -826,8 +821,8 @@ class ShadowMapping final : public Sample {
             
             VkRenderPassCreateInfo render_pass_create_info { };
             render_pass_create_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-            render_pass_create_info.attachmentCount = sizeof(attachment_descriptions) / sizeof(attachment_descriptions[0]);
-            render_pass_create_info.pAttachments = attachment_descriptions;
+            render_pass_create_info.attachmentCount = 1;
+            render_pass_create_info.pAttachments = &attachment_description;
             render_pass_create_info.subpassCount = 1;
             render_pass_create_info.pSubpasses = &subpass_description;
             render_pass_create_info.dependencyCount = sizeof(subpass_dependencies) / sizeof(subpass_dependencies[0]);
@@ -980,11 +975,8 @@ class ShadowMapping final : public Sample {
                 // Specular
                 create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 6),
                 
-                // Depth
-                create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 7),
-                
                 // Shadow map
-                create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 8),
+                create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 7),
             };
             
             // Initialize the descriptor set layout
@@ -1006,7 +998,7 @@ class ShadowMapping final : public Sample {
                 throw std::runtime_error("failed to allocate descriptor set!");
             }
             
-            VkWriteDescriptorSet descriptor_writes[9] { };
+            VkWriteDescriptorSet descriptor_writes[8] { };
             VkDescriptorBufferInfo buffer_infos[2] { };
             
             unsigned binding = 0u;
@@ -1044,16 +1036,10 @@ class ShadowMapping final : public Sample {
             
             VkDescriptorImageInfo image_infos[7] { };
             
-            // Bindings 2 - 8
+            // Bindings 2 - 7
             unsigned starting_binding = ++binding;
-            for (; binding < 9; ++binding) {
+            for (; binding < 8; ++binding) {
                 if (binding == 7) {
-                    // Depth attachment
-                    image_infos[binding - starting_binding].imageLayout = VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL;
-                    image_infos[binding - starting_binding].imageView = depth_buffer_view;
-                    image_infos[binding - starting_binding].sampler = depth_sampler;
-                }
-                else if (binding == 8) {
                     // Shadow map attachment
                     // Shadow map uses depth format
                     image_infos[binding - starting_binding].imageLayout = VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL;
@@ -1216,7 +1202,7 @@ class ShadowMapping final : public Sample {
             knight.diffuse = glm::vec3(0.8f); // offwhite
             knight.specular = glm::vec3(0.0f);
             knight.specular_exponent = 0.0f;
-            knight.transform = Transform(glm::vec3(0, 0.5f, 0), glm::vec3(1.5f), glm::vec3(0.0f, 50.0f, 0.0f));
+            knight.transform = Transform(glm::vec3(0, 0.5f, 0), glm::vec3(1.5f), glm::vec3(0.0f, -25.0f, 0.0f));
             knight.flat_shaded = true;
             
             // This sample only uses vertex position and normal
@@ -1307,20 +1293,24 @@ class ShadowMapping final : public Sample {
             glm::mat4 projection = glm::ortho(-5.0f, 5.0f, -5.0f, 5.0f, camera.get_near_plane_distance(), camera.get_far_plane_distance());
             projection[1][1] *= -1;
             
-            {
-                Scene::Light& light = scene.lights.emplace_back();
-                light.position = glm::vec3(5.0f, 5.0f, 5.0f);
-                glm::mat4 view = glm::lookAt(light.position, glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-                light.transform = projection * view;
-                light.direction = glm::normalize(glm::vec3(0.0f) - light.position);
-            }
+            float distance = 3.0f;
+            float height = 5.0f;
             
             {
                 Scene::Light& light = scene.lights.emplace_back();
-                light.position = glm::vec3(-5.0f, 5.0f, -5.0f);
+                light.position = glm::vec3(distance, height, distance);
                 glm::mat4 view = glm::lookAt(light.position, glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
                 light.transform = projection * view;
                 light.direction = glm::normalize(glm::vec3(0.0f) - light.position);
+                light.color = glm::vec3(1.0f);
+            }
+            {
+                Scene::Light& light = scene.lights.emplace_back();
+                light.position = glm::vec3(-distance, height, -distance);
+                glm::mat4 view = glm::lookAt(light.position, glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+                light.transform = projection * view;
+                light.direction = glm::normalize(glm::vec3(0.0f) - light.position);
+                light.color = glm::vec3(1.0f, 0.0f, 0.0f);
             }
         }
         

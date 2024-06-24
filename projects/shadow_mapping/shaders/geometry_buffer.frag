@@ -1,8 +1,8 @@
 
 #version 450 core
 
-layout (location = 0) in vec3 view_position;
-layout (location = 1) in vec3 view_normal;
+layout (location = 0) in vec3 world_position;
+layout (location = 1) in vec3 world_normal;
 
 layout (set = 0, binding = 0) uniform GlobalUniforms {
     mat4 view;
@@ -32,13 +32,13 @@ vec3 calculate_face_normal(vec3 position) {
 }
 
 void main() {
-    out_position = view_position.xyz;
+    out_position = world_position;
 
     if (shading.flat_shaded == 1) {
-        out_normal = calculate_face_normal(view_position);
+        out_normal = calculate_face_normal(world_position);
     }
     else {
-        out_normal = normalize(view_normal);
+        out_normal = normalize(world_normal);
     }
     out_ambient = shading.ambient;
     out_diffuse = shading.diffuse;
