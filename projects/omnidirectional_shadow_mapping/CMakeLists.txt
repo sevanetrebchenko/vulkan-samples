@@ -1,0 +1,2 @@
+
+add_project(NAME omnidirectional_shadow_mapping SOURCE_FILES "omnidirectional_shadow_mapping.cpp")
