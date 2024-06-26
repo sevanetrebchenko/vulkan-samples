@@ -36,20 +36,15 @@ float linearize(float d) {
 }
 
 float shadowing(vec3 position) {
-    // get vector between fragment position and light position
-    vec3 fragToLight = position - light.position;
-    // use the light to fragment vector to sample from the depth map
-    float closestDepth = texture(shadow, fragToLight).r;
-    // it is currently in linear range between [0,1]. Re-transform back to original value
-    closestDepth *= global.camera_far_plane;
-    // now get current linear depth as the length between the fragment and light position
-    float currentDepth = length(fragToLight);
-    // now test for shadows
-    float bias = 0.0001f;
-    float shadow = currentDepth - bias > closestDepth ? 1.0 : 0.0;
+    vec3 fragment_to_light = position - light.position;
 
-    return shadow;
+    float closest = texture(shadow, fragment_to_light).r * global.camera_far_plane;
+    float current = length(fragment_to_light);
 
+    // Shadowing is determined by comparing the distance from the light to the point to the (linearized) depth at the point when rendered from the lights POV
+    // If the distance is greater than the depth, there is geometry occluding the point and it should be rendered in shadow
+    float bias = 0.01f;
+    return current - bias > closest ? 1.0f : 0.0f;
 }
 
 void main() {

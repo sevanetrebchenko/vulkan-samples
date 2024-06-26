@@ -169,10 +169,15 @@ class ShadowMapping final : public Sample {
         }
         
         void update() override {
-//            Scene::Object& object = scene.objects.back();
-//            Transform& transform = object.transform;
-//            transform.set_rotation(transform.get_rotation() + (float)dt * glm::vec3(0.0f, -10.0f, 0.0f));
+            Scene::Object& object = scene.objects.back();
+            Transform& transform = object.transform;
+            transform.set_rotation(transform.get_rotation() + (float)dt * glm::vec3(0.0f, -10.0f, 0.0f));
             
+            // Rotate light
+            {
+                glm::vec3 position = scene.light.position;
+            }
+
             update_uniform_buffers();
         }
         
@@ -1298,18 +1303,17 @@ class ShadowMapping final : public Sample {
             float fov = 90.0;
             float aspect = 1.0f;
             glm::mat4 projection = glm::perspective(glm::radians(fov), aspect, camera.get_near_plane_distance(), camera.get_far_plane_distance());
-            projection[1][1] *= -1;
             
             scene.light.position = glm::vec3(1.5f, 0.0f, 0.0f);
             scene.light.color = glm::vec3(1.0f);
             
             std::vector<glm::vec3> up_vectors {
-                glm::vec3(0.0f, 1.0f, 0.0f), // +x
-                glm::vec3(0.0f, 1.0f, 0.0f), // -x
-                glm::vec3(1.0f, 0.0f, 0.0f), // +y
-                glm::vec3(-1.0f, 0.0f, 0.0f), // -y
-                glm::vec3(0.0f, 1.0f, 0.0f), // +z
-                glm::vec3(0.0f, 1.0f, 0.0f), // -z
+                glm::vec3(0.0f, -1.0f, 0.0f), // +x
+                glm::vec3(0.0f, -1.0f, 0.0f), // -x
+                glm::vec3(0.0f, 0.0f, 1.0f),  // +y
+                glm::vec3(0.0f, 0.0f, -1.0f), // -y
+                glm::vec3(0.0f, -1.0f, 0.0f), // +z
+                glm::vec3(0.0f, -1.0f, 0.0f), // -z
             };
 
             std::vector<glm::vec3> directions {
