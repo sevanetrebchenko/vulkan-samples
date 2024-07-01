@@ -19,7 +19,6 @@ class Basic3D final : public Sample {
                     pipeline(nullptr),
                     pipeline_layout(nullptr),
                     descriptor_sets({ }) {
-            
             enabled_queue_types |= VK_QUEUE_TRANSFER_BIT; // Sample needs transfer support for moving data from staging buffers to device-local buffers
         }
         

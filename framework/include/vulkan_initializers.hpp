@@ -11,6 +11,7 @@
 //   .vert - VK_SHADER_STAGE_VERTEX_BIT
 //   .frag - VK_SHADER_STAGE_FRAGMENT_BIT
 //   .geom - VK_SHADER_STAGE_GEOMETRY_BIT
+//   .comp - VK_SHADER_STAGE_COMPUTE_BIT
 VkShaderModule create_shader_module(VkDevice device, const char* filepath, std::initializer_list<std::pair<std::string, std::string>> preprocessor_definitions = { });
 VkPipelineShaderStageCreateInfo create_shader_stage(VkShaderModule module, VkShaderStageFlagBits stage, VkSpecializationInfo* specialization_info = nullptr, const char* entry = "main");
 

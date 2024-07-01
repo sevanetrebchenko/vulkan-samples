@@ -39,6 +39,9 @@ VkShaderModule create_shader_module(VkDevice device, const char* filepath, std::
     else if (extension == ".geom") {
         type = shaderc_glsl_geometry_shader;
     }
+    else if (extension == ".comp") {
+        type = shaderc_glsl_compute_shader;
+    }
     else {
         throw std::runtime_error("unknown shader type!");
     }

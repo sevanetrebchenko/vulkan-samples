@@ -1155,7 +1155,7 @@ class ShadowMapping final : public Sample {
             models.emplace_back(load_obj("assets/models/cube.obj"));
             models.emplace_back(load_obj("assets/models/knight.obj"));
             float box_size = 3.0f;
-            float height = 0.0f;
+            float height = 2.0f;
             float thickness = 0.05f;
             
             // Walls
@@ -1211,7 +1211,7 @@ class ShadowMapping final : public Sample {
             knight.diffuse = glm::vec3(0.8f); // offwhite
             knight.specular = glm::vec3(0.0f);
             knight.specular_exponent = 0.0f;
-            knight.transform = Transform(glm::vec3(0, 0.0f, 0), glm::vec3(1.5f), glm::vec3(0.0f, 0.0f, 0.0f));
+            knight.transform = Transform(glm::vec3(0, 0.5f, 0), glm::vec3(1.5f), glm::vec3(0.0f, 0.0f, 0.0f));
             knight.flat_shaded = true;
             
             // This sample only uses vertex position and normal
@@ -1304,7 +1304,7 @@ class ShadowMapping final : public Sample {
             float aspect = 1.0f;
             glm::mat4 projection = glm::perspective(glm::radians(fov), aspect, camera.get_near_plane_distance(), camera.get_far_plane_distance());
             
-            scene.light.position = glm::vec3(1.5f, 0.0f, 0.0f);
+            scene.light.position = glm::vec3(1.5f, 3.0f, 0.0f);
             scene.light.color = glm::vec3(1.0f);
             
             std::vector<glm::vec3> up_vectors {
@@ -1398,38 +1398,6 @@ class ShadowMapping final : public Sample {
             
             create_buffer(physical_device, device, uniform_buffer_size, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, uniform_buffer, uniform_buffer_memory);
             vkMapMemory(device, uniform_buffer_memory, 0, uniform_buffer_size, 0, &uniform_buffer_mapped);
-        }
-        
-        void update_object_uniform_buffers(unsigned id) {
-//            Scene::Object& object = scene.objects[id];
-//            std::size_t offset = align_to_device_boundary(physical_device, sizeof(glm::mat4) * 2 + sizeof(glm::vec4)) + (align_to_device_boundary(physical_device, sizeof(glm::mat4) * 2) + align_to_device_boundary(physical_device, sizeof(glm::vec4) * 3 + 4)) * id;
-//
-//            struct ObjectData {
-//                glm::mat4 model;
-//                glm::mat4 normal;
-//            };
-//            ObjectData object_data { };
-//            object_data.model = object.transform.get_matrix();
-//            object_data.normal = glm::transpose(glm::inverse(object_data.model));
-//
-//            memcpy((void*)((const char*) (uniform_buffer_mapped) + offset), &object_data, sizeof(ObjectData));
-//            offset += align_to_device_boundary(physical_device, sizeof(glm::mat4) * 2);
-//
-//            struct MaterialData {
-//                // Must be aligned to vec4
-//                glm::vec4 ambient;
-//                glm::vec4 diffuse;
-//                glm::vec4 specular;
-//                float exponent;
-//            };
-//            MaterialData material_data { };
-//            material_data.ambient = glm::vec4(object.ambient, 1.0f);
-//            material_data.diffuse = glm::vec4(object.diffuse, 1.0f);
-//            material_data.specular = glm::vec4(object.specular, 1.0f);
-//            material_data.exponent = object.specular_exponent;
-//
-//            memcpy((void*)((const char*) (uniform_buffer_mapped) + offset), &material_data, sizeof(MaterialData));
-//            offset += align_to_device_boundary(physical_device, sizeof(glm::vec4) * 3 + 4);
         }
         
         void update_uniform_buffers() {
