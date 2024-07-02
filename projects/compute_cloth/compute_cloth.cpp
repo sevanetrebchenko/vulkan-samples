@@ -14,7 +14,9 @@ class DeferredRendering final : public Sample {
             camera.set_position(glm::vec3(0, 2, 6));
             camera.set_look_direction(glm::vec3(0.0f, 0.25f, -1.0f));
             
-            dimension = 80;
+            dimension = 5;
+            size = 5.0f;
+            enabled_queue_types = VK_QUEUE_COMPUTE_BIT | VK_QUEUE_TRANSFER_BIT;
         }
         
         ~DeferredRendering() override {
@@ -47,6 +49,9 @@ class DeferredRendering final : public Sample {
             glm::vec2 uv;
             alignas(16) glm::vec3 normal;
         };
+        
+        std::vector<Particle> cloth_vertices;
+        std::vector<unsigned> cloth_indices;
         
         int dimension; // Number of particles one one side of the cloth
         float size; // World-space size of the cloth
@@ -93,7 +98,7 @@ class DeferredRendering final : public Sample {
         };
         
         // Uniform buffer layout:
-        // simulation uniforms - camera uniforms - lighting uniforms - per model uniforms
+        // simulation uniforms - camera uniforms - lighting uniforms - model transform uniforms - model phong uniforms - cloth phong uniforms
         Buffer uniform_buffer;
         void* uniform_buffer_mapped;
         
@@ -125,7 +130,13 @@ class DeferredRendering final : public Sample {
         VkDescriptorSet global_descriptor_set;
         
         VkDescriptorSetLayout object_descriptor_set_layout;
-        VkDescriptorSet object_descriptor_set;
+        std::array<VkDescriptorSet, 2> object_descriptor_sets;
+        
+        // Synchronization
+        VkSemaphore is_compute_finished;
+        VkFence is_compute_in_flight;
+        
+        VkCommandBuffer compute_command_buffer;
         
         VkSampler sampler;
         
@@ -135,13 +146,14 @@ class DeferredRendering final : public Sample {
             
             initialize_samplers();
             
-            initialize_command_buffer();
+            initialize_synchronization();
+            initialize_compute_command_buffer();
             
             initialize_model_render_pass();
             initialize_cloth_render_pass();
             initialize_framebuffers();
             
-            initialize_descriptor_pool(4, 0);
+            initialize_descriptor_pool(5, 0);
             
             initialize_global_descriptor_set();
             initialize_compute_descriptor_sets();
@@ -156,196 +168,196 @@ class DeferredRendering final : public Sample {
         }
         
         void update() override {
+            update_uniform_buffers();
         }
         
-        void render() override {
-//            VkSemaphore is_image_available = is_presentation_complete[frame_index];
-//
-//            unsigned image_index;
-//            VkResult result = vkAcquireNextImageKHR(device, swapchain, std::numeric_limits<std::uint64_t>::max(), is_image_available, VK_NULL_HANDLE, &image_index);
-//
-//            // Record command buffer(s)
-//            record_command_buffers(image_index);
-//
-//            VkSubmitInfo submit_info { };
-//            submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-//
-//            // Ensure that the swapchain image is available before executing any color operations (writes) by waiting on the pipeline stage that writes to the color attachment (discussed in detail during render pass creation above)
-//            // Another approach that can be taken here is to wait on VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, which would ensure that no command buffers are executed before the image swapchain image is ready (vkAcquireNextImageKHR signals is_image_available, queue execution waits on is_image_available)
-//            // However, this is not the preferred approach - waiting on VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT will completely block the pipeline until the swapchain image is ready
-//            // Instead, waiting on the pipeline stage where writes are performed to the color attachment allows Vulkan to begin scheduling other work that happens before the VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT stage is reached for execution (such as invoking the vertex shader)
-//            // This way, the implementation waits only the time that is absolutely necessary for coherent memory operations
-//
-//            // Presentation -> geometry buffer pass
-//            {
-//                VkSemaphore wait_semaphores[] = { is_image_available, is_offscreen_rendering_complete }; // Semaphore(s) to wait on before the command buffers can begin execution
-//                VkPipelineStageFlags wait_stage_flags[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT }; // Note: wait_stage_flags and wait_semaphores have a 1:1 correlation, meaning it is possible to wait on and signal different semaphores at different pipeline stages
-//
-//                // Waiting on the swapchain image to be ready (if not yet) when the pipeline is ready to perform writes to color attachments
-//                submit_info.waitSemaphoreCount = 1;
-//                submit_info.pWaitSemaphores = wait_semaphores;
-//                submit_info.pWaitDstStageMask = wait_stage_flags;
-//
-//                submit_info.commandBufferCount = 1;
-//                submit_info.pCommandBuffers = &offscreen_command_buffers[frame_index]; // Command buffer(s) to execute
-//
-//                submit_info.signalSemaphoreCount = 1;
-//                submit_info.pSignalSemaphores = &is_offscreen_rendering_complete; // Signal offscreen semaphore
-//
-//                // Submit
-//                if (vkQueueSubmit(queue, 1, &submit_info, VK_NULL_HANDLE) != VK_SUCCESS) {
-//                    throw std::runtime_error("failed to submit offscreen command buffer!");
-//                }
-//            }
-//
-//            // Geometry buffer pass -> presentation
-//            {
-//                VkSemaphore wait_semaphores[] = { is_offscreen_rendering_complete };
-//                VkPipelineStageFlags wait_stage_flags[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
-//
-//                submit_info.waitSemaphoreCount = 1;
-//                submit_info.pWaitSemaphores = wait_semaphores;
-//                submit_info.pWaitDstStageMask = wait_stage_flags;
-//                submit_info.commandBufferCount = 1;
-//                submit_info.pCommandBuffers = &command_buffers[frame_index];
-//
-//                submit_info.signalSemaphoreCount = 1;
-//                submit_info.pSignalSemaphores = &is_rendering_complete[frame_index];
-//
-//                // Submit
-//                // TODO: fence is not necessary here
-//                if (vkQueueSubmit(queue, 1, &submit_info, is_frame_in_flight[frame_index]) != VK_SUCCESS) {
-//                    throw std::runtime_error("failed to submit presentation command buffer!");
-//                }
-//            }
+        void initialize_synchronization() {
+            VkSemaphoreCreateInfo semaphore_create_info { };
+            semaphore_create_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+            if (vkCreateSemaphore(device, &semaphore_create_info, nullptr, &is_compute_finished) != VK_SUCCESS) {
+                throw std::runtime_error("failed to create semaphore (is_compute_finished)!");
+            }
+            
+            VkFenceCreateInfo fence_create_info { };
+            fence_create_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+            fence_create_info.flags = VK_FENCE_CREATE_SIGNALED_BIT; // Create the fence in the signaled state so that waiting on the fence during the first frame returns immediately
+    
+            if (vkCreateFence(device, &fence_create_info, nullptr, &is_compute_in_flight) != VK_SUCCESS) {
+                throw std::runtime_error("failed to create fence!");
+            }
         }
         
-        void initialize_command_buffer() {
-
+        void initialize_compute_command_buffer() {
+            VkCommandBufferAllocateInfo command_buffer_allocate_info { };
+            command_buffer_allocate_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+            command_buffer_allocate_info.commandPool = command_pool;
+            command_buffer_allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+            command_buffer_allocate_info.commandBufferCount = 1;
+            
+            if (vkAllocateCommandBuffers(device, &command_buffer_allocate_info, &compute_command_buffer) != VK_SUCCESS) {
+                throw std::runtime_error("failed to allocate compute command buffer!");
+            }
         }
         
         void record_command_buffers(unsigned image_index) override {
-            record_offscreen_command_buffer();
-            record_composition_command_buffer(image_index);
+            VkCommandBuffer command_buffer = command_buffers[frame_index];
+            vkResetCommandBuffer(command_buffer, 0);
+            
+            VkCommandBufferBeginInfo command_buffer_begin_info { };
+            command_buffer_begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+            command_buffer_begin_info.flags = 0;
+            if (vkBeginCommandBuffer(command_buffer, &command_buffer_begin_info) != VK_SUCCESS) {
+                throw std::runtime_error("failed to begin command buffer recording!");
+            }
+    
+            // Render model
+            {
+                VkRenderPassBeginInfo render_pass_info { };
+                render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+                render_pass_info.renderPass = model_render_pass;
+                render_pass_info.framebuffer = present_framebuffers[image_index];
+                render_pass_info.renderArea = create_region(0, 0, swapchain_extent.width, swapchain_extent.height);
+        
+                VkClearValue clear_values[2] { };
+                clear_values[0].color = {{ 0.0f, 0.0f, 0.0f, 1.0f }};
+                clear_values[1].depthStencil = { 1.0f, 0 };
+                render_pass_info.clearValueCount = 2;
+                render_pass_info.pClearValues = clear_values;
+        
+                vkCmdBeginRenderPass(command_buffer, &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
+                    // Bind graphics pipeline
+                    vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, model_pipeline);
+        
+                    // Bind global descriptor set (set 0)
+                    vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, model_pipeline_layout, 0, 1, &global_descriptor_set, 0, nullptr);
+                    
+                    // Bind vertex + index buffers
+                    VkDeviceSize offset = { 0 };
+                    vkCmdBindVertexBuffers(command_buffer, 0, 1, &model_vertex_buffer.buffer, &offset);
+                    vkCmdBindIndexBuffer(command_buffer, index_buffer.buffer, 0u, VK_INDEX_TYPE_UINT32); // Model indices come first
+                    
+                    // Bind per-object descriptor set (set 1)
+                    vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, model_pipeline_layout, 1, 1, &object_descriptor_sets[0], 0, nullptr);
+        
+                    vkCmdDrawIndexed(command_buffer, (unsigned) model.model.indices.size(), 1, 0, 0, 0);
+                vkCmdEndRenderPass(command_buffer);
+            }
+            
+            // Render cloth
+            {
+                VkRenderPassBeginInfo render_pass_info { };
+                render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+                render_pass_info.renderPass = cloth_render_pass;
+                render_pass_info.framebuffer = present_framebuffers[image_index];
+                render_pass_info.renderArea = create_region(0, 0, swapchain_extent.width, swapchain_extent.height);
+                render_pass_info.clearValueCount = 0u;
+
+                vkCmdBeginRenderPass(command_buffer, &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
+                    // Bind graphics pipeline
+                    vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, cloth_pipeline);
+
+                    // Bind global descriptor set (set 0)
+                    vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, cloth_pipeline_layout, 0, 1, &global_descriptor_set, 0, nullptr);
+
+                    // Bind vertex + index buffers
+                    VkDeviceSize offset = { ((frame_index + 1) % 2) * (sizeof(Particle) * cloth_vertices.size()) };
+                    vkCmdBindVertexBuffers(command_buffer, 0, 1, &ssbo.buffer, &offset);
+                    vkCmdBindIndexBuffer(command_buffer, index_buffer.buffer, model.model.indices.size() * sizeof(unsigned), VK_INDEX_TYPE_UINT32); // Cloth indices come after model indices
+
+                    // Bind per-object descriptor set (set 1)
+                    vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, cloth_pipeline_layout, 1, 1, &object_descriptor_sets[1], 0, nullptr);
+
+                    vkCmdDrawIndexed(command_buffer, cloth_indices.size(), 1, 0, 0, 0);
+                vkCmdEndRenderPass(command_buffer);
+            }
+    
+            if (vkEndCommandBuffer(command_buffer) != VK_SUCCESS) {
+                throw std::runtime_error("failed to record graphics command buffer!");
+            }
         }
         
-        void record_offscreen_command_buffer() {
-//            VkCommandBuffer command_buffer = offscreen_command_buffers[frame_index];
-//            vkResetCommandBuffer(command_buffer, 0);
-//
-//            VkCommandBufferBeginInfo command_buffer_begin_info { };
-//            command_buffer_begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-//            command_buffer_begin_info.flags = 0;
-//            if (vkBeginCommandBuffer(command_buffer, &command_buffer_begin_info) != VK_SUCCESS) {
-//                throw std::runtime_error("failed to begin command buffer recording!");
-//            }
-//
-//            VkRenderPassBeginInfo render_pass_info { };
-//            render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-//            render_pass_info.renderPass = offscreen_render_pass;
-//            render_pass_info.framebuffer = offscreen_framebuffer; // Only one geometry buffer
-//
-//            // Specify render area and offset
-//            render_pass_info.renderArea = create_region(0, 0, swapchain_extent.width, swapchain_extent.height);
-//
-//            VkClearValue clear_values[6] { };
-//            clear_values[POSITION].color = {{ 0.0f, 0.0f, 0.0f, 1.0f }};
-//            clear_values[NORMAL].color = {{ 0.0f, 0.0f, 0.0f, 1.0f }};
-//            clear_values[AMBIENT].color = {{ 0.0f, 0.0f, 0.0f, 1.0f }};
-//            clear_values[DIFFUSE].color = {{ 0.0f, 0.0f, 0.0f, 1.0f }};
-//            clear_values[SPECULAR].color = {{ 0.0f, 0.0f, 0.0f, 1.0f }};
-//            clear_values[DEPTH].depthStencil = { 1.0f, 0 };
-//
-//            render_pass_info.clearValueCount = sizeof(clear_values) / sizeof(clear_values[0]);
-//            render_pass_info.pClearValues = clear_values;
-//
-//            unsigned set;
-//
-//            // Record command for starting the offscreen render pass
-//            vkCmdBeginRenderPass(command_buffer, &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
-//                // Bind graphics pipeline
-//                vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, offscreen_pipeline);
-//
-//                // Bind pipeline-global descriptor sets
-//                set = 0;
-//                vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, offscreen_pipeline_layout, set, 1, &offscreen_global, 0, nullptr);
-//
-//                for (std::size_t i = 0u; i < scene.objects.size(); ++i) {
-//                    const Scene::Object& object = scene.objects[i];
-//                    const Model& model = models[object.model];
-//
-//                    // Bind vertex buffer
-//                    VkDeviceSize offsets[] = { object.vertex_offset  };
-//                    vkCmdBindVertexBuffers(command_buffer, 0, 1, &vertex_buffer, offsets);
-//
-//                    // Bind index buffer
-//                    vkCmdBindIndexBuffer(command_buffer, index_buffer, object.index_offset, VK_INDEX_TYPE_UINT32);
-//
-//                    // Descriptor sets need to be bound per object
-//                    set = 1;
-//                    vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, offscreen_pipeline_layout, set, 1, &offscreen_objects[i], 0, nullptr);
-//
-//                    // Draw indices.size() vertices which make up 1 instance starting at vertex index 0 and instance index 0.
-//                    vkCmdDrawIndexed(command_buffer, (unsigned) model.indices.size(), 1, 0, 0, 0);
-//                }
-//
-//            vkCmdEndRenderPass(command_buffer);
-//
-//            if (vkEndCommandBuffer(command_buffer) != VK_SUCCESS) {
-//                throw std::runtime_error("failed to record command buffer!");
-//            }
+        void record_compute_command_buffer() {
+            VkCommandBuffer command_buffer = compute_command_buffer;
+            vkResetCommandBuffer(command_buffer, 0);
+            
+            VkCommandBufferBeginInfo command_buffer_begin_info { };
+            command_buffer_begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+            command_buffer_begin_info.flags = 0;
+            if (vkBeginCommandBuffer(command_buffer, &command_buffer_begin_info) != VK_SUCCESS) {
+                throw std::runtime_error("failed to begin compute command buffer recording!");
+            }
+            
+            vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, compute_pipeline);
+            vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, compute_pipeline_layout, 0, 1, &compute_descriptor_sets[frame_index % 2], 0, nullptr);
+            
+            // Specify compute workgroups
+            // Each invocation group runs 10x10
+            vkCmdDispatch(command_buffer, 8, 8, 1);
+            
+            if (vkEndCommandBuffer(command_buffer) != VK_SUCCESS) {
+                throw std::runtime_error("failed to record compute command buffer!");
+            }
         }
         
-        void record_composition_command_buffer(unsigned image_index) {
-//            VkCommandBuffer command_buffer = command_buffers[frame_index];
-//            vkResetCommandBuffer(command_buffer, 0);
-//
-//            VkCommandBufferBeginInfo command_buffer_begin_info { };
-//            command_buffer_begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-//            command_buffer_begin_info.flags = 0;
-//            if (vkBeginCommandBuffer(command_buffer, &command_buffer_begin_info) != VK_SUCCESS) {
-//                throw std::runtime_error("failed to begin command buffer recording!");
-//            }
-//
-//            VkRenderPassBeginInfo render_pass_info { };
-//            render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-//            render_pass_info.renderPass = composition_render_pass;
-//            render_pass_info.framebuffer = present_framebuffers[image_index]; // Bind the framebuffer for the swapchain image being rendered to
-//
-//            // Specify render area and offset
-//            render_pass_info.renderArea = create_region(0, 0, swapchain_extent.width, swapchain_extent.height);
-//
-//            VkClearValue clear_value { };
-//
-//            // Clear value for color attachment
-//            clear_value.color = {{ 0.0f, 0.0f, 0.0f, 1.0f }};
-//            render_pass_info.clearValueCount = 1;
-//
-//            render_pass_info.pClearValues = &clear_value;
-//
-//            // Record command for starting the composition render pass
-//            vkCmdBeginRenderPass(command_buffer, &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
-//                // Bind graphics pipeline
-//                vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, composition_pipeline);
-//
-//                // Bind pipeline-global descriptor sets
-//                unsigned set = 0;
-//                vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, composition_pipeline_layout, set, 1, &composition_global, 0, nullptr);
-//
-//                // Draw a full screen triangle
-//                vkCmdDraw(command_buffer, 3, 1, 0, 0);
-//
-//            // Finish recording the command buffer
-//            vkCmdEndRenderPass(command_buffer);
-//
-//            if (vkEndCommandBuffer(command_buffer) != VK_SUCCESS) {
-//                throw std::runtime_error("failed to record command buffer!");
-//            }
+        
+        void render() override {
+            std::size_t timeout = std::numeric_limits<std::size_t>::max();
+            
+            // Compute submission
+            {
+                // Wait for compute work from the previous frame to complete before kicking off a new set of workgroups
+                vkWaitForFences(device, 1, &is_compute_in_flight, VK_TRUE, timeout);
+                vkResetFences(device, 1, &is_compute_in_flight); // Fences must be manually reset for the next frame
+                
+                record_compute_command_buffer();
+                
+                VkSubmitInfo submit_info { };
+                submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+                submit_info.commandBufferCount = 1;
+                submit_info.pCommandBuffers = &compute_command_buffer;
+                submit_info.signalSemaphoreCount = 1;
+                submit_info.pSignalSemaphores = &is_compute_finished;
+                
+                // Compute command buffer signals the is_compute_in_flight fence to indicate that the compute portion of this frame is complete
+                // This allows for the next frame to begin recording data
+                if (vkQueueSubmit(queue, 1, &submit_info, is_compute_in_flight) != VK_SUCCESS) {
+                    throw std::runtime_error("failed to submit compute command buffer!");
+                }
+            }
+            
+            unsigned image_index;
+            VkResult result = vkAcquireNextImageKHR(device, swapchain, std::numeric_limits<std::uint64_t>::max(), is_presentation_complete[frame_index], VK_NULL_HANDLE, &image_index);
+            // TODO: check result
+            
+            // Graphics submission
+            {
+                // Wait for graphics work from the previous frame to complete before kicking off a new set of rendering operations
+                record_command_buffers(image_index);
+                
+                VkSemaphore wait_semaphores[] = { is_compute_finished, is_presentation_complete[frame_index] };
+                
+                // Wait on the VK_PIPELINE_STAGE_VERTEX_INPUT_BIT pipeline stage to ensure that the graphics pipeline does not read vertex data from the cloth SSBO before the compute shader has finished writing to it
+                VkPipelineStageFlags wait_stages[] = { VK_PIPELINE_STAGE_VERTEX_INPUT_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
+                
+                VkSubmitInfo submit_info { };
+                submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+                submit_info.waitSemaphoreCount = 2;
+                submit_info.pWaitSemaphores = wait_semaphores;
+                submit_info.pWaitDstStageMask = wait_stages;
+                submit_info.commandBufferCount = 1;
+                submit_info.pCommandBuffers = &command_buffers[frame_index];
+                submit_info.signalSemaphoreCount = 1;
+                submit_info.pSignalSemaphores = &is_rendering_complete[frame_index];
+                
+                if (vkQueueSubmit(queue, 1, &submit_info, is_frame_in_flight[frame_index]) != VK_SUCCESS) {
+                    throw std::runtime_error("failed to submit graphics command buffer!");
+                }
+            }
         }
         
         void initialize_model_render_pass() {
             VkAttachmentDescription attachment_descriptions[] {
-                create_attachment_description(surface_format.format, VK_SAMPLE_COUNT_1_BIT, VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE, VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR),
+                create_attachment_description(surface_format.format, VK_SAMPLE_COUNT_1_BIT, VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE, VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL),
                 create_attachment_description(depth_buffer_format, VK_SAMPLE_COUNT_1_BIT, VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE, VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL),
             };
             
@@ -386,9 +398,10 @@ class DeferredRendering final : public Sample {
         }
         
         void initialize_cloth_render_pass() {
+            // Cloth render pass appends to the output attachment (color / depth LOAD operation is VK_ATTACHMENT_LOAD_OP_LOAD)
             VkAttachmentDescription attachment_descriptions[] {
-                create_attachment_description(surface_format.format, VK_SAMPLE_COUNT_1_BIT, VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE, VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR),
-                create_attachment_description(depth_buffer_format, VK_SAMPLE_COUNT_1_BIT, VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE, VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL),
+                create_attachment_description(surface_format.format, VK_SAMPLE_COUNT_1_BIT, VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE, VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR),
+                create_attachment_description(depth_buffer_format, VK_SAMPLE_COUNT_1_BIT, VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE, VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL),
             };
             
             VkAttachmentReference color_attachment_reference = create_attachment_reference(0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
@@ -493,8 +506,8 @@ class DeferredRendering final : public Sample {
             // Depth/stencil buffers
             VkPipelineDepthStencilStateCreateInfo depth_stencil_create_info { };
             depth_stencil_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-            depth_stencil_create_info.depthTestEnable = VK_FALSE;
-            depth_stencil_create_info.depthWriteEnable = VK_FALSE;
+            depth_stencil_create_info.depthTestEnable = VK_TRUE;
+            depth_stencil_create_info.depthWriteEnable = VK_TRUE;
             depth_stencil_create_info.depthCompareOp = VK_COMPARE_OP_LESS;
             
             VkPipelineColorBlendAttachmentState color_blend_attachment_create_info { };
@@ -588,7 +601,8 @@ class DeferredRendering final : public Sample {
             };
             
             // Input assembly describes the topology of the geometry being rendered
-            VkPipelineInputAssemblyStateCreateInfo input_assembly_state_create_info = create_input_assembly_state(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP);
+            // Note: primitive restart needs to be enabled!
+            VkPipelineInputAssemblyStateCreateInfo input_assembly_state_create_info = create_input_assembly_state(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP, true);
         
             // The viewport describes the region of the framebuffer that the output will be rendered to
             VkViewport viewport = create_viewport(0.0f, 0.0f, (float) swapchain_extent.width, (float) swapchain_extent.height, 0.0f, 1.0f);
@@ -612,7 +626,7 @@ class DeferredRendering final : public Sample {
             rasterizer_create_info.polygonMode = VK_POLYGON_MODE_FILL;
             
             rasterizer_create_info.lineWidth = 1.0f;
-            rasterizer_create_info.cullMode = VK_CULL_MODE_BACK_BIT;
+            rasterizer_create_info.cullMode = VK_CULL_MODE_NONE; // Do not cull faces
             rasterizer_create_info.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
             rasterizer_create_info.depthBiasEnable = VK_FALSE;
             rasterizer_create_info.depthBiasConstantFactor = 0.0f;
@@ -632,8 +646,8 @@ class DeferredRendering final : public Sample {
             // Depth/stencil buffers
             VkPipelineDepthStencilStateCreateInfo depth_stencil_create_info { };
             depth_stencil_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-            depth_stencil_create_info.depthTestEnable = VK_FALSE;
-            depth_stencil_create_info.depthWriteEnable = VK_FALSE;
+            depth_stencil_create_info.depthTestEnable = VK_TRUE;
+            depth_stencil_create_info.depthWriteEnable = VK_TRUE;
             depth_stencil_create_info.depthCompareOp = VK_COMPARE_OP_LESS;
             
             VkPipelineColorBlendAttachmentState color_blend_attachment_create_info { };
@@ -808,11 +822,11 @@ class DeferredRendering final : public Sample {
         // simulation uniforms - camera uniforms - lighting uniforms - per model uniforms
         
         void initialize_global_descriptor_set() {
-            // Descriptor set 1 is used for global uniforms in the graphics pipeline
+            // Descriptor set 0 is used for global uniforms in the graphics pipeline
             VkDescriptorSetLayoutBinding bindings[] = {
-                // Binding 0 contains camera uniforms
+                // Binding 0 contains global uniforms
                 create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0),
-                // Binding 1 contains uniforms for lights
+                // Binding 1 contains light uniforms
                 create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT, 1)
             };
             
@@ -836,41 +850,42 @@ class DeferredRendering final : public Sample {
             VkDescriptorBufferInfo buffer_infos[2] { };
             VkWriteDescriptorSet descriptor_writes[2] { };
             
+            // Global uniforms start after the simulation uniforms block (used in the compute shader)
             std::size_t offset = align_to_device_boundary(physical_device, sizeof(SimulationUniforms));
-            unsigned binding = 0u;
             
-            buffer_infos[binding].buffer = uniform_buffer.buffer;
-            buffer_infos[binding].offset = offset;
-            buffer_infos[binding].range = sizeof(CameraUniforms);
+            // Binding 0
+            buffer_infos[0].buffer = uniform_buffer.buffer;
+            buffer_infos[0].offset = offset;
+            buffer_infos[0].range = sizeof(CameraUniforms);
             
-            descriptor_writes[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            descriptor_writes[binding].dstSet = global_descriptor_set;
-            descriptor_writes[binding].dstBinding = binding;
-            descriptor_writes[binding].dstArrayElement = 0;
-            descriptor_writes[binding].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-            descriptor_writes[binding].descriptorCount = 1;
-            descriptor_writes[binding].pBufferInfo = &buffer_infos[binding];
+            descriptor_writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            descriptor_writes[0].dstSet = global_descriptor_set;
+            descriptor_writes[0].dstBinding = 0;
+            descriptor_writes[0].dstArrayElement = 0;
+            descriptor_writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            descriptor_writes[0].descriptorCount = 1;
+            descriptor_writes[0].pBufferInfo = &buffer_infos[0];
             
             offset += align_to_device_boundary(physical_device, sizeof(CameraUniforms));
-            ++binding;
             
-            buffer_infos[binding].buffer = uniform_buffer.buffer;
-            buffer_infos[binding].offset = offset;
-            buffer_infos[binding].range = sizeof(LightUniforms);
+            // Binding 1
+            buffer_infos[1].buffer = uniform_buffer.buffer;
+            buffer_infos[1].offset = offset;
+            buffer_infos[1].range = sizeof(LightUniforms);
             
-            descriptor_writes[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            descriptor_writes[binding].dstSet = global_descriptor_set;
-            descriptor_writes[binding].dstBinding = binding;
-            descriptor_writes[binding].dstArrayElement = 0;
-            descriptor_writes[binding].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-            descriptor_writes[binding].descriptorCount = 1;
-            descriptor_writes[binding].pBufferInfo = &buffer_infos[binding];
+            descriptor_writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            descriptor_writes[1].dstSet = global_descriptor_set;
+            descriptor_writes[1].dstBinding = 1;
+            descriptor_writes[1].dstArrayElement = 0;
+            descriptor_writes[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            descriptor_writes[1].descriptorCount = 1;
+            descriptor_writes[1].pBufferInfo = &buffer_infos[1];
             
             vkUpdateDescriptorSets(device, sizeof(descriptor_writes) / sizeof(descriptor_writes[0]), descriptor_writes, 0, nullptr);
         }
         
         void initialize_object_descriptor_sets() {
-            // Descriptor set 2 is used for per-object uniforms in the graphics pipeline
+            // Descriptor set 1 is used for per-object uniforms in the graphics pipeline
             VkDescriptorSetLayoutBinding bindings[] = {
                 // Binding 0 contains model transformations
                 create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0),
@@ -886,46 +901,78 @@ class DeferredRendering final : public Sample {
                 throw std::runtime_error("failed to allocate object descriptor set layout!");
             }
             
-            VkDescriptorSetAllocateInfo set_allocate_info { };
-            set_allocate_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-            set_allocate_info.descriptorPool = descriptor_pool;
-            set_allocate_info.descriptorSetCount = 1;
-            set_allocate_info.pSetLayouts = &object_descriptor_set_layout;
-            if (vkAllocateDescriptorSets(device, &set_allocate_info, &object_descriptor_set) != VK_SUCCESS) {
-                throw std::runtime_error("failed to allocate object descriptor set!");
-            }
-            
-            // Scene contains two objects that may have different lighting properties
-            VkWriteDescriptorSet descriptor_write { };
-            VkDescriptorBufferInfo buffer_info { };
-            
             std::size_t offset = align_to_device_boundary(physical_device, sizeof(SimulationUniforms)) + align_to_device_boundary(physical_device, sizeof(CameraUniforms)) + align_to_device_boundary(physical_device, sizeof(LightUniforms));
             
-            // Object uniforms only for the model
-            buffer_info.buffer = uniform_buffer.buffer;
-            buffer_info.offset = offset;
-            buffer_info.range = sizeof(ObjectUniforms);
+            // Per-object descriptor set 0
+            // References both object transform uniforms and lighting uniforms
+            {
+                VkDescriptorSetAllocateInfo set_allocate_info { };
+                set_allocate_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+                set_allocate_info.descriptorPool = descriptor_pool;
+                set_allocate_info.descriptorSetCount = 1;
+                set_allocate_info.pSetLayouts = &object_descriptor_set_layout;
+                if (vkAllocateDescriptorSets(device, &set_allocate_info, &object_descriptor_sets[0]) != VK_SUCCESS) {
+                    throw std::runtime_error("failed to allocate model descriptor set!");
+                }
+             
+                VkWriteDescriptorSet descriptor_writes[2] { };
+                VkDescriptorBufferInfo buffer_infos[2] { };
+                
+                
+                // Object transform uniforms
+                buffer_infos[0].buffer = uniform_buffer.buffer;
+                buffer_infos[0].offset = offset;
+                buffer_infos[0].range = sizeof(ObjectUniforms);
+                
+                descriptor_writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                descriptor_writes[0].dstSet = object_descriptor_sets[0];
+                descriptor_writes[0].dstBinding = 0;
+                descriptor_writes[0].dstArrayElement = 0;
+                descriptor_writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+                descriptor_writes[0].descriptorCount = 1;
+                descriptor_writes[0].pBufferInfo = &buffer_infos[0];
+                
+                offset += align_to_device_boundary(physical_device, sizeof(ObjectUniforms));
+                
+                // Lighting uniforms
+                buffer_infos[1].buffer = uniform_buffer.buffer;
+                buffer_infos[1].offset = offset;
+                buffer_infos[1].range = sizeof(PhongUniforms);
+                
+                descriptor_writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                descriptor_writes[1].dstSet = object_descriptor_sets[0];
+                descriptor_writes[1].dstBinding = 1;
+                descriptor_writes[1].dstArrayElement = 0;
+                descriptor_writes[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+                descriptor_writes[1].descriptorCount = 1;
+                descriptor_writes[1].pBufferInfo = &buffer_infos[1];
+                
+                offset += align_to_device_boundary(physical_device, sizeof(PhongUniforms));
+                
+                vkUpdateDescriptorSets(device, 2, descriptor_writes, 0, nullptr);
+            }
             
-            descriptor_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            descriptor_write.dstSet = object_descriptor_set;
-            descriptor_write.dstBinding = 0;
-            descriptor_write.dstArrayElement = 0;
-            descriptor_write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-            descriptor_write.descriptorCount = 1;
-            descriptor_write.pBufferInfo = &buffer_info;
-            
-            vkUpdateDescriptorSets(device, 1, &descriptor_write, 0, nullptr);
-            
-            offset += align_to_device_boundary(physical_device, sizeof(ObjectUniforms));
-            
-            // Lighting descriptor sets for both the model and cloth
-            for (int i = 0; i < 2; ++i) {
+            // Descriptor set for cloth
+            // Only contains reference to lighting uniforms
+            {
+                VkDescriptorSetAllocateInfo set_allocate_info { };
+                set_allocate_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+                set_allocate_info.descriptorPool = descriptor_pool;
+                set_allocate_info.descriptorSetCount = 1;
+                set_allocate_info.pSetLayouts = &object_descriptor_set_layout;
+                if (vkAllocateDescriptorSets(device, &set_allocate_info, &object_descriptor_sets[1]) != VK_SUCCESS) {
+                    throw std::runtime_error("failed to allocate cloth descriptor set!");
+                }
+             
+                VkWriteDescriptorSet descriptor_write { };
+                VkDescriptorBufferInfo buffer_info { };
+                
                 buffer_info.buffer = uniform_buffer.buffer;
                 buffer_info.offset = offset;
                 buffer_info.range = sizeof(PhongUniforms);
     
                 descriptor_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                descriptor_write.dstSet = object_descriptor_set;
+                descriptor_write.dstSet = object_descriptor_sets[1];
                 descriptor_write.dstBinding = 1;
                 descriptor_write.dstArrayElement = 0;
                 descriptor_write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
@@ -933,8 +980,6 @@ class DeferredRendering final : public Sample {
                 descriptor_write.pBufferInfo = &buffer_info;
                 
                 vkUpdateDescriptorSets(device, 1, &descriptor_write, 0, nullptr);
-                
-                offset += align_to_device_boundary(physical_device, sizeof(PhongUniforms));
             }
         }
         
@@ -1073,20 +1118,20 @@ class DeferredRendering final : public Sample {
             model.diffuse = glm::vec3(0.8f);
             model.specular = glm::vec3(0.0f);
             model.specular_exponent = 0.0f;
-            model.transform = Transform(glm::vec3(0.0f), glm::vec3(1.5f), glm::vec3(0.0f, 50.0f, 0.0f));
+            model.transform = Transform(glm::vec3(0.0f, -1.0f, 0.0f), glm::vec3(0.5f), glm::vec3(0.0f, 50.0f, 0.0f));
             model.flat_shaded = true;
             
             std::size_t model_vertex_buffer_size = model.model.vertices.size() * sizeof(Model::Vertex);
             std::size_t model_index_buffer_size = model.model.indices.size() * sizeof(unsigned);
             
-            std::vector<Particle> cloth_vertices(dimension * dimension);
+            cloth_vertices.resize(dimension * dimension);
             float dp = (float) size / (float) (dimension - 1);
             
             // Initialize cloth particles
             for (int z = 0; z < dimension; ++z) {
                 for (int x = 0; x < dimension; ++x) {
                     // Center cloth at (0, 0)
-                    cloth_vertices[x + z * dimension].position = glm::vec3((float)(-dimension) / 2.0f + dp * (float) x, 4.0f, (float) -dimension / 2.0f + dp * (float) z);
+                    cloth_vertices[x + z * dimension].position = glm::vec3(-size / 2.0f + dp * (float) x, 1.0f, (float) -size / 2.0f + dp * (float) z);
                     cloth_vertices[x + z * dimension].velocity = glm::vec3(0.0f);
                     cloth_vertices[x + z * dimension].uv = glm::vec2(0.0f);
                     cloth_vertices[x + z * dimension].normal = glm::vec3(0.0f, 1.0f, 0.0f);
@@ -1094,23 +1139,20 @@ class DeferredRendering final : public Sample {
             }
             
             std::size_t cloth_vertex_buffer_size = cloth_vertices.size() * sizeof(Particle);
-            
-            std::vector<unsigned> cloth_indices;
-            cloth_indices.reserve(dimension * dimension);
-            unsigned primitive_restart_index = 0xFFFFFFFF;
+            unsigned primitive_restart_index = -1;
             
             // Order cloth vertex indices in a triangle strip pattern:
             //  1     3     5     7     9     11    13
             //  o-----o-----o-----o-----o-----o-----o
             //  | \   | \   | \   | \   | \   | \   | -
             //  |   \ |   \ |   \ |   \ |   \ |   \ |   -
-            //  o-----o-----o-----o-----o-----o-----o - - 0xFFFFFFFF (primitive restart
-            //  0     2     4     6     8     10    12
+            //  o-----o-----o-----o-----o-----o-----o - - o
+            //  0     2     4     6     8     10    12    -1 (primitive restart)
             
             for (int z = 0; z < dimension - 1; ++z) {
                 for (int x = 0; x < dimension; ++x) {
-                    cloth_indices.emplace_back((z + 1) * dimension + x);
-                    cloth_indices.emplace_back(z * dimension + x);
+                    cloth_indices.emplace_back(x + z * dimension);
+                    cloth_indices.emplace_back(x + dimension * (z + 1));
                 }
                 cloth_indices.emplace_back(primitive_restart_index);
             }
@@ -1289,30 +1331,44 @@ class DeferredRendering final : public Sample {
         }
         
         void update_uniform_buffers() {
+            std::size_t offset = 0u;
+            
             SimulationUniforms simulation_uniforms { };
             simulation_uniforms.dt = (float) dt;
-            simulation_uniforms.particle_mass = 0.5f;
+            simulation_uniforms.particle_mass = 0.1f;
             simulation_uniforms.spring_length = size / (float) dimension;
             simulation_uniforms.spring_length_diagonal = std::sqrt(simulation_uniforms.spring_length * simulation_uniforms.spring_length);
-            simulation_uniforms.gravity = glm::vec3(0.0f, 1.0f, 0.0f);
-            simulation_uniforms.spring_stiffness = 2.0f;
+            simulation_uniforms.gravity = glm::vec3(0.0f, -1.0f, 0.0f);
+            simulation_uniforms.spring_stiffness = 2000.0f;
             simulation_uniforms.sphere_position = model.transform.get_position();
             simulation_uniforms.sphere_radius = model.transform.get_scale().x; // Assume the same in all 3 directions
-            simulation_uniforms.dampening = 1.0f;
+            simulation_uniforms.dampening = 0.25f;
             simulation_uniforms.dimension = dimension;
+            
+            memcpy((void*)(((const char*) uniform_buffer_mapped) + offset), &simulation_uniforms, sizeof(SimulationUniforms));
+            offset += align_to_device_boundary(physical_device, sizeof(SimulationUniforms));
             
             CameraUniforms camera_uniforms { };
             camera_uniforms.camera = camera.get_projection_matrix() * camera.get_view_matrix();
             camera_uniforms.camera_position = camera.get_position();
             
+            memcpy((void*)(((const char*) uniform_buffer_mapped) + offset), &camera_uniforms, sizeof(CameraUniforms));
+            offset += align_to_device_boundary(physical_device, sizeof(CameraUniforms));
+            
             LightUniforms light_uniforms { };
             light_uniforms.position = glm::vec3(0.0f, 3.0f, 0.0f);
             light_uniforms.radius = 5.0f;
+            
+            memcpy((void*)(((const char*) uniform_buffer_mapped) + offset), &light_uniforms, sizeof(LightUniforms));
+            offset += align_to_device_boundary(physical_device, sizeof(LightUniforms));
             
             // Model lighting uniforms
             ObjectUniforms model_uniforms { };
             model_uniforms.model = model.transform.get_matrix();
             model_uniforms.normal = glm::transpose(glm::inverse(model_uniforms.model));
+            
+            memcpy((void*)(((const char*) uniform_buffer_mapped) + offset), &model_uniforms, sizeof(ObjectUniforms));
+            offset += align_to_device_boundary(physical_device, sizeof(ObjectUniforms));
             
             PhongUniforms model_lighting_uniforms { };
             model_lighting_uniforms.diffuse = model.diffuse;
@@ -1320,11 +1376,17 @@ class DeferredRendering final : public Sample {
             model_lighting_uniforms.specular_exponent = model.specular_exponent;
             model_lighting_uniforms.flat_shaded = (int) model.flat_shaded;
             
+            memcpy((void*)(((const char*) uniform_buffer_mapped) + offset), &model_lighting_uniforms, sizeof(PhongUniforms));
+            offset += align_to_device_boundary(physical_device, sizeof(PhongUniforms));
+            
             PhongUniforms cloth_lighting_uniforms { };
-            cloth_lighting_uniforms.diffuse = glm::vec3(0.0f);
+            cloth_lighting_uniforms.diffuse = glm::vec3(0.4f);
             cloth_lighting_uniforms.specular = glm::vec3(0.0f);
             cloth_lighting_uniforms.specular_exponent = 1.0f;
             cloth_lighting_uniforms.flat_shaded = 1;
+            
+            memcpy((void*)(((const char*) uniform_buffer_mapped) + offset), &cloth_lighting_uniforms, sizeof(PhongUniforms));
+            offset += align_to_device_boundary(physical_device, sizeof(PhongUniforms));
         }
         
         void destroy_uniform_buffer() {

@@ -44,84 +44,82 @@ layout (local_size_x = 10, local_size_y = 10, local_size_z = 1) in;
 
 void main() {
     uvec3 id = gl_GlobalInvocationID;
-    uint index = id.x * simulation.dimension * id.y; // Particle index
+    uint index = id.x + simulation.dimension * id.y; // Particle index
 
     if (index > simulation.dimension * simulation.dimension) {
         // Ideally, the workgroup * invocation group sizes line up perfectly, as this otherwise results in GPU threads waiting idle
         return;
     }
 
-    Particle particle = input_ssbo.particles[index];
     vec3 force = simulation.particle_mass * simulation.gravity;
 
     // Apply spring forces from neighboring particles
     // The cloth is connected to all 8 of its neighbors by springs simulated by Hooke's Law
 
     // left
-    if (id.x > 0) {
-        force += hookes_law(input_ssbo.particles[index - 1].position, particle.position, simulation.spring_length);
-    }
+//    if (id.x > 0) {
+//        force += hookes_law(input_ssbo.particles[index - 1].position, input_ssbo.particles[index].position, simulation.spring_length);
+//    }
+//
+//    // right
+//    if (id.x < simulation.dimension - 1) {
+//        force += hookes_law(input_ssbo.particles[index + 1].position, input_ssbo.particles[index].position, simulation.spring_length);
+//    }
+//
+//    // up
+//    if (id.y > 0) {
+//        force += hookes_law(input_ssbo.particles[index - simulation.dimension].position, input_ssbo.particles[index].position, simulation.spring_length);
+//    }
+//
+//    // down
+//    if (id.y < simulation.dimension - 1) {
+//        force += hookes_law(input_ssbo.particles[index + simulation.dimension].position, input_ssbo.particles[index].position, simulation.spring_length);
+//    }
+//
+//    // Ensure the proper spring distance is used for diagonal springs, as simulation.spring_length is the horizontal / vertical lengths
+//    // top left
+//    if (id.x > 0 && id.y > 0) {
+//        force += hookes_law(input_ssbo.particles[index - 1 - simulation.dimension].position, input_ssbo.particles[index].position, simulation.spring_length_diagonal);
+//    }
+//
+//    // top right
+//    if (id.x < simulation.dimension - 1 && id.y > 0) {
+//        force += hookes_law(input_ssbo.particles[index + 1 - simulation.dimension].position, input_ssbo.particles[index].position, simulation.spring_length_diagonal);
+//    }
+//
+//    // bottom left
+//    if (id.x > 0 && id.y < simulation.dimension - 1) {
+//        force += hookes_law(input_ssbo.particles[index - 1 + simulation.dimension].position, input_ssbo.particles[index].position, simulation.spring_length_diagonal);
+//    }
+//
+//    // bottom right
+//    if (id.x < simulation.dimension - 1 && id.y < simulation.dimension - 1) {
+//        force += hookes_law(input_ssbo.particles[index + 1 + simulation.dimension].position, input_ssbo.particles[index].position, simulation.spring_length_diagonal);
+//    }
 
-    // right
-    if (id.x < simulation.dimension - 1) {
-        force += hookes_law(input_ssbo.particles[index + 1].position, particle.position, simulation.spring_length);
-    }
-
-    // up
-    if (id.y > 0) {
-        force += hookes_law(input_ssbo.particles[index - simulation.dimension].position, particle.position, simulation.spring_length);
-    }
-
-    // down
-    if (id.y < simulation.dimension - 1) {
-        force += hookes_law(input_ssbo.particles[index + simulation.dimension].position, particle.position, simulation.spring_length);
-    }
-
-    // Ensure the proper spring distance is used for diagonal springs, as simulation.spring_length is the horizontal / vertical lengths
-    // top left
-    if (id.x > 0 && id.y > 0) {
-        force += hookes_law(input_ssbo.particles[index - 1 - simulation.dimension].position, particle.position, simulation.spring_length_diagonal);
-    }
-
-    // top right
-    if (id.x < simulation.dimension - 1 && id.y > 0) {
-        force += hookes_law(input_ssbo.particles[index + 1 - simulation.dimension].position, particle.position, simulation.spring_length_diagonal);
-    }
-
-    // bottom left
-    if (id.x > 0 && id.y < simulation.dimension - 1) {
-        force += hookes_law(input_ssbo.particles[index - 1 + simulation.dimension].position, particle.position, simulation.spring_length_diagonal);
-    }
-
-    // bottom right
-    if (id.x < simulation.dimension - 1 && id.y < simulation.dimension - 1) {
-        force += hookes_law(input_ssbo.particles[index + 1 + simulation.dimension].position, particle.position, simulation.spring_length_diagonal);
-    }
-
-    force += simulation.dampening * particle.velocity;
-
-    Particle out_particle = output_ssbo.particles[index];
+    force += simulation.dampening * input_ssbo.particles[index].velocity;
 
     // acceleration = force / mass
     vec3 acceleration = force / simulation.particle_mass;
 
     // Change in position
     // x = x + v * t + 1 / 2 * a * t ^ 2
-    out_particle.position = particle.position + particle.velocity * simulation.dt + 0.5f * acceleration * simulation.dt * simulation.dt;
+    output_ssbo.particles[index].position = input_ssbo.particles[index].position + force * simulation.dt;
+//    output_ssbo.particles[index].position = input_ssbo.particles[index].position + input_ssbo.particles[index].velocity * simulation.dt + 0.5f * acceleration * simulation.dt * simulation.dt;
 
     // Change in velocity
     // v = u + a * t
-    out_particle.velocity = particle.velocity + acceleration * simulation.dt;
+    // output_ssbo.particles[index].velocity = input_ssbo.particles[index].velocity + acceleration * simulation.dt;
 
     // Detect collision with the model
     // The model used for this sample is a sphere to simplify collision detection + resolution processes
-    vec3 to_sphere = out_particle.position - simulation.sphere_position;
+    vec3 to_sphere = output_ssbo.particles[index].position - simulation.sphere_position;
     float offset = 0.01f; // Slighly offset past the sphere surface to prevent z fighting
     if (length(to_sphere) < simulation.sphere_radius + offset) {
         // Particle is inside the sphere
         // Resolve collision so that the particle's position is on the surface of the sphere
-        out_particle.position = simulation.sphere_position + normalize(to_sphere) * (simulation.sphere_radius + offset);
-        out_particle.velocity = vec3(0.0f);
+        output_ssbo.particles[index].position = simulation.sphere_position + normalize(to_sphere) * (simulation.sphere_radius + offset);
+        output_ssbo.particles[index].velocity = vec3(0.0f);
     }
 
     // Calculate normals
