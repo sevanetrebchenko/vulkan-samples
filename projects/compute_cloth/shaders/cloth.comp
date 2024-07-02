@@ -84,25 +84,25 @@ void main() {
         force += hookes_law(input_ssbo.particles[idx].position, input_ssbo.particles[index].position, simulation.spring_length);
     }
 
-//    // top left
-//    if (id.x > 0 && id.y > 0) {
-//        force += hookes_law(input_ssbo.particles[index - 1 - simulation.dimension].position, input_ssbo.particles[index].position, simulation.spring_length_diagonal);
-//    }
-//
-//    // top right
-//    if (id.x < simulation.dimension - 1 && id.y > 0) {
-//        force += hookes_law(input_ssbo.particles[index + 1 - simulation.dimension].position, input_ssbo.particles[index].position, simulation.spring_length_diagonal);
-//    }
-//
-//    // bottom left
-//    if (id.x > 0 && id.y < simulation.dimension - 1) {
-//        force += hookes_law(input_ssbo.particles[index - 1 + simulation.dimension].position, input_ssbo.particles[index].position, simulation.spring_length_diagonal);
-//    }
-//
-//    // bottom right
-//    if (id.x < simulation.dimension - 1 && id.y < simulation.dimension - 1) {
-//        force += hookes_law(input_ssbo.particles[index + 1 + simulation.dimension].position, input_ssbo.particles[index].position, simulation.spring_length_diagonal);
-//    }
+    // top left
+    if (id.x > 0 && id.y > 0) {
+        force += hookes_law(input_ssbo.particles[index - 1 - simulation.dimension].position, input_ssbo.particles[index].position, simulation.spring_length_diagonal);
+    }
+
+    // top right
+    if (id.x < simulation.dimension - 1 && id.y > 0) {
+        force += hookes_law(input_ssbo.particles[index + 1 - simulation.dimension].position, input_ssbo.particles[index].position, simulation.spring_length_diagonal);
+    }
+
+    // bottom left
+    if (id.x > 0 && id.y < simulation.dimension - 1) {
+        force += hookes_law(input_ssbo.particles[index - 1 + simulation.dimension].position, input_ssbo.particles[index].position, simulation.spring_length_diagonal);
+    }
+
+    // bottom right
+    if (id.x < simulation.dimension - 1 && id.y < simulation.dimension - 1) {
+        force += hookes_law(input_ssbo.particles[index + 1 + simulation.dimension].position, input_ssbo.particles[index].position, simulation.spring_length_diagonal);
+    }
 
     force -= simulation.dampening * input_ssbo.particles[index].velocity;
 

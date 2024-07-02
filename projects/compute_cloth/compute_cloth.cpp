@@ -11,11 +11,11 @@
 class DeferredRendering final : public Sample {
     public:
         DeferredRendering() : Sample("Compute: Cloth Simulation") {
-            camera.set_position(glm::vec3(0, 3, 6));
+            camera.set_position(glm::vec3(0, 2, 8));
             camera.set_look_direction(glm::vec3(0.0f, 0.0f, -1.0f));
             
-            dimension = 50;
-            size = 8.0f;
+            dimension = 100;
+            size = 7.0f;
             enabled_queue_types = VK_QUEUE_COMPUTE_BIT | VK_QUEUE_TRANSFER_BIT;
         }
         
@@ -1341,7 +1341,7 @@ class DeferredRendering final : public Sample {
             simulation_uniforms.particle_mass = 0.6f;
             simulation_uniforms.spring_length = size / (float) (dimension - 1);
             simulation_uniforms.spring_length_diagonal = std::sqrt(simulation_uniforms.spring_length * simulation_uniforms.spring_length + simulation_uniforms.spring_length * simulation_uniforms.spring_length);
-            simulation_uniforms.gravity = glm::vec3(0.0f, -0.1f, 0.0f);
+            simulation_uniforms.gravity = glm::vec3(-0.01f * std::sin(time(nullptr)), -0.1f, -0.01f);
             simulation_uniforms.spring_stiffness = 300.0f;
             simulation_uniforms.sphere_position = model.transform.get_position();
             simulation_uniforms.sphere_radius = model.transform.get_scale().x; // Assume the same in all 3 directions
