@@ -42,9 +42,13 @@ vec3 hookes_law(vec3 p0, vec3 p1, float spring_length) {
 // Compute shader runs in groups of 10 x 10 x 1
 layout (local_size_x = 10, local_size_y = 10, local_size_z = 1) in;
 
+uint get_index(uint x, uint y) {
+    return x + y * simulation.dimension;
+}
+
 void main() {
     uvec3 id = gl_GlobalInvocationID;
-    uint index = id.x + simulation.dimension * id.y; // Particle index
+    uint index = get_index(id.x, id.y); // Particle index
 
     if (index > simulation.dimension * simulation.dimension) {
         // Ideally, the workgroup * invocation group sizes line up perfectly, as this otherwise results in GPU threads waiting idle
@@ -57,26 +61,29 @@ void main() {
     // The cloth is connected to all 8 of its neighbors by springs simulated by Hooke's Law
 
     // left
-//    if (id.x > 0) {
-//        force += hookes_law(input_ssbo.particles[index - 1].position, input_ssbo.particles[index].position, simulation.spring_length);
-//    }
-//
-//    // right
-//    if (id.x < simulation.dimension - 1) {
-//        force += hookes_law(input_ssbo.particles[index + 1].position, input_ssbo.particles[index].position, simulation.spring_length);
-//    }
-//
-//    // up
-//    if (id.y > 0) {
-//        force += hookes_law(input_ssbo.particles[index - simulation.dimension].position, input_ssbo.particles[index].position, simulation.spring_length);
-//    }
-//
-//    // down
-//    if (id.y < simulation.dimension - 1) {
-//        force += hookes_law(input_ssbo.particles[index + simulation.dimension].position, input_ssbo.particles[index].position, simulation.spring_length);
-//    }
-//
-//    // Ensure the proper spring distance is used for diagonal springs, as simulation.spring_length is the horizontal / vertical lengths
+    if (id.x > 0) {
+        uint idx = get_index(id.x - 1, id.y);
+        force += hookes_law(input_ssbo.particles[idx].position, input_ssbo.particles[index].position, simulation.spring_length);
+    }
+
+    // right
+    if (id.x < simulation.dimension - 1) {
+        uint idx = get_index(id.x + 1, id.y);
+        force += hookes_law(input_ssbo.particles[idx].position, input_ssbo.particles[index].position, simulation.spring_length);
+    }
+
+    // up
+    if (id.y > 0) {
+        uint idx = get_index(id.x, id.y - 1);
+        force += hookes_law(input_ssbo.particles[idx].position, input_ssbo.particles[index].position, simulation.spring_length);
+    }
+
+    // down
+    if (id.y < simulation.dimension - 1) {
+        uint idx = get_index(id.x, id.y + 1);
+        force += hookes_law(input_ssbo.particles[idx].position, input_ssbo.particles[index].position, simulation.spring_length);
+    }
+
 //    // top left
 //    if (id.x > 0 && id.y > 0) {
 //        force += hookes_law(input_ssbo.particles[index - 1 - simulation.dimension].position, input_ssbo.particles[index].position, simulation.spring_length_diagonal);
@@ -97,19 +104,25 @@ void main() {
 //        force += hookes_law(input_ssbo.particles[index + 1 + simulation.dimension].position, input_ssbo.particles[index].position, simulation.spring_length_diagonal);
 //    }
 
-    force += simulation.dampening * input_ssbo.particles[index].velocity;
+    force -= simulation.dampening * input_ssbo.particles[index].velocity;
 
     // acceleration = force / mass
     vec3 acceleration = force / simulation.particle_mass;
 
-    // Change in position
+        // Change in position
     // x = x + v * t + 1 / 2 * a * t ^ 2
-    output_ssbo.particles[index].position = input_ssbo.particles[index].position + force * simulation.dt;
+    // output_ssbo.particles[index].position = input_ssbo.particles[index].position + force * simulation.dt;
 //    output_ssbo.particles[index].position = input_ssbo.particles[index].position + input_ssbo.particles[index].velocity * simulation.dt + 0.5f * acceleration * simulation.dt * simulation.dt;
 
     // Change in velocity
     // v = u + a * t
-    // output_ssbo.particles[index].velocity = input_ssbo.particles[index].velocity + acceleration * simulation.dt;
+//     output_ssbo.particles[index].velocity = input_ssbo.particles[index].velocity + acceleration * simulation.dt;
+
+    vec3 velocity = input_ssbo.particles[index].velocity + acceleration * simulation.dt;
+    vec3 position = input_ssbo.particles[index].position + velocity * simulation.dt;
+
+    output_ssbo.particles[index].position = position;
+    output_ssbo.particles[index].velocity = velocity;
 
     // Detect collision with the model
     // The model used for this sample is a sphere to simplify collision detection + resolution processes

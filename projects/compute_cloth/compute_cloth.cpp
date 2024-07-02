@@ -11,16 +11,26 @@
 class DeferredRendering final : public Sample {
     public:
         DeferredRendering() : Sample("Compute: Cloth Simulation") {
-            camera.set_position(glm::vec3(0, 2, 6));
-            camera.set_look_direction(glm::vec3(0.0f, 0.25f, -1.0f));
+            camera.set_position(glm::vec3(0, 3, 6));
+            camera.set_look_direction(glm::vec3(0.0f, 0.0f, -1.0f));
             
-            dimension = 5;
-            size = 5.0f;
+            dimension = 50;
+            size = 8.0f;
             enabled_queue_types = VK_QUEUE_COMPUTE_BIT | VK_QUEUE_TRANSFER_BIT;
         }
         
         ~DeferredRendering() override {
         }
+        
+        // SSBO data
+        struct Particle {
+            alignas(16) glm::vec3 position;
+            alignas(16) glm::vec3 velocity;
+            glm::vec2 uv;
+            alignas(16) glm::vec3 normal;
+        };
+        
+        std::vector<Particle> cloth_vertices;
         
     private:
         struct Buffer {
@@ -42,15 +52,7 @@ class DeferredRendering final : public Sample {
         Buffer model_vertex_buffer; // Holds vertex data for the main model
         Buffer index_buffer; // Holds indices for the main model and the cloth
 
-        // SSBO data
-        struct Particle {
-            alignas(16) glm::vec3 position;
-            alignas(16) glm::vec3 velocity;
-            glm::vec2 uv;
-            alignas(16) glm::vec3 normal;
-        };
-        
-        std::vector<Particle> cloth_vertices;
+
         std::vector<unsigned> cloth_indices;
         
         int dimension; // Number of particles one one side of the cloth
@@ -288,11 +290,12 @@ class DeferredRendering final : public Sample {
             }
             
             vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, compute_pipeline);
+            
             vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, compute_pipeline_layout, 0, 1, &compute_descriptor_sets[frame_index % 2], 0, nullptr);
             
             // Specify compute workgroups
             // Each invocation group runs 10x10
-            vkCmdDispatch(command_buffer, 8, 8, 1);
+            vkCmdDispatch(command_buffer, std::ceil((float) dimension / 10.0f), std::ceil((float) dimension / 10.0f), 1);
             
             if (vkEndCommandBuffer(command_buffer) != VK_SUCCESS) {
                 throw std::runtime_error("failed to record compute command buffer!");
@@ -1114,11 +1117,11 @@ class DeferredRendering final : public Sample {
         }
 
         void initialize_geometry_buffers() {
-            model.model = load_obj("assets/models/knight.obj");
+            model.model = load_obj("assets/models/sphere.obj");
             model.diffuse = glm::vec3(0.8f);
             model.specular = glm::vec3(0.0f);
             model.specular_exponent = 0.0f;
-            model.transform = Transform(glm::vec3(0.0f, -1.0f, 0.0f), glm::vec3(0.5f), glm::vec3(0.0f, 50.0f, 0.0f));
+            model.transform = Transform(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(1.0f), glm::vec3(0.0f, 50.0f, 0.0f));
             model.flat_shaded = true;
             
             std::size_t model_vertex_buffer_size = model.model.vertices.size() * sizeof(Model::Vertex);
@@ -1131,7 +1134,7 @@ class DeferredRendering final : public Sample {
             for (int z = 0; z < dimension; ++z) {
                 for (int x = 0; x < dimension; ++x) {
                     // Center cloth at (0, 0)
-                    cloth_vertices[x + z * dimension].position = glm::vec3(-size / 2.0f + dp * (float) x, 1.0f, (float) -size / 2.0f + dp * (float) z);
+                    cloth_vertices[x + z * dimension].position = glm::vec3(-size / 2.0f + dp * (float) x, 5.0f, (float) -size / 2.0f + dp * (float) z);
                     cloth_vertices[x + z * dimension].velocity = glm::vec3(0.0f);
                     cloth_vertices[x + z * dimension].uv = glm::vec2(0.0f);
                     cloth_vertices[x + z * dimension].normal = glm::vec3(0.0f, 1.0f, 0.0f);
@@ -1334,15 +1337,15 @@ class DeferredRendering final : public Sample {
             std::size_t offset = 0u;
             
             SimulationUniforms simulation_uniforms { };
-            simulation_uniforms.dt = (float) dt;
-            simulation_uniforms.particle_mass = 0.1f;
-            simulation_uniforms.spring_length = size / (float) dimension;
-            simulation_uniforms.spring_length_diagonal = std::sqrt(simulation_uniforms.spring_length * simulation_uniforms.spring_length);
-            simulation_uniforms.gravity = glm::vec3(0.0f, -1.0f, 0.0f);
-            simulation_uniforms.spring_stiffness = 2000.0f;
+            simulation_uniforms.dt = 0.01f;
+            simulation_uniforms.particle_mass = 0.6f;
+            simulation_uniforms.spring_length = size / (float) (dimension - 1);
+            simulation_uniforms.spring_length_diagonal = std::sqrt(simulation_uniforms.spring_length * simulation_uniforms.spring_length + simulation_uniforms.spring_length * simulation_uniforms.spring_length);
+            simulation_uniforms.gravity = glm::vec3(0.0f, -0.1f, 0.0f);
+            simulation_uniforms.spring_stiffness = 300.0f;
             simulation_uniforms.sphere_position = model.transform.get_position();
             simulation_uniforms.sphere_radius = model.transform.get_scale().x; // Assume the same in all 3 directions
-            simulation_uniforms.dampening = 0.25f;
+            simulation_uniforms.dampening = 0.1f;
             simulation_uniforms.dimension = dimension;
             
             memcpy((void*)(((const char*) uniform_buffer_mapped) + offset), &simulation_uniforms, sizeof(SimulationUniforms));
