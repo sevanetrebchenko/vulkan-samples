@@ -1386,7 +1386,7 @@ class DeferredRendering final : public Sample {
             cloth_lighting_uniforms.diffuse = glm::vec3(0.4f);
             cloth_lighting_uniforms.specular = glm::vec3(0.0f);
             cloth_lighting_uniforms.specular_exponent = 1.0f;
-            cloth_lighting_uniforms.flat_shaded = 1;
+            cloth_lighting_uniforms.flat_shaded = 0; // No flat shading
             
             memcpy((void*)(((const char*) uniform_buffer_mapped) + offset), &cloth_lighting_uniforms, sizeof(PhongUniforms));
             offset += align_to_device_boundary(physical_device, sizeof(PhongUniforms));
