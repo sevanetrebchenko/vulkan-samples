@@ -34,7 +34,7 @@ void main() {
     vec3 color = vec3(0.0f);
 
     vec3 V = normalize(global.camera_position - world_position);
-    vec3 N = object.flat_shaded == 1 ? calculate_face_normal(world_position) : normalize(world_normal);
+    vec3 N = object.flat_shaded == 0 ? calculate_face_normal(world_position) : normalize(world_normal);
     vec3 L = normalize(light.position - world_position);
 
     // Ambient

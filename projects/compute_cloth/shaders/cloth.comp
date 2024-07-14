@@ -135,5 +135,226 @@ void main() {
         output_ssbo.particles[index].velocity = vec3(0.0f);
     }
 
-    // Calculate normals
+    // Calculate vertex normal
+    // This can be optimized by caching calculated triangle face normals
+    vec3 normal = vec3(0.0f);
+    vec3 p0 = input_ssbo.particles[index].position;
+
+    if (id.y == 0) {
+        if (id.x == 0) {
+            // Bottom left
+            // p2
+            //  o-----o-----o-----o
+            //  | \   | \   | \   |
+            //  |   \ |   \ |   \ |
+            //  o-----o-----o-----o
+            // p0    p1
+
+            index = get_index(id.x + 1, id.y);
+            vec3 p1 = input_ssbo.particles[index].position;
+
+            index = get_index(id.x, id.y + 1);
+            vec3 p2 = input_ssbo.particles[index].position;
+
+            normal += normalize(cross(p1 - p0, p2 - p0));
+        }
+        else if (id.x < simulation.dimension - 1) {
+            // Bottom middle
+            // p2    p3
+            //  o-----o-----o-----o
+            //  | \   | \   | \   |
+            //  |   \ |   \ |   \ |
+            //  o-----o-----o-----o
+            // p1   p0   p4
+
+            index = get_index(id.x - 1, id.y);
+            vec3 p1 = input_ssbo.particles[index].position;
+
+            index = get_index(id.x - 1, id.y + 1);
+            vec3 p2 = input_ssbo.particles[index].position;
+
+            index = get_index(id.x, id.y + 1);
+            vec3 p3 = input_ssbo.particles[index].position;
+
+            index = get_index(id.x + 1, id.y);
+            vec3 p4 = input_ssbo.particles[index].position;
+
+            normal += normalize(cross(p2 - p0, p1 - p0));
+            normal += normalize(cross(p3 - p0, p2 - p0));
+            normal += normalize(cross(p4 - p0, p3 - p0));
+        }
+        else {
+            // Bottom right
+            //             p1    p2
+            //  o-----o-----o-----o
+            //  | \   | \   | \   |
+            //  |   \ |   \ |   \ |
+            //  o-----o-----o-----o
+            //                   p0
+
+            index = get_index(id.x - 1, id.y + 1);
+            vec3 p1 = input_ssbo.particles[index].position;
+
+            index = get_index(id.x, id.y + 1);
+            vec3 p2 = input_ssbo.particles[index].position;
+
+            normal += normalize(cross(p2 - p0, p1 - p0));
+        }
+    }
+    else if (id.y < simulation.dimension - 1) {
+        if (id.x == 0) {
+            //   p1
+            //    o-----o-----o-----o
+            //    | \   | \   | \   |
+            //    |   \ |   \ |   \ |
+            // p0 o-----o-p2--o-----o
+            //    | \   | \   | \   |
+            //    |   \ |   \ |   \ |
+            //    o-----o-----o-----o
+            //   p4    p3
+            index = get_index(id.x, id.y + 1);
+            vec3 p1 = input_ssbo.particles[index].position;
+
+            index = get_index(id.x + 1, id.y);
+            vec3 p2 = input_ssbo.particles[index].position;
+
+            index = get_index(id.x + 1, id.y - 1);
+            vec3 p3 = input_ssbo.particles[index].position;
+
+            index = get_index(id.x, id.y - 1);
+            vec3 p4 = input_ssbo.particles[index].position;
+
+            normal += normalize(cross(p2 - p0, p1 - p0));
+            normal += normalize(cross(p3 - p0, p2 - p0));
+            normal += normalize(cross(p4 - p0, p3 - p0));
+        }
+        else if (id.x < simulation.dimension - 1) {
+            //  p5     p6
+            //    o-----o-----o
+            //    | \   | \   |
+            //    |   \ |   \ |
+            // p4 o-----o-p0--o p1
+            //    | \   | \   |
+            //    |   \ |   \ |
+            //    o-----o-----o
+            //         p3    p2
+            index = get_index(id.x + 1, id.y);
+            vec3 p1 = input_ssbo.particles[index].position;
+
+            index = get_index(id.x + 1, id.y - 1);
+            vec3 p2 = input_ssbo.particles[index].position;
+
+            index = get_index(id.x, id.y - 1);
+            vec3 p3 = input_ssbo.particles[index].position;
+
+            index = get_index(id.x - 1, id.y);
+            vec3 p4 = input_ssbo.particles[index].position;
+
+            index = get_index(id.x - 1, id.y + 1);
+            vec3 p5 = input_ssbo.particles[index].position;
+
+            index = get_index(id.x, id.y + 1);
+            vec3 p6 = input_ssbo.particles[index].position;
+
+            normal += normalize(cross(p2 - p0, p1 - p0));
+            normal += normalize(cross(p3 - p0, p2 - p0));
+            normal += normalize(cross(p4 - p0, p3 - p0));
+            normal += normalize(cross(p5 - p0, p4 - p0));
+            normal += normalize(cross(p6 - p0, p5 - p0));
+            normal += normalize(cross(p1 - p0, p6 - p0));
+        }
+        else {
+            //             p3    p4
+            //  o-----o-----o-----o
+            //  | \   | \   | \   |
+            //  |   \ |   \ |   \ |
+            //  o-----o--p2-o-----o p0
+            //  | \   | \   | \   |
+            //  |   \ |   \ |   \ |
+            //  o-----o-----o-----o
+            //                   p1
+            index = get_index(id.x, id.y - 1);
+            vec3 p1 = input_ssbo.particles[index].position;
+
+            index = get_index(id.x - 1, id.y);
+            vec3 p2 = input_ssbo.particles[index].position;
+
+            index = get_index(id.x - 1, id.y + 1);
+            vec3 p3 = input_ssbo.particles[index].position;
+
+            index = get_index(id.x, id.y + 1);
+            vec3 p4 = input_ssbo.particles[index].position;
+
+            normal += normalize(cross(p2 - p0, p1 - p0));
+            normal += normalize(cross(p3 - p0, p2 - p0));
+            normal += normalize(cross(p4 - p0, p3 - p0));
+        }
+    }
+    else {
+        if (id.x == 0) {
+            // Top left
+            // p0    p1
+            //  o-----o-----o-----o
+            //  | \   | \   | \   |
+            //  |   \ |   \ |   \ |
+            //  o-----o-----o-----o
+            // p3    p2
+
+            index = get_index(id.x + 1, id.y);
+            vec3 p1 = input_ssbo.particles[index].position;
+
+            index = get_index(id.x + 1, id.y - 1);
+            vec3 p2 = input_ssbo.particles[index].position;
+
+            index = get_index(id.x, id.y - 1);
+            vec3 p3 = input_ssbo.particles[index].position;
+
+            normal += normalize(cross(p2 - p0, p1 - p0));
+            normal += normalize(cross(p3 - p0, p2 - p0));
+        }
+        else if (id.x < simulation.dimension - 1) {
+            // p4    p0    p1
+            //  o-----o-----o-----o
+            //  | \   | \   | \   |
+            //  |   \ |   \ |   \ |
+            //  o-----o-----o-----o
+            //       p3    p2
+
+            index = get_index(id.x + 1, id.y);
+            vec3 p1 = input_ssbo.particles[index].position;
+
+            index = get_index(id.x + 1, id.y - 1);
+            vec3 p2 = input_ssbo.particles[index].position;
+
+            index = get_index(id.x, id.y - 1);
+            vec3 p3 = input_ssbo.particles[index].position;
+
+            index = get_index(id.x - 1, id.y);
+            vec3 p4 = input_ssbo.particles[index].position;
+
+            normal += normalize(cross(p2 - p0, p1 - p0));
+            normal += normalize(cross(p3 - p0, p2 - p0));
+            normal += normalize(cross(p4 - p0, p3 - p0));
+        }
+        else {
+            // Top right
+            //             p2    p0
+            //  o-----o-----o-----o
+            //  | \   | \   | \   |
+            //  |   \ |   \ |   \ |
+            //  o-----o-----o-----o
+            //                   p1
+
+            index = get_index(id.x, id.y - 1);
+            vec3 p1 = input_ssbo.particles[index].position;
+
+            index = get_index(id.x - 1, id.y);
+            vec3 p2 = input_ssbo.particles[index].position;
+
+            normal += normalize(cross(p2 - p0, p1 - p0));
+        }
+    }
+
+    index = get_index(id.x, id.y);
+    output_ssbo.particles[index].normal = -normalize(normal);
 }
