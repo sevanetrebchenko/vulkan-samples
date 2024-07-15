@@ -1398,6 +1398,9 @@ class DeferredRendering final : public Sample {
         }
         
         void on_key_pressed(int key) override {
+            if (key == GLFW_KEY_F) {
+                take_screenshot(swapchain_images[frame_index], "result.png");
+            }
         }
         
 };

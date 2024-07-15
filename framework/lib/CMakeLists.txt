@@ -25,3 +25,5 @@ set(SHADERC_SKIP_EXAMPLES ON)
 add_subdirectory(shaderc)
 
 add_subdirectory(tinyobjloader)
+
+add_subdirectory(stb)

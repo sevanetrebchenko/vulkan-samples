@@ -1,4 +1,6 @@
 
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include <stb_image_write.hpp>
 #include "sample.hpp"
 #include "helpers.hpp"
 #include "loaders/obj.hpp"
@@ -593,7 +595,7 @@ void Sample::initialize_swapchain() {
     
     swapchain_ci.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR; // Do not blend with other windows in the window system
     
-    swapchain_ci.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT; // Color attachments (render targets)
+    swapchain_ci.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT; // Color attachments (render targets)
     // TODO: transfer src/dst if supported?
 //    if (surface_capabilities.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_SRC_BIT) {
 //		swapchain_create_info.imageUsage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
@@ -1313,4 +1315,158 @@ void Sample::initialize_descriptor_pool(unsigned buffer_count, unsigned sampler_
     if (vkCreateDescriptorPool(device, &descriptor_pool_create_info, nullptr, &descriptor_pool) != VK_SUCCESS) {
         throw std::runtime_error("failed to create descriptor pool!");
     }
+}
+
+void Sample::take_screenshot(VkImage src, const char* filepath) {
+    VkFormatProperties format_properties { };
+    bool is_blitting_supported = true;
+    
+    // Check if the physical device supports blitting from swapchain images (optimal layout)
+    // Note that surface format is typically stored in BGRA (little endian format), so a blit is necessary to convert this layout to RGB
+    // Alternatively (if blitting is not supported), a copy command can be issued to directly copy the image data
+    // However, this approach will require manual swizzling of color data to convert it to RGBA
+    vkGetPhysicalDeviceFormatProperties(physical_device, surface_format.format, &format_properties);
+    if (!(format_properties.optimalTilingFeatures & VK_FORMAT_FEATURE_BLIT_SRC_BIT)) {
+        is_blitting_supported = false;
+    }
+    
+    // Check if the physical device supports blitting to linear images
+    vkGetPhysicalDeviceFormatProperties(physical_device, VK_FORMAT_R8G8B8A8_UNORM, &format_properties);
+    if (!(format_properties.linearTilingFeatures & VK_FORMAT_FEATURE_BLIT_DST_BIT)) {
+        is_blitting_supported = false;
+    }
+    
+    // Destination image
+    VkImage dst { };
+    VkDeviceMemory dst_memory { };
+    create_image(physical_device, device,
+                 width, height, 1, 1,
+                 VK_SAMPLE_COUNT_1_BIT,
+                 VK_FORMAT_R8G8B8A8_UNORM,
+                 VK_IMAGE_TILING_LINEAR,
+                 VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+                 0,
+                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                 dst, dst_memory);
+    
+    
+    VkImageSubresourceRange subresource_range { };
+    subresource_range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    subresource_range.baseMipLevel = 0;
+    subresource_range.levelCount = 1;
+    subresource_range.baseArrayLayer = 0; // Image is not an array
+    subresource_range.layerCount = 1;
+    
+    VkCommandBuffer command_buffer = begin_transient_command_buffer();
+        // Transfer destination image to a layout optimal for the destination of transfer operations
+        transition_image(command_buffer, dst,
+                         VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                         subresource_range,
+                         0, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                         VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+    
+        // Transfer source image to a layout optimal for the source of transfer operations
+        transition_image(command_buffer, src,
+                         VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                         subresource_range,
+                         VK_ACCESS_MEMORY_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                         VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+    
+        if (is_blitting_supported) {
+            VkOffset3D blit_start = { };
+            blit_start.x = 0;
+            blit_start.y = 0;
+            blit_start.z = 0;
+            
+            VkOffset3D blit_end { };
+            blit_end.x = width;
+            blit_end.y = height;
+            blit_end.z = 1;
+            
+            // Subresource to blit from
+            VkImageBlit blit_region { };
+            blit_region.srcSubresource.aspectMask = subresource_range.aspectMask;
+            blit_region.srcSubresource.baseArrayLayer = subresource_range.baseArrayLayer;
+            blit_region.srcSubresource.layerCount = subresource_range.layerCount;
+            blit_region.srcSubresource.mipLevel = subresource_range.baseMipLevel;
+            
+            // Specify the bounds
+            blit_region.srcOffsets[0] = blit_start;
+            blit_region.srcOffsets[1] = blit_end;
+            
+            // Subresource to blit into
+            blit_region.dstSubresource.aspectMask = subresource_range.aspectMask;
+            blit_region.dstSubresource.baseArrayLayer = subresource_range.baseArrayLayer;
+            blit_region.dstSubresource.layerCount = subresource_range.layerCount;
+            blit_region.dstSubresource.mipLevel = subresource_range.baseMipLevel;
+            
+            blit_region.dstOffsets[0] = blit_start;
+            blit_region.dstOffsets[1] = blit_end;
+            
+            vkCmdBlitImage(command_buffer, src, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dst, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit_region, VK_FILTER_NEAREST);
+        }
+        else {
+            // Blitting is not supported, do a simple buffer copy operation
+            VkImageCopy copy_region { };
+            
+            copy_region.srcSubresource.aspectMask = subresource_range.aspectMask;
+            copy_region.srcSubresource.baseArrayLayer = subresource_range.baseArrayLayer;
+            copy_region.srcSubresource.layerCount = subresource_range.layerCount;
+            copy_region.srcSubresource.mipLevel = subresource_range.baseMipLevel;
+            
+            copy_region.dstSubresource.aspectMask = subresource_range.aspectMask;
+            copy_region.dstSubresource.baseArrayLayer = subresource_range.baseArrayLayer;
+            copy_region.dstSubresource.layerCount = subresource_range.layerCount;
+            copy_region.dstSubresource.mipLevel = subresource_range.baseMipLevel;
+            
+			copy_region.extent.width = width;
+			copy_region.extent.height = height;
+			copy_region.extent.depth = 1;
+
+			vkCmdCopyImage(command_buffer, src, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dst, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy_region);
+        }
+    
+        // Transition destination image to VK_IMAGE_LAYOUT_GENERAL for mapping image memory to host
+        transition_image(command_buffer, dst,
+                         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL,
+                         subresource_range,
+                         VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                         VK_ACCESS_MEMORY_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+        
+        // Transition source image (back) to VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
+        transition_image(command_buffer, src,
+                         VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+                         subresource_range,
+                         VK_ACCESS_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                         VK_ACCESS_MEMORY_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+        
+    submit_transient_command_buffer(command_buffer);
+    
+    // Retrieve the layout of the image
+    VkImageSubresource subresource { };
+    subresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    subresource.arrayLayer = 0;
+    subresource.mipLevel = 0;
+    
+    VkSubresourceLayout subresource_layout { };
+    vkGetImageSubresourceLayout(device, dst, &subresource, &subresource_layout);
+    
+    const char* data = nullptr;
+    vkMapMemory(device, dst_memory, 0, VK_WHOLE_SIZE, 0, (void**) &data);
+    data += subresource_layout.offset;
+    
+    // Data needs to be swizzled if the surface format is little endian (discussed above)
+    // Note: non-exhaustive list of BGRA formats
+    VkFormat bgr_formats[] = { VK_FORMAT_B8G8R8A8_UNORM, VK_FORMAT_B8G8R8A8_SNORM, VK_FORMAT_B8G8R8A8_SRGB };
+
+    bool requires_swizzle = false;
+    for (VkFormat format : bgr_formats) {
+        if (surface_format.format == format) {
+            requires_swizzle = true;
+            break;
+        }
+    }
+    
+    stbi_write_png(filepath, width, height, 4, data, subresource_layout.rowPitch);
+    std::cout << "screenshot '" << filepath << "' saved";
 }

@@ -72,6 +72,8 @@ class Sample {
         
         void initialize_descriptor_pool(unsigned buffer_count, unsigned sampler_count);
         
+        void take_screenshot(VkImage image, const char* filepath);
+        
         int NUM_FRAMES_IN_FLIGHT = 3; // Increasing this number increases rendering latency by that many frames
         
         // May not correspond 1:1 with the resolution of swapchain internals due to display properties (the resolution of high-density displays does not necessarily match pixel data)
