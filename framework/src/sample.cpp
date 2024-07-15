@@ -1317,7 +1317,7 @@ void Sample::initialize_descriptor_pool(unsigned buffer_count, unsigned sampler_
     }
 }
 
-void Sample::take_screenshot(VkImage src, const char* filepath) {
+void Sample::take_screenshot(VkImage src, VkFormat format, VkImageLayout layout, const char* filepath) {
     VkFormatProperties format_properties { };
     bool is_blitting_supported = true;
     
@@ -1325,7 +1325,7 @@ void Sample::take_screenshot(VkImage src, const char* filepath) {
     // Note that surface format is typically stored in BGRA (little endian format), so a blit is necessary to convert this layout to RGB
     // Alternatively (if blitting is not supported), a copy command can be issued to directly copy the image data
     // However, this approach will require manual swizzling of color data to convert it to RGBA
-    vkGetPhysicalDeviceFormatProperties(physical_device, surface_format.format, &format_properties);
+    vkGetPhysicalDeviceFormatProperties(physical_device, format, &format_properties);
     if (!(format_properties.optimalTilingFeatures & VK_FORMAT_FEATURE_BLIT_SRC_BIT)) {
         is_blitting_supported = false;
     }
@@ -1435,7 +1435,7 @@ void Sample::take_screenshot(VkImage src, const char* filepath) {
         
         // Transition source image (back) to VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
         transition_image(command_buffer, src,
-                         VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+                         VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, layout,
                          subresource_range,
                          VK_ACCESS_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
                          VK_ACCESS_MEMORY_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
@@ -1460,13 +1460,40 @@ void Sample::take_screenshot(VkImage src, const char* filepath) {
     VkFormat bgr_formats[] = { VK_FORMAT_B8G8R8A8_UNORM, VK_FORMAT_B8G8R8A8_SNORM, VK_FORMAT_B8G8R8A8_SRGB };
 
     bool requires_swizzle = false;
-    for (VkFormat format : bgr_formats) {
-        if (surface_format.format == format) {
+    for (VkFormat f : bgr_formats) {
+        if (format == f) {
             requires_swizzle = true;
             break;
         }
     }
+
+    std::ofstream file(filepath, std::ios::out | std::ios::binary);
     
-    stbi_write_png(filepath, width, height, 4, data, subresource_layout.rowPitch);
-    std::cout << "screenshot '" << filepath << "' saved";
+    // .ppm file header
+    file << "P6" << '\n';
+    file << width << ' ' << height << '\n';
+    file << 255 << '\n';
+    
+    for (unsigned y = 0; y < height; ++y) {
+        unsigned* offset = (unsigned*) data;
+        for (unsigned x = 0u; x < width; ++x) {
+            if (requires_swizzle) {
+                file.write((const char*) offset + 2, 1); // R
+                file.write((const char*) offset + 1, 1); // G
+                file.write((const char*) offset + 0, 1); // B
+            }
+            else {
+                file.write((const char*) offset, 3);
+            }
+            ++offset;
+        }
+        data += subresource_layout.rowPitch;
+    }
+    file.close();
+    
+    vkUnmapMemory(device, dst_memory);
+    vkFreeMemory(device, dst_memory, nullptr);
+    vkDestroyImage(device, dst, nullptr);
+
+    std::cout << "screenshot '" << filepath << "' saved" << std::endl;
 }

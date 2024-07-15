@@ -72,7 +72,7 @@ class Sample {
         
         void initialize_descriptor_pool(unsigned buffer_count, unsigned sampler_count);
         
-        void take_screenshot(VkImage image, const char* filepath);
+        void take_screenshot(VkImage image, VkFormat format, VkImageLayout layout, const char* filepath);
         
         int NUM_FRAMES_IN_FLIGHT = 3; // Increasing this number increases rendering latency by that many frames
         

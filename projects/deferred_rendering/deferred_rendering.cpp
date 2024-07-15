@@ -747,13 +747,13 @@ class DeferredRendering final : public Sample {
                     format = VK_FORMAT_R8G8B8A8_UNORM;
                 }
                 
-                create_image(physical_device, device, swapchain_extent.width, swapchain_extent.height, 1, VK_SAMPLE_COUNT_1_BIT, format, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, offscreen_framebuffer_attachments[i].image, offscreen_framebuffer_attachments[i].memory);
-                create_image_view(device, offscreen_framebuffer_attachments[i].image, format, VK_IMAGE_ASPECT_COLOR_BIT, 1, offscreen_framebuffer_attachments[i].image_view);
+                create_image(physical_device, device, swapchain_extent.width, swapchain_extent.height, 1, 1, VK_SAMPLE_COUNT_1_BIT, format, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, 0, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, offscreen_framebuffer_attachments[i].image, offscreen_framebuffer_attachments[i].memory);
+                create_image_view(device, offscreen_framebuffer_attachments[i].image, VK_IMAGE_VIEW_TYPE_2D, format, VK_IMAGE_ASPECT_COLOR_BIT, 1, 1, offscreen_framebuffer_attachments[i].image_view);
             }
             
             // Initialize depth attachment
-            create_image(physical_device, device, swapchain_extent.width, swapchain_extent.height, 1, VK_SAMPLE_COUNT_1_BIT, depth_buffer_format, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, offscreen_framebuffer_attachments[DEPTH].image, offscreen_framebuffer_attachments[DEPTH].memory);
-            create_image_view(device, offscreen_framebuffer_attachments[DEPTH].image, depth_buffer_format, VK_IMAGE_ASPECT_DEPTH_BIT, 1, offscreen_framebuffer_attachments[DEPTH].image_view);
+            create_image(physical_device, device, swapchain_extent.width, swapchain_extent.height, 1, 1, VK_SAMPLE_COUNT_1_BIT, depth_buffer_format, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, 0, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, offscreen_framebuffer_attachments[DEPTH].image, offscreen_framebuffer_attachments[DEPTH].memory);
+            create_image_view(device, offscreen_framebuffer_attachments[DEPTH].image, VK_IMAGE_VIEW_TYPE_2D, depth_buffer_format, VK_IMAGE_ASPECT_DEPTH_BIT, 1, 1, offscreen_framebuffer_attachments[DEPTH].image_view);
             
             VkImageView attachments[] {
                 offscreen_framebuffer_attachments[POSITION].image_view,
@@ -1371,6 +1371,16 @@ class DeferredRendering final : public Sample {
             }
             else if (key == GLFW_KEY_7) {
                 debug_view = DEPTH;
+            }
+            else if (key == GLFW_KEY_F) {
+                // Save screenshot of all attachments
+                take_screenshot(swapchain_images[frame_index], surface_format.format, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, "deferred_rendering.ppm"); // Output attachment
+                
+                take_screenshot(offscreen_framebuffer_attachments[POSITION].image, VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, "positions.ppm");
+                take_screenshot(offscreen_framebuffer_attachments[NORMAL].image, VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, "normals.ppm");
+                take_screenshot(offscreen_framebuffer_attachments[AMBIENT].image, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, "ambient.ppm");
+                take_screenshot(offscreen_framebuffer_attachments[DIFFUSE].image, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, "diffuse.ppm");
+                take_screenshot(offscreen_framebuffer_attachments[SPECULAR].image, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, "specular.ppm");
             }
         }
         
