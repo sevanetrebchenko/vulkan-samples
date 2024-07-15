@@ -1282,6 +1282,7 @@ void Sample::submit_transient_command_buffer(VkCommandBuffer command_buffer) {
     
     // vkQueueWaitIdle(queue);
     
+    vkDestroyFence(device, fence, nullptr);
     vkFreeCommandBuffers(device, transient_command_pool, 1, &command_buffer);
 }
 

@@ -126,11 +126,23 @@ class DeferredRendering final : public Sample {
             initialize_descriptor_set_layouts();
             initialize_descriptor_sets();
             
-            
             initialize_pipelines();
         }
         
         void destroy_resources() override {
+            destroy_pipelines();
+            
+            destroy_descriptor_set_layouts();
+            destroy_uniform_buffer();
+            
+            destroy_buffers();
+            
+            destroy_framebuffers();
+            destroy_render_passes();
+            
+            destroy_samplers();
+            
+            vkDestroySemaphore(device, is_offscreen_rendering_complete, nullptr);
         }
         
         void update() override {
@@ -800,6 +812,13 @@ class DeferredRendering final : public Sample {
         }
         
         void destroy_framebuffers() {
+            for (std::size_t i = 0u; i < offscreen_framebuffer_attachments.size(); ++i) {
+                vkDestroyImage(device, offscreen_framebuffer_attachments[i].image, nullptr);
+                vkDestroyImageView(device, offscreen_framebuffer_attachments[i].image_view, nullptr);
+                
+                vkFreeMemory(device, offscreen_framebuffer_attachments[i].memory, nullptr);
+            }
+            
             vkDestroyFramebuffer(device, offscreen_framebuffer, nullptr);
         }
         
@@ -1263,6 +1282,10 @@ class DeferredRendering final : public Sample {
             if (vkCreateSampler(device, &texture_sampler_create_info, nullptr, &sampler) != VK_SUCCESS) {
                 throw std::runtime_error("failed to create texture sampler!");
             }
+        }
+        
+        void destroy_samplers() {
+            vkDestroySampler(device, sampler, nullptr);
         }
         
         void initialize_uniform_buffer() {
