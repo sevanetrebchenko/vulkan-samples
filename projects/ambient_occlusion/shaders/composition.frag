@@ -38,7 +38,7 @@ void main() {
 
         vec4 L = normalize((lighting.view * light_position) - view_position);
 
-        // Ambient
+        // Ambient + ambient occlusion component
         color += (texture(ambient, vertex_uv).xyz * texture(ambient_occlusion, vertex_uv).r);
 
         // Diffuse

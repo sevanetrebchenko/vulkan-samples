@@ -21,7 +21,7 @@ class AmbientOcclusion final : public Sample {
             enabled_queue_types = VK_QUEUE_TRANSFER_BIT;
             debug_view = AO;
             
-            camera.set_position(glm::vec3(0, 2, 6));
+            camera.set_position(glm::vec3(0, 0.5f, 6));
             camera.set_look_direction(glm::vec3(0.0f, 0.25f, -1.0f));
         }
         
@@ -187,6 +187,14 @@ class AmbientOcclusion final : public Sample {
         }
         
         void destroy_resources() override {
+            destroy_pipelines();
+            destroy_descriptor_set_layouts();
+            destroy_uniform_buffer();
+            destroy_buffers();
+            destroy_framebuffers();
+            destroy_render_passes();
+            destroy_ambient_occlusion_resources();
+            destroy_samplers();
         }
         
         void update() override {
@@ -884,6 +892,21 @@ class AmbientOcclusion final : public Sample {
         }
         
         void destroy_pipelines() {
+            // Composition pipeline
+            vkDestroyPipelineLayout(device, composition_pipeline_layout, nullptr);
+            vkDestroyPipeline(device, composition_pipeline, nullptr);
+            
+            // Ambient occlusion blur pipeline
+            vkDestroyPipelineLayout(device, ambient_occlusion_blur_pipeline_layout, nullptr);
+            vkDestroyPipeline(device, ambient_occlusion_blur_pipeline, nullptr);
+            
+            // Ambient occlusion pipeline
+            vkDestroyPipelineLayout(device, ambient_occlusion_pipeline_layout, nullptr);
+            vkDestroyPipeline(device, ambient_occlusion_pipeline, nullptr);
+            
+            // Geometry pipeline
+            vkDestroyPipelineLayout(device, geometry_pipeline_layout, nullptr);
+            vkDestroyPipeline(device, geometry_pipeline, nullptr);
         }
         
         void initialize_geometry_render_pass() {
@@ -1060,6 +1083,10 @@ class AmbientOcclusion final : public Sample {
         }
         
         void destroy_render_passes() {
+            vkDestroyRenderPass(device, composition_render_pass, nullptr);
+            vkDestroyRenderPass(device, ambient_occlusion_blur_render_pass, nullptr);
+            vkDestroyRenderPass(device, ambient_occlusion_render_pass, nullptr);
+            vkDestroyRenderPass(device, geometry_render_pass, nullptr);
         }
         
         void initialize_geometry_framebuffer() {
@@ -1074,13 +1101,13 @@ class AmbientOcclusion final : public Sample {
                     format = VK_FORMAT_R8G8B8A8_UNORM;
                 }
                 
-                create_image(physical_device, device, swapchain_extent.width, swapchain_extent.height, 1, VK_SAMPLE_COUNT_1_BIT, format, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, geometry_framebuffer_attachments[i].image, geometry_framebuffer_attachments[i].memory);
-                create_image_view(device, geometry_framebuffer_attachments[i].image, format, VK_IMAGE_ASPECT_COLOR_BIT, 1, geometry_framebuffer_attachments[i].image_view);
+                create_image(physical_device, device, swapchain_extent.width, swapchain_extent.height, 1, 1, VK_SAMPLE_COUNT_1_BIT, format, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 0, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, geometry_framebuffer_attachments[i].image, geometry_framebuffer_attachments[i].memory);
+                create_image_view(device, geometry_framebuffer_attachments[i].image, VK_IMAGE_VIEW_TYPE_2D, format, VK_IMAGE_ASPECT_COLOR_BIT, 1, 1, geometry_framebuffer_attachments[i].image_view);
             }
             
             // Depth attachment
-            create_image(physical_device, device, swapchain_extent.width, swapchain_extent.height, 1, VK_SAMPLE_COUNT_1_BIT, depth_buffer_format, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, geometry_framebuffer_attachments[5].image, geometry_framebuffer_attachments[5].memory);
-            create_image_view(device, geometry_framebuffer_attachments[5].image, depth_buffer_format, VK_IMAGE_ASPECT_DEPTH_BIT, 1, geometry_framebuffer_attachments[5].image_view);
+            create_image(physical_device, device, swapchain_extent.width, swapchain_extent.height, 1, 1, VK_SAMPLE_COUNT_1_BIT, depth_buffer_format, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 0, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, geometry_framebuffer_attachments[5].image, geometry_framebuffer_attachments[5].memory);
+            create_image_view(device, geometry_framebuffer_attachments[5].image, VK_IMAGE_VIEW_TYPE_2D, depth_buffer_format, VK_IMAGE_ASPECT_DEPTH_BIT, 1, 1, geometry_framebuffer_attachments[5].image_view);
             
             VkImageView attachments[] {
                 geometry_framebuffer_attachments[0].image_view, // Positions
@@ -1107,8 +1134,8 @@ class AmbientOcclusion final : public Sample {
         
         void initialize_ambient_occlusion_framebuffer() {
             // Color attachments
-            create_image(physical_device, device, swapchain_extent.width, swapchain_extent.height, 1, VK_SAMPLE_COUNT_1_BIT, VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, ambient_occlusion_attachment.image, ambient_occlusion_attachment.memory);
-            create_image_view(device, ambient_occlusion_attachment.image, VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_ASPECT_COLOR_BIT, 1, ambient_occlusion_attachment.image_view);
+            create_image(physical_device, device, swapchain_extent.width, swapchain_extent.height, 1, 1, VK_SAMPLE_COUNT_1_BIT, VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 0, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, ambient_occlusion_attachment.image, ambient_occlusion_attachment.memory);
+            create_image_view(device, ambient_occlusion_attachment.image, VK_IMAGE_VIEW_TYPE_2D, VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_ASPECT_COLOR_BIT, 1, 1, ambient_occlusion_attachment.image_view);
             
             VkFramebufferCreateInfo framebuffer_create_info { };
             framebuffer_create_info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
@@ -1126,8 +1153,8 @@ class AmbientOcclusion final : public Sample {
         
         void initialize_ambient_occlusion_blur_framebuffer() {
             // Color attachment
-            create_image(physical_device, device, swapchain_extent.width, swapchain_extent.height, 1, VK_SAMPLE_COUNT_1_BIT, VK_FORMAT_R8_UNORM, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, ambient_occlusion_blur_attachment.image, ambient_occlusion_blur_attachment.memory);
-            create_image_view(device, ambient_occlusion_blur_attachment.image, VK_FORMAT_R8_UNORM, VK_IMAGE_ASPECT_COLOR_BIT, 1, ambient_occlusion_blur_attachment.image_view);
+            create_image(physical_device, device, swapchain_extent.width, swapchain_extent.height, 1, 1, VK_SAMPLE_COUNT_1_BIT, VK_FORMAT_R8_UNORM, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 0, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, ambient_occlusion_blur_attachment.image, ambient_occlusion_blur_attachment.memory);
+            create_image_view(device, ambient_occlusion_blur_attachment.image, VK_IMAGE_VIEW_TYPE_2D, VK_FORMAT_R8_UNORM, VK_IMAGE_ASPECT_COLOR_BIT, 1, 1, ambient_occlusion_blur_attachment.image_view);
             
             VkFramebufferCreateInfo framebuffer_create_info { };
             framebuffer_create_info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
@@ -1159,6 +1186,30 @@ class AmbientOcclusion final : public Sample {
                     throw std::runtime_error("failed to create framebuffer!");
                 }
             }
+        }
+        
+        void destroy_framebuffers() {
+            // Ambient occlusion blur
+            vkDestroyImage(device, ambient_occlusion_blur_attachment.image, nullptr);
+            vkDestroyImageView(device, ambient_occlusion_blur_attachment.image_view, nullptr);
+            vkFreeMemory(device, ambient_occlusion_blur_attachment.memory, nullptr);
+            
+            vkDestroyFramebuffer(device, ambient_occlusion_blur_framebuffer, nullptr);
+            
+            // Ambient occlusion
+            vkDestroyImage(device, ambient_occlusion_attachment.image, nullptr);
+            vkDestroyImageView(device, ambient_occlusion_attachment.image_view, nullptr);
+            vkFreeMemory(device, ambient_occlusion_attachment.memory, nullptr);
+            
+            vkDestroyFramebuffer(device, ambient_occlusion_framebuffer, nullptr);
+            
+            // Geometry buffer
+            for (std::size_t i = 0u; i < geometry_framebuffer_attachments.size(); ++i) {
+                vkDestroyImage(device, geometry_framebuffer_attachments[i].image, nullptr);
+                vkDestroyImageView(device, geometry_framebuffer_attachments[i].image_view, nullptr);
+                vkFreeMemory(device, geometry_framebuffer_attachments[i].memory, nullptr);
+            }
+            vkDestroyFramebuffer(device, geometry_framebuffer, nullptr);
         }
         
         void initialize_geometry_global_descriptor_set() {
@@ -1549,6 +1600,14 @@ class AmbientOcclusion final : public Sample {
             vkUpdateDescriptorSets(device, sizeof(descriptor_writes) / sizeof(descriptor_writes[0]), descriptor_writes, 0, nullptr);
         }
         
+        void destroy_descriptor_set_layouts() {
+            vkDestroyDescriptorSetLayout(device, composition_descriptor_set_layout, nullptr);
+            vkDestroyDescriptorSetLayout(device, ambient_occlusion_blur_descriptor_set_layout, nullptr);
+            vkDestroyDescriptorSetLayout(device, ambient_occlusion_descriptor_set_layout, nullptr);
+            vkDestroyDescriptorSetLayout(device, geometry_object_descriptor_set_layout, nullptr);
+            vkDestroyDescriptorSetLayout(device, geometry_global_descriptor_set_layout, nullptr);
+        }
+        
         void initialize_buffers() {
             models.emplace_back(load_obj("assets/models/cube.obj"));
             models.emplace_back(load_obj("assets/models/knight.obj"));
@@ -1609,7 +1668,7 @@ class AmbientOcclusion final : public Sample {
             knight.diffuse = glm::vec3(0.8f); // offwhite
             knight.specular = glm::vec3(0.0f);
             knight.specular_exponent = 0.0f;
-            knight.transform = Transform(glm::vec3(0, 0.5f, 0), glm::vec3(1.5f), glm::vec3(0.0f, 50.0f, 0.0f));
+            knight.transform = Transform(glm::vec3(0, 0.5f, 0), glm::vec3(1.5f), glm::vec3(0.0f, -55.0f, 0.0f));
             knight.flat_shaded = true;
             
             // This sample only uses vertex position and normal
@@ -1770,6 +1829,10 @@ class AmbientOcclusion final : public Sample {
             }
         }
         
+        void destroy_samplers() {
+            vkDestroySampler(device, sampler, nullptr);
+        }
+        
         void initialize_uniform_buffer() {
             std::size_t geometry_global_uniform_block_size = align_to_device_boundary(physical_device, sizeof(GeometryGlobalUniforms));
             std::size_t geometry_object_uniform_block_size = align_to_device_boundary(physical_device, sizeof(GeometryObjectVertexStageUniforms)) + align_to_device_boundary(physical_device, sizeof(GeometryObjectFragmentStageUniforms));
@@ -1888,7 +1951,7 @@ class AmbientOcclusion final : public Sample {
             
             // Generate texture for storing noise values
             unsigned mip_levels = 1;
-            create_image(physical_device, device, dimension, dimension, mip_levels, VK_SAMPLE_COUNT_1_BIT, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, ambient_occlusion_noise.image, ambient_occlusion_noise.memory);
+            create_image(physical_device, device, dimension, dimension, mip_levels, 1, VK_SAMPLE_COUNT_1_BIT, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, 0, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, ambient_occlusion_noise.image, ambient_occlusion_noise.memory);
 
             // Use staging buffer to upload image into device local memory for optimal layout
             std::size_t image_size = dimension * dimension * sizeof(glm::vec4);
@@ -1948,19 +2011,28 @@ class AmbientOcclusion final : public Sample {
                                  VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
             submit_transient_command_buffer(command_buffer);
             
-            create_image_view(device, ambient_occlusion_noise.image, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_ASPECT_COLOR_BIT, 1, ambient_occlusion_noise.image_view);
+            create_image_view(device, ambient_occlusion_noise.image, VK_IMAGE_VIEW_TYPE_2D, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_ASPECT_COLOR_BIT, 1, 1, ambient_occlusion_noise.image_view);
             
             // Staging buffer resources are no longer necessary
             vkFreeMemory(device, staging_buffer_memory, nullptr);
             vkDestroyBuffer(device, staging_buffer, nullptr);
         }
         
+        void destroy_ambient_occlusion_resources() {
+            vkFreeMemory(device, ambient_occlusion_noise.memory, nullptr);
+            vkDestroyImageView(device, ambient_occlusion_noise.image_view, nullptr);
+            vkDestroyImage(device, ambient_occlusion_noise.image, nullptr);
+        }
+        
         void on_key_pressed(int key) {
             if (key == GLFW_KEY_1) {
-                debug_view = OUTPUT;
+                debug_view = AO;
             }
             else if (key == GLFW_KEY_2) {
-                debug_view = AO;
+                debug_view = OUTPUT;
+            }
+            else if (key == GLFW_KEY_F) {
+                take_screenshot(swapchain_images[frame_index], surface_format.format, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, "ambient_occlusion.ppm"); // Output attachment
             }
         }
         
