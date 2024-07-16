@@ -159,6 +159,13 @@ class ShadowMapping final : public Sample {
         }
         
         void destroy_resources() override {
+            destroy_pipelines();
+            destroy_descriptor_sets();
+            destroy_uniform_buffer();
+            destroy_buffers();
+            destroy_framebuffers();
+            destroy_render_passes();
+            destroy_samplers();
         }
         
         void update() override {
@@ -846,11 +853,18 @@ class ShadowMapping final : public Sample {
         }
         
         void destroy_framebuffers() {
+            vkDestroyImage(device, shadow_attachment.image, nullptr);
+            vkDestroyImageView(device, shadow_attachment.image_view, nullptr);
+            vkFreeMemory(device, shadow_attachment.memory, nullptr);
             vkDestroyFramebuffer(device, shadow_framebuffer, nullptr);
-            vkDestroyFramebuffer(device, geometry_framebuffer, nullptr);
-            for (std::size_t i = 0u; i < NUM_FRAMES_IN_FLIGHT; ++i) {
-                vkDestroyFramebuffer(device, present_framebuffers[i], nullptr);
+
+            // Geometry buffer
+            for (std::size_t i = 0u; i < geometry_framebuffer_attachments.size(); ++i) {
+                vkDestroyImage(device, geometry_framebuffer_attachments[i].image, nullptr);
+                vkDestroyImageView(device, geometry_framebuffer_attachments[i].image_view, nullptr);
+                vkFreeMemory(device, geometry_framebuffer_attachments[i].memory, nullptr);
             }
+            vkDestroyFramebuffer(device, geometry_framebuffer, nullptr);
         }
         
         void initialize_shadow_map_framebuffer() {
@@ -1377,6 +1391,11 @@ class ShadowMapping final : public Sample {
             }
         }
         
+        void destroy_samplers() {
+            vkDestroySampler(device, depth_sampler, nullptr);
+            vkDestroySampler(device, color_sampler, nullptr);
+        }
+        
         void initialize_uniform_buffer() {
             // Globals (camera + lights) + per object (transform + material) * num objects
             std::size_t uniform_buffer_size = align_to_device_boundary(physical_device, sizeof(GlobalUniforms)) + align_to_device_boundary(physical_device, sizeof(Scene::Light) * scene.lights.size()) + (align_to_device_boundary(physical_device, sizeof(ObjectUniforms)) + align_to_device_boundary(physical_device, sizeof(PhongUniforms))) * scene.objects.size();
@@ -1474,27 +1493,9 @@ class ShadowMapping final : public Sample {
         }
         
         void on_key_pressed(int key) override {
-//            if (key == GLFW_KEY_1) {
-//                debug_view = OUTPUT;
-//            }
-//            else if (key == GLFW_KEY_2) {
-//                debug_view = POSITION;
-//            }
-//            else if (key == GLFW_KEY_3) {
-//                debug_view = NORMAL;
-//            }
-//            else if (key == GLFW_KEY_4) {
-//                debug_view = AMBIENT;
-//            }
-//            else if (key == GLFW_KEY_5) {
-//                debug_view = DIFFUSE;
-//            }
-//            else if (key == GLFW_KEY_6) {
-//                debug_view = SPECULAR;
-//            }
-//            else if (key == GLFW_KEY_7) {
-//                debug_view = DEPTH;
-//            }
+            if (key == GLFW_KEY_F) {
+                take_screenshot(swapchain_images[frame_index], surface_format.format, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, "directional_shadow_mapping.ppm"); // Output attachment
+            }
         }
         
 };
