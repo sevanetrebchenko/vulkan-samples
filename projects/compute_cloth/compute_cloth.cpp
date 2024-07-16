@@ -11,8 +11,8 @@
 class DeferredRendering final : public Sample {
     public:
         DeferredRendering() : Sample("Compute: Cloth Simulation") {
-            camera.set_position(glm::vec3(0, 2, 8));
-            camera.set_look_direction(glm::vec3(0.0f, 0.0f, -1.0f));
+            camera.set_position(glm::vec3(0, 1, 8.5f));
+            camera.set_look_direction(glm::vec3(0.0f, -0.6f, -1.0f));
             
             dimension = 100;
             size = 7.0f;
@@ -104,15 +104,6 @@ class DeferredRendering final : public Sample {
         Buffer uniform_buffer;
         void* uniform_buffer_mapped;
         
-        struct FramebufferAttachment {
-            VkImage image;
-            VkDeviceMemory memory;
-            VkImageView image_view;
-            VkFormat format;
-        };
-
-        FramebufferAttachment output_attachment;
-        
         VkRenderPass model_render_pass;
         VkPipelineLayout model_pipeline_layout;
         VkPipeline model_pipeline;
@@ -167,6 +158,14 @@ class DeferredRendering final : public Sample {
         }
         
         void destroy_resources() override {
+            destroy_pipelines();
+            destroy_descriptor_sets();
+            destroy_uniform_buffer();
+            destroy_buffers();
+            destroy_framebuffers();
+            destroy_render_passes();
+            destroy_synchronization();
+            destroy_samplers();
         }
         
         void update() override {
@@ -187,6 +186,11 @@ class DeferredRendering final : public Sample {
             if (vkCreateFence(device, &fence_create_info, nullptr, &is_compute_in_flight) != VK_SUCCESS) {
                 throw std::runtime_error("failed to create fence!");
             }
+        }
+        
+        void destroy_synchronization() {
+            vkDestroySemaphore(device, is_compute_finished, nullptr);
+            vkDestroyFence(device, is_compute_in_flight, nullptr);
         }
         
         void initialize_compute_command_buffer() {
@@ -301,7 +305,6 @@ class DeferredRendering final : public Sample {
                 throw std::runtime_error("failed to record compute command buffer!");
             }
         }
-        
         
         void render() override {
             std::size_t timeout = std::numeric_limits<std::size_t>::max();
@@ -730,10 +733,14 @@ class DeferredRendering final : public Sample {
             VkComputePipelineCreateInfo pipeline_create_info { };
             pipeline_create_info.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
             pipeline_create_info.layout = compute_pipeline_layout;
-            pipeline_create_info.stage = create_shader_stage(create_shader_module(device, "shaders/cloth.comp"), VK_SHADER_STAGE_COMPUTE_BIT);
+            
+            VkShaderModule shader_module = create_shader_module(device, "shaders/cloth.comp");
+            pipeline_create_info.stage = create_shader_stage(shader_module, VK_SHADER_STAGE_COMPUTE_BIT);
             if (vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &pipeline_create_info, nullptr, &compute_pipeline) != VK_SUCCESS) {
                 throw std::runtime_error("failed to create compute pipeline!");
             }
+            
+            vkDestroyShaderModule(device, shader_module, nullptr);
         }
         
         void destroy_pipelines() {
@@ -816,9 +823,6 @@ class DeferredRendering final : public Sample {
         }
         
         void destroy_framebuffers() {
-            for (std::size_t i = 0u; i < NUM_FRAMES_IN_FLIGHT; ++i) {
-                vkDestroyFramebuffer(device, present_framebuffers[i], nullptr);
-            }
         }
         
         // Uniform buffer layout
@@ -1116,12 +1120,18 @@ class DeferredRendering final : public Sample {
             }
         }
 
+        void destroy_descriptor_sets() {
+            vkDestroyDescriptorSetLayout(device, compute_descriptor_set_layout, nullptr);
+            vkDestroyDescriptorSetLayout(device, global_descriptor_set_layout, nullptr);
+            vkDestroyDescriptorSetLayout(device, object_descriptor_set_layout, nullptr);
+        }
+        
         void initialize_geometry_buffers() {
             model.model = load_obj("assets/models/sphere.obj");
             model.diffuse = glm::vec3(0.8f);
             model.specular = glm::vec3(0.0f);
             model.specular_exponent = 0.0f;
-            model.transform = Transform(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(1.0f), glm::vec3(0.0f, 50.0f, 0.0f));
+            model.transform = Transform(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(1.0f), glm::vec3(0.0f, 0.0f, 0.0f));
             model.flat_shaded = true;
             
             std::size_t model_vertex_buffer_size = model.model.vertices.size() * sizeof(Model::Vertex);
@@ -1319,6 +1329,10 @@ class DeferredRendering final : public Sample {
             }
         }
         
+        void destroy_samplers() {
+            vkDestroySampler(device, sampler, nullptr);
+        }
+        
         void initialize_uniform_buffer() {
             // simulation uniforms + camera uniforms + lighting uniforms + per model uniforms (for 2 models)
             std::size_t uniform_buffer_size = align_to_device_boundary(physical_device, sizeof(SimulationUniforms)) +
@@ -1359,7 +1373,7 @@ class DeferredRendering final : public Sample {
             offset += align_to_device_boundary(physical_device, sizeof(CameraUniforms));
             
             LightUniforms light_uniforms { };
-            light_uniforms.position = glm::vec3(0.0f, 3.0f, 0.0f);
+            light_uniforms.position = glm::vec3(1.5f, 2.2f, 1.0f);
             light_uniforms.radius = 5.0f;
             
             memcpy((void*)(((const char*) uniform_buffer_mapped) + offset), &light_uniforms, sizeof(LightUniforms));
@@ -1383,9 +1397,9 @@ class DeferredRendering final : public Sample {
             offset += align_to_device_boundary(physical_device, sizeof(PhongUniforms));
             
             PhongUniforms cloth_lighting_uniforms { };
-            cloth_lighting_uniforms.diffuse = glm::vec3(0.4f);
-            cloth_lighting_uniforms.specular = glm::vec3(0.0f);
-            cloth_lighting_uniforms.specular_exponent = 1.0f;
+            cloth_lighting_uniforms.diffuse = glm::vec3(0.8f);
+            cloth_lighting_uniforms.specular = glm::vec3(1.0f);
+            cloth_lighting_uniforms.specular_exponent = 15.0f;
             cloth_lighting_uniforms.flat_shaded = 0; // No flat shading
             
             memcpy((void*)(((const char*) uniform_buffer_mapped) + offset), &cloth_lighting_uniforms, sizeof(PhongUniforms));
@@ -1399,7 +1413,7 @@ class DeferredRendering final : public Sample {
         
         void on_key_pressed(int key) override {
             if (key == GLFW_KEY_F) {
-                take_screenshot(swapchain_images[frame_index], "compute_cloth.png");
+                take_screenshot(swapchain_images[frame_index], surface_format.format, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, "compute_cloth.ppm"); // Output attachment
             }
         }
         
