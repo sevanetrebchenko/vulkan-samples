@@ -20,4 +20,4 @@ A collection of visual effects, rendering techniques, and small samples built on
 
 |                                                        [Omnidirectional Shadow Mapping](https://github.com/sevanetrebchenko/vulkan-samples/tree/master/projects/omnidirectional_shadow_mapping)                                                        |
 |:------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------:|
-| ![omnidirectional_shadow_mapping.jpg](https://github.com/sevanetrebchenko/vulkan-samples/blob/master/artifacts/shadow_mapping/omnidirectional_shadow_mapping.jpg) <br> An implementation of shadow mapping for a single omnidirectional (point) light. |
+| ![omnidirectional_shadow_mapping.jpg](https://github.com/sevanetrebchenko/vulkan-samples/blob/master/artifacts/omnidirectional_shadow_mapping/omnidirectional_shadow_mapping.jpg) <br> An implementation of shadow mapping for a single omnidirectional (point) light. |
