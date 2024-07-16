@@ -1456,17 +1456,17 @@ void Sample::take_screenshot(VkImage src, VkFormat format, VkImageLayout layout,
     vkMapMemory(device, dst_memory, 0, VK_WHOLE_SIZE, 0, (void**) &data);
     data += subresource_layout.offset;
     
-    // Data needs to be swizzled if the surface format is little endian (discussed above)
-    // Note: non-exhaustive list of BGRA formats
-    VkFormat bgr_formats[] = { VK_FORMAT_B8G8R8A8_UNORM, VK_FORMAT_B8G8R8A8_SNORM, VK_FORMAT_B8G8R8A8_SRGB };
-
-    bool requires_swizzle = false;
-    for (VkFormat f : bgr_formats) {
-        if (format == f) {
-            requires_swizzle = true;
-            break;
-        }
-    }
+//    // Data needs to be swizzled if the surface format is little endian (discussed above)
+//    // Note: non-exhaustive list of BGRA formats
+//    VkFormat bgr_formats[] = { VK_FORMAT_B8G8R8A8_UNORM, VK_FORMAT_B8G8R8A8_SNORM, VK_FORMAT_B8G8R8A8_SRGB };
+//
+//    bool requires_swizzle = false;
+//    for (VkFormat f : bgr_formats) {
+//        if (format == f) {
+//            requires_swizzle = true;
+//            break;
+//        }
+//    }
 
     std::ofstream file(filepath, std::ios::out | std::ios::binary);
     
@@ -1478,14 +1478,12 @@ void Sample::take_screenshot(VkImage src, VkFormat format, VkImageLayout layout,
     for (unsigned y = 0; y < height; ++y) {
         unsigned* offset = (unsigned*) data;
         for (unsigned x = 0u; x < width; ++x) {
-            if (requires_swizzle) {
-                file.write((const char*) offset + 2, 1); // R
-                file.write((const char*) offset + 1, 1); // G
-                file.write((const char*) offset + 0, 1); // B
-            }
-            else {
-                file.write((const char*) offset, 3);
-            }
+//            if (requires_swizzle) {
+//                file.write((const char*) offset + 2, 1); // R
+//                file.write((const char*) offset + 1, 1); // G
+//                file.write((const char*) offset + 0, 1); // B
+//            }
+            file.write((const char*) offset, 3);
             ++offset;
         }
         data += subresource_layout.rowPitch;
