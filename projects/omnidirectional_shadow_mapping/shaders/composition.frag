@@ -7,7 +7,7 @@ layout (set = 0, binding = 0) uniform GlobalUniforms {
     mat4 view;
     mat4 projection;
     vec3 camera_position; // Unused
-    int debug_view; // Unused
+    int debug_view;
     float camera_far_plane;
 } global;
 
