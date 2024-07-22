@@ -10,3 +10,9 @@
 [submodule "framework/lib/tinyobjloader"]
 	path = framework/lib/tinyobjloader
 	url = git@github.com:tinyobjloader/tinyobjloader.git
+[submodule "framework/lib/utils"]
+	path = framework/lib/utils
+	url = git@github.com:sevanetrebchenko/utils.git
+[submodule "framework/lib/spirv-reflect"]
+	path = framework/lib/spirv-reflect
+	url = git@github.com:KhronosGroup/SPIRV-Reflect.git

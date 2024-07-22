@@ -47,7 +47,7 @@ VkShaderModule create_shader_module(VkDevice device, const char* filepath, std::
     }
     
     shaderc::Compiler compiler { };
-    std::string filename = path.stem().u8string(); // Convert from wchar_t
+    std::string filename = path.stem().string(); // Convert from wchar_t
     
     // Function assumes entry point is 'main'
     shaderc::SpvCompilationResult result = compiler.CompileGlslToSpv(source, type, filename.c_str());

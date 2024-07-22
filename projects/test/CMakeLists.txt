@@ -1,0 +1,1 @@
+add_project(NAME test SOURCE_FILES "main.cpp")

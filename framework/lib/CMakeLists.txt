@@ -27,3 +27,9 @@ add_subdirectory(shaderc)
 add_subdirectory(tinyobjloader)
 
 add_subdirectory(stb)
+
+add_subdirectory(utils)
+
+set(SPIRV_REFLECT_EXECUTABLE OFF)
+set(SPIRV_REFLECT_STATIC_LIB ON)
+add_subdirectory(spirv-reflect)
