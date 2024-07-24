@@ -11,7 +11,6 @@
 
 class ShadowMapping final : public Sample {
     public:
-            ;
         ShadowMapping() : Sample("Shadow Mapping"),
                           shadow_attachment_length(2000) {
             enabled_physical_device_features.geometryShader = (VkBool32) true;
