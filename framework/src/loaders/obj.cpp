@@ -112,9 +112,6 @@ Model load_obj(const char* filepath) {
         vertex.position -= center;
     }
     
-    // Scale model to [1, 1, 1]
-    glm::vec3 bounding_box = maximum - minimum;
-
     // Scale the mesh to range [-1 1] on all axes
     glm::vec3 extents = maximum - minimum;
     float max_extent = std::max({ extents.x, extents.y, extents.z });

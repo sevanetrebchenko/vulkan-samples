@@ -28,6 +28,7 @@ class PBR final : public Sample {
         // PBR scene consists of an array of models to showcase different material properties
         Model model;
         std::vector<Transform> transforms;
+        Model skybox; // Cube
         
         struct Texture {
             VkImage image;
@@ -55,6 +56,9 @@ class PBR final : public Sample {
         
         VkDescriptorSetLayout global_descriptor_set_layout;
         VkDescriptorSet global_descriptor_set;
+        
+        VkDescriptorSetLayout skybox_descriptor_set_layout;
+        VkDescriptorSet skybox_descriptor_set;
         
         VkDescriptorSetLayout object_descriptor_set_layout;
         std::vector<VkDescriptorSet> object_descriptor_sets;
@@ -87,6 +91,10 @@ class PBR final : public Sample {
         struct MaterialUniforms {
         };
 
+        VkPipelineLayout skybox_pipeline_layout;
+        VkPipeline skybox_pipeline;
+        VkRenderPass skybox_render_pass;
+        
         VkPipelineLayout pipeline_layout;
         VkPipeline pipeline;
         VkRenderPass render_pass;
@@ -105,14 +113,17 @@ class PBR final : public Sample {
             
             initialize_buffers();
             
+            initialize_skybox_render_pass();
             initialize_render_pass();
             initialize_framebuffers();
             
             initialize_uniform_buffer();
             
             initialize_global_descriptor_set();
+            initialize_skybox_descriptor_set();
             initialize_object_descriptor_sets();
             
+            initialize_skybox_pipeline();
             initialize_pipeline();
         }
         
@@ -141,38 +152,67 @@ class PBR final : public Sample {
                 throw std::runtime_error("failed to begin command buffer recording!");
             }
             
-            VkRenderPassBeginInfo render_pass_info { };
-            render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-            render_pass_info.renderPass = render_pass;
-            render_pass_info.framebuffer = present_framebuffers[image_index];
-            render_pass_info.renderArea = create_region(0, 0, swapchain_extent.width, swapchain_extent.height);
-            
-            // Composition pass
-            VkClearValue clear_values[2] { };
-            clear_values[0].color = {{ 0.0f, 0.0f, 0.0f, 1.0f }};
-            clear_values[1].depthStencil = { 1.0f, 0 };
-            render_pass_info.clearValueCount = sizeof(clear_values) / sizeof(clear_values[0]);
-            render_pass_info.pClearValues = clear_values;
-            
-            vkCmdBeginRenderPass(command_buffer, &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
-                // Bind graphics pipeline
-                vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-
-                // Bind global descriptor set
-                vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout, 0, 1, &global_descriptor_set, 0, nullptr);
+            {
+                VkRenderPassBeginInfo render_pass_info { };
+                render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+                render_pass_info.renderPass = skybox_render_pass;
+                render_pass_info.framebuffer = present_framebuffers[image_index];
+                render_pass_info.renderArea = create_region(0, 0, swapchain_extent.width, swapchain_extent.height);
                 
-                // TODO: convert to instanced rendering
-                for (std::size_t i = 0u; i < transforms.size(); ++i) {
-                    vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout, 1, 1, &object_descriptor_sets[i], 0, nullptr);
+                // Composition pass
+                VkClearValue clear_values[1] { };
+                clear_values[0].color = {{ 0.0f, 0.0f, 0.0f, 1.0f }};
+                render_pass_info.clearValueCount = sizeof(clear_values) / sizeof(clear_values[0]);
+                render_pass_info.pClearValues = clear_values;
+                
+                // Skybox render pass
+                vkCmdBeginRenderPass(command_buffer, &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
+                    vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, skybox_pipeline);
+                    vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, skybox_pipeline_layout, 0, 1, &skybox_descriptor_set, 0, nullptr);
                     
-                    VkDeviceSize offsets[] = { 0 };
+                    VkDeviceSize offsets[] = { skybox.vertex_offset };
                     vkCmdBindVertexBuffers(command_buffer, 0, 1, &vertex_buffer, offsets);
-                    vkCmdBindIndexBuffer(command_buffer, index_buffer, 0, VK_INDEX_TYPE_UINT32);
+                    vkCmdBindIndexBuffer(command_buffer, index_buffer, skybox.index_offset, VK_INDEX_TYPE_UINT32);
                     
-                    vkCmdDrawIndexed(command_buffer, (unsigned) model.indices.size(), 1, 0, 0, 0);
-                }
-                
-            vkCmdEndRenderPass(command_buffer);
+                    vkCmdDrawIndexed(command_buffer, (unsigned) skybox.indices.size(), 1, 0, 0, 0);
+                vkCmdEndRenderPass(command_buffer);
+            }
+            
+            // Main render pass
+            {
+                VkRenderPassBeginInfo render_pass_info { };
+                render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+                render_pass_info.renderPass = render_pass;
+                render_pass_info.framebuffer = present_framebuffers[image_index];
+                render_pass_info.renderArea = create_region(0, 0, swapchain_extent.width, swapchain_extent.height);
+
+                // Composition pass
+                VkClearValue clear_values[2] { };
+                clear_values[0].color = {{ 0.0f, 0.0f, 0.0f, 1.0f }};
+                clear_values[1].depthStencil = { 1.0f, 0 };
+                render_pass_info.clearValueCount = sizeof(clear_values) / sizeof(clear_values[0]);
+                render_pass_info.pClearValues = clear_values;
+
+                vkCmdBeginRenderPass(command_buffer, &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
+                    // Bind graphics pipeline
+                    vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+
+                    // Bind global descriptor set
+                    vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout, 0, 1, &global_descriptor_set, 0, nullptr);
+
+                    // TODO: convert to instanced rendering
+                    for (std::size_t i = 0u; i < transforms.size(); ++i) {
+                        vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout, 1, 1, &object_descriptor_sets[i], 0, nullptr);
+
+                        VkDeviceSize offsets[] = { model.vertex_offset };
+                        vkCmdBindVertexBuffers(command_buffer, 0, 1, &vertex_buffer, offsets);
+                        vkCmdBindIndexBuffer(command_buffer, index_buffer, model.index_offset, VK_INDEX_TYPE_UINT32);
+
+                        vkCmdDrawIndexed(command_buffer, (unsigned) model.indices.size(), 1, 0, 0, 0);
+                    }
+
+                vkCmdEndRenderPass(command_buffer);
+            }
             
             if (vkEndCommandBuffer(command_buffer) != VK_SUCCESS) {
                 throw std::runtime_error("failed to record command buffer!");
@@ -317,15 +357,154 @@ class PBR final : public Sample {
             }
         }
         
+        void initialize_skybox_pipeline() {
+            VkVertexInputBindingDescription vertex_binding_descriptions[] {
+                create_vertex_binding_description(0, sizeof(glm::vec3) * 2 + sizeof(glm::vec2), VK_VERTEX_INPUT_RATE_VERTEX) // One element is vertex position (vec3) + normal (vec3) + uv (vec2)
+            };
+            
+            // Vertex attributes describe how to extract individual vertex data from a binding description (done above)
+            VkVertexInputAttributeDescription vertex_attribute_descriptions[] {
+                create_vertex_attribute_description(0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0), // Only vertex position is used
+            };
+            
+            // Describe the format of the vertex data passed to the vertex shader
+            VkPipelineVertexInputStateCreateInfo vertex_input_create_info { };
+            vertex_input_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+            vertex_input_create_info.vertexBindingDescriptionCount = sizeof(vertex_binding_descriptions) / sizeof(vertex_binding_descriptions[0]);
+            vertex_input_create_info.pVertexBindingDescriptions = vertex_binding_descriptions;
+            vertex_input_create_info.vertexAttributeDescriptionCount = sizeof(vertex_attribute_descriptions) / sizeof(vertex_attribute_descriptions[0]);
+            vertex_input_create_info.pVertexAttributeDescriptions = vertex_attribute_descriptions;
+            
+            // Bundle shader stages to assign to pipeline
+            VkPipelineShaderStageCreateInfo shader_stages[] = {
+                create_shader_stage(create_shader_module(device, "shaders/skybox.vert"), VK_SHADER_STAGE_VERTEX_BIT),
+                create_shader_stage(create_shader_module(device, "shaders/skybox.frag"), VK_SHADER_STAGE_FRAGMENT_BIT)
+            };
+            
+            // Input assembly describes the topology of the geometry being rendered
+            VkPipelineInputAssemblyStateCreateInfo input_assembly_state_create_info = create_input_assembly_state(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+        
+            // The viewport describes the region of the framebuffer that the output will be rendered to
+            VkViewport viewport = create_viewport(0.0f, 0.0f, (float) swapchain_extent.width, (float) swapchain_extent.height, 0.0f, 1.0f);
+        
+            // The scissor region defines the portion of the viewport that will be drawn to the screen
+            VkRect2D scissor = create_region(0, 0, swapchain_extent.width, swapchain_extent.height);
+            
+            VkPipelineViewportStateCreateInfo viewport_create_info { };
+            viewport_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+            viewport_create_info.viewportCount = 1;
+            viewport_create_info.pViewports = &viewport;
+            viewport_create_info.scissorCount = 1;
+            viewport_create_info.pScissors = &scissor;
+            
+            // Rasterization properties
+            VkPipelineRasterizationStateCreateInfo rasterizer_create_info { };
+            rasterizer_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+            rasterizer_create_info.depthClampEnable = VK_FALSE; // Fragments beyond the near/far depth planes are clamped instead of discarded
+            rasterizer_create_info.rasterizerDiscardEnable = VK_FALSE; // Discards any / all output fragments to the framebuffer
+        
+            rasterizer_create_info.polygonMode = VK_POLYGON_MODE_FILL;
+            
+            rasterizer_create_info.lineWidth = 1.0f;
+            rasterizer_create_info.cullMode = VK_CULL_MODE_FRONT_BIT;
+            rasterizer_create_info.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+            rasterizer_create_info.depthBiasEnable = VK_FALSE;
+            rasterizer_create_info.depthBiasConstantFactor = 0.0f;
+            rasterizer_create_info.depthBiasClamp = 0.0f;
+            rasterizer_create_info.depthBiasSlopeFactor = 0.0f;
+        
+            // Multisampling is disabled for this sample
+            VkPipelineMultisampleStateCreateInfo multisampling_create_info { };
+            multisampling_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+            multisampling_create_info.sampleShadingEnable = VK_FALSE;
+            multisampling_create_info.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+            multisampling_create_info.minSampleShading = 1.0f;
+            multisampling_create_info.pSampleMask = nullptr;
+            multisampling_create_info.alphaToCoverageEnable = VK_FALSE;
+            multisampling_create_info.alphaToOneEnable = VK_FALSE;
+        
+            // Depth/stencil buffers
+            VkPipelineDepthStencilStateCreateInfo depth_stencil_create_info { };
+            depth_stencil_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+            depth_stencil_create_info.depthTestEnable = VK_FALSE; // Note: disable depth testing / depth writes for skybox pass
+            depth_stencil_create_info.depthWriteEnable = VK_FALSE;
+            depth_stencil_create_info.depthCompareOp = VK_COMPARE_OP_LESS;
+            
+            // Additive blending
+            VkPipelineColorBlendAttachmentState color_blend_attachment_create_info { };
+            color_blend_attachment_create_info.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+            color_blend_attachment_create_info.blendEnable = VK_FALSE;
+            color_blend_attachment_create_info.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+            color_blend_attachment_create_info.dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
+            color_blend_attachment_create_info.colorBlendOp = VK_BLEND_OP_ADD;
+            color_blend_attachment_create_info.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+            color_blend_attachment_create_info.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+            color_blend_attachment_create_info.alphaBlendOp = VK_BLEND_OP_ADD;
+        
+            VkPipelineColorBlendStateCreateInfo color_blend_create_info { };
+            color_blend_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+            color_blend_create_info.logicOpEnable = VK_FALSE; // Use a bitwise operation to combine the old and new color values (setting this to true disables color mixing (specified above) for all framebuffers)
+            color_blend_create_info.logicOp = VK_LOGIC_OP_COPY;
+            color_blend_create_info.attachmentCount = 1;
+            color_blend_create_info.pAttachments = &color_blend_attachment_create_info;
+            color_blend_create_info.blendConstants[0] = 0.0f;
+            color_blend_create_info.blendConstants[1] = 0.0f;
+            color_blend_create_info.blendConstants[2] = 0.0f;
+            color_blend_create_info.blendConstants[3] = 0.0f;
+            
+            VkPipelineLayoutCreateInfo pipeline_layout_create_info { };
+            pipeline_layout_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+            
+            VkDescriptorSetLayout layouts[1] = { skybox_descriptor_set_layout };
+            pipeline_layout_create_info.setLayoutCount = sizeof(layouts) / sizeof(layouts[0]);
+            pipeline_layout_create_info.pSetLayouts = layouts;
+            pipeline_layout_create_info.pushConstantRangeCount = 0;
+            pipeline_layout_create_info.pPushConstantRanges = nullptr;
+        
+            if (vkCreatePipelineLayout(device, &pipeline_layout_create_info, nullptr, &skybox_pipeline_layout) != VK_SUCCESS) {
+                throw std::runtime_error("failed to create skybox pipeline layout!");
+            }
+        
+            VkGraphicsPipelineCreateInfo pipeline_create_info { };
+            pipeline_create_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+            pipeline_create_info.stageCount = sizeof(shader_stages) / sizeof(shader_stages[0]);
+            pipeline_create_info.pStages = shader_stages;
+            pipeline_create_info.pVertexInputState = &vertex_input_create_info;
+            pipeline_create_info.pInputAssemblyState = &input_assembly_state_create_info;
+            pipeline_create_info.pViewportState = &viewport_create_info;
+            pipeline_create_info.pRasterizationState = &rasterizer_create_info;
+            pipeline_create_info.pMultisampleState = &multisampling_create_info;
+            pipeline_create_info.pDepthStencilState = &depth_stencil_create_info;
+            pipeline_create_info.pColorBlendState = &color_blend_create_info;
+            pipeline_create_info.pDynamicState = nullptr;
+            pipeline_create_info.layout = skybox_pipeline_layout;
+            pipeline_create_info.renderPass = skybox_render_pass;
+            pipeline_create_info.subpass = 0;
+        
+            pipeline_create_info.basePipelineHandle = VK_NULL_HANDLE;
+            pipeline_create_info.basePipelineIndex = -1;
+        
+            if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipeline_create_info, nullptr, &skybox_pipeline) != VK_SUCCESS) {
+                throw std::runtime_error("failed to create skybox pipeline!");
+            }
+
+            for (const VkPipelineShaderStageCreateInfo& stage : shader_stages) {
+                vkDestroyShaderModule(device, stage.module, nullptr);
+            }
+        }
+        
         void destroy_pipelines() {
             vkDestroyPipelineLayout(device, pipeline_layout, nullptr);
             vkDestroyPipeline(device, pipeline, nullptr);
+            
+            vkDestroyPipelineLayout(device, skybox_pipeline_layout, nullptr);
+            vkDestroyPipeline(device, skybox_pipeline, nullptr);
         }
         
         void initialize_render_pass() {
             VkAttachmentDescription attachment_descriptions[] {
                 // Color attachment
-                create_attachment_description(surface_format.format, VK_SAMPLE_COUNT_1_BIT, VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE, VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR),
+                create_attachment_description(surface_format.format, VK_SAMPLE_COUNT_1_BIT, VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE, VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR),
                 // Depth buffer
                 create_attachment_description(depth_buffer_format, VK_SAMPLE_COUNT_1_BIT, VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_DONT_CARE, VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL),
             };
@@ -368,8 +547,55 @@ class PBR final : public Sample {
             }
         }
         
+        void initialize_skybox_render_pass() {
+            VkAttachmentDescription attachment_descriptions[] {
+                // Color attachment
+//                create_attachment_description(surface_format.format, VK_SAMPLE_COUNT_1_BIT, VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE, VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL),
+                create_attachment_description(surface_format.format, VK_SAMPLE_COUNT_1_BIT, VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE, VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL),
+                // Depth buffer
+                create_attachment_description(depth_buffer_format, VK_SAMPLE_COUNT_1_BIT, VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE, VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL),
+            };
+            
+            // Describe what layout the attachments should be in the subpass
+            VkAttachmentReference color_attachment_reference = create_attachment_reference(0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+            VkAttachmentReference depth_stencil_attachment_reference = create_attachment_reference(1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+            
+            VkSubpassDescription subpass_description { };
+            subpass_description.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+            subpass_description.colorAttachmentCount = 1;
+            subpass_description.pColorAttachments = &color_attachment_reference;
+            subpass_description.pDepthStencilAttachment = &depth_stencil_attachment_reference;
+            subpass_description.pResolveAttachments = nullptr; // Not used in this sample
+            subpass_description.pInputAttachments = nullptr; // Not used in this sample
+            subpass_description.pPreserveAttachments = nullptr; // Not used in this sample
+            
+            // Define subpass dependencies
+            VkSubpassDependency subpass_dependencies[] {
+                // Dependency for ensuring that the color attachment (retrieved from the swapchain) is not transitioned to the VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL layout before it is available
+                // Color attachments are guaranteed to be available at the VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT pipeline stage, as that is where the color attachment LOAD operation happens
+                create_subpass_dependency(VK_SUBPASS_EXTERNAL, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 0,
+                                          0, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT),
+                // Since we are only using one depth attachment, ensure that both late fragment tests from the previous frame (STORE) and early fragment tests from the current frame (LOAD) are complete before attempting to overwrite the depth buffer
+                create_subpass_dependency(VK_SUBPASS_EXTERNAL, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+                                          0, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT), // Depth buffer is written to during rendering and read from for late fragment tests
+            };
+            
+            VkRenderPassCreateInfo render_pass_create_info { };
+            render_pass_create_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+            render_pass_create_info.attachmentCount = 2;
+            render_pass_create_info.pAttachments = attachment_descriptions;
+            render_pass_create_info.subpassCount = 1;
+            render_pass_create_info.pSubpasses = &subpass_description;
+            render_pass_create_info.dependencyCount = sizeof(subpass_dependencies) / sizeof(subpass_dependencies[0]);
+            render_pass_create_info.pDependencies = subpass_dependencies;
+            if (vkCreateRenderPass(device, &render_pass_create_info, nullptr, &skybox_render_pass) != VK_SUCCESS) {
+                throw std::runtime_error("failed to create skybox render pass!");
+            }
+        }
+        
         void destroy_render_passes() {
             vkDestroyRenderPass(device, render_pass, nullptr);
+            vkDestroyRenderPass(device, skybox_render_pass, nullptr);
         }
         
         void initialize_framebuffers() {
@@ -473,6 +699,66 @@ class PBR final : public Sample {
             }
         }
         
+        void initialize_skybox_descriptor_set() {
+            // Descriptor set 0 is allocated for global uniforms that do not change between pipelines
+            VkDescriptorSetLayoutBinding bindings[] {
+                // Global camera information
+                create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0),
+                // Skybox
+                create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 1),
+            };
+            
+            VkDescriptorSetLayoutCreateInfo layout_create_info { };
+            layout_create_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+            layout_create_info.bindingCount = sizeof(bindings) / sizeof(bindings[0]);
+            layout_create_info.pBindings = bindings;
+            if (vkCreateDescriptorSetLayout(device, &layout_create_info, nullptr, &skybox_descriptor_set_layout) != VK_SUCCESS) {
+                throw std::runtime_error("failed to create skybox descriptor set layout!");
+            }
+            
+            // Initialize descriptor sets
+            VkDescriptorSetAllocateInfo set_create_info { };
+            set_create_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+            set_create_info.descriptorPool = descriptor_pool;
+            set_create_info.descriptorSetCount = 1;
+            set_create_info.pSetLayouts = &skybox_descriptor_set_layout;
+            if (vkAllocateDescriptorSets(device, &set_create_info, &skybox_descriptor_set) != VK_SUCCESS) {
+                throw std::runtime_error("failed to allocate skybox descriptor set!");
+            }
+            
+            VkWriteDescriptorSet descriptor_write { };
+            VkDescriptorBufferInfo buffer_info { };
+            
+            // Binding 0
+            buffer_info.buffer = uniform_buffer;
+            buffer_info.offset = 0u;
+            buffer_info.range = sizeof(GlobalUniforms);
+            
+            descriptor_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            descriptor_write.dstSet = skybox_descriptor_set;
+            descriptor_write.dstBinding = 0;
+            descriptor_write.dstArrayElement = 0;
+            descriptor_write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            descriptor_write.descriptorCount = 1;
+            descriptor_write.pBufferInfo = &buffer_info;
+            
+            vkUpdateDescriptorSets(device, 1, &descriptor_write, 0, nullptr);
+            VkDescriptorImageInfo image_info { };
+            image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            image_info.imageView = environment_map.view;
+            image_info.sampler = color_sampler;
+            
+            descriptor_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            descriptor_write.dstSet = skybox_descriptor_set;
+            descriptor_write.dstBinding = 1;
+            descriptor_write.dstArrayElement = 0;
+            descriptor_write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            descriptor_write.descriptorCount = 1;
+            descriptor_write.pImageInfo = &image_info;
+            
+            vkUpdateDescriptorSets(device, 1, &descriptor_write, 0, nullptr);
+        }
+        
         void initialize_object_descriptor_sets() {
             // Allocate descriptor set 1 for per-object bindings
             VkDescriptorSetLayoutBinding bindings[] {
@@ -530,41 +816,57 @@ class PBR final : public Sample {
             // Destroy descriptor set layouts
             vkDestroyDescriptorSetLayout(device, global_descriptor_set_layout, nullptr);
             vkDestroyDescriptorSetLayout(device, object_descriptor_set_layout, nullptr);
+            vkDestroyDescriptorSetLayout(device, skybox_descriptor_set_layout, nullptr);
             
             // Descriptor sets get cleaned up alongside the descriptor pool
         }
         
         void initialize_buffers() {
             model = load_gltf("assets/models/damaged_helmet/DamagedHelmet.gltf");
-            std::size_t vertex_buffer_size = model.vertices.size() * sizeof(Model::Vertex);
-            std::size_t index_buffer_size = model.indices.size() * sizeof(unsigned);
+            skybox = load_obj("assets/models/cube.obj");
+            
+            std::size_t vertex_buffer_size = (model.vertices.size() + skybox.vertices.size()) * sizeof(Model::Vertex);
+            std::size_t index_buffer_size = (model.indices.size() + skybox.indices.size()) * sizeof(unsigned);
             
             VkBuffer staging_buffer { };
             VkDeviceMemory staging_buffer_memory { };
-            VkBufferUsageFlags staging_buffer_usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-            VkMemoryPropertyFlags staging_buffer_memory_properties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-            
-            create_buffer(physical_device, device, vertex_buffer_size + index_buffer_size, staging_buffer_usage, staging_buffer_memory_properties, staging_buffer, staging_buffer_memory);
+            create_buffer(physical_device, device, vertex_buffer_size + index_buffer_size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, staging_buffer, staging_buffer_memory);
             
             // Upload vertex and index data into staging buffer
             std::size_t offset = 0u;
             
             void* data;
-            vkMapMemory(device, staging_buffer_memory, offset, vertex_buffer_size + index_buffer_size, 0, &data);
-                memcpy((void*)((char*)data + offset), model.vertices.data(), vertex_buffer_size);
-                offset += vertex_buffer_size;
-                memcpy((void*)((char*)data + offset), model.indices.data(), index_buffer_size);
-                offset += index_buffer_size;
+            vkMapMemory(device, staging_buffer_memory, 0, vertex_buffer_size + index_buffer_size, 0, &data);
+                // Vertex data
+                {
+                    // Vertex buffer offsets are localized to the vertex buffer
+                    memcpy((void*)((char*)data + offset), model.vertices.data(), model.vertices.size() * sizeof(Model::Vertex));
+                    offset += model.vertices.size() * sizeof(Model::Vertex);
+                    
+                    memcpy((void*)((char*)data + offset), skybox.vertices.data(), skybox.vertices.size() * sizeof(Model::Vertex));
+                    offset += skybox.vertices.size() * sizeof(Model::Vertex);
+                    
+                    model.vertex_offset = 0;
+                    skybox.vertex_offset = model.vertices.size() * sizeof(Model::Vertex);
+                }
+                
+                // Index data
+                {
+                    // Index buffer offsets are localized to the index buffer
+                    memcpy((void*)((char*)data + offset), model.indices.data(), model.indices.size() * sizeof(unsigned));
+                    offset += model.indices.size() * sizeof(unsigned);
+                    
+                    memcpy((void*)((char*)data + offset), skybox.indices.data(), skybox.indices.size() * sizeof(unsigned));
+                    offset += skybox.indices.size() * sizeof(unsigned);
+                    
+                    model.index_offset = 0;
+                    skybox.index_offset = model.indices.size() * sizeof(unsigned);
+                }
             vkUnmapMemory(device, staging_buffer_memory);
             
             // Create device-local buffers
-            VkBufferUsageFlags vertex_buffer_usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-            VkMemoryPropertyFlags vertex_buffer_memory_properties = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
-            create_buffer(physical_device, device, vertex_buffer_size, vertex_buffer_usage, vertex_buffer_memory_properties, vertex_buffer, vertex_buffer_memory);
-            
-            VkBufferUsageFlags index_buffer_usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
-            VkMemoryPropertyFlags index_buffer_memory_properties = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
-            create_buffer(physical_device, device, index_buffer_size, index_buffer_usage, index_buffer_memory_properties, index_buffer, index_buffer_memory);
+            create_buffer(physical_device, device, vertex_buffer_size, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, vertex_buffer, vertex_buffer_memory);
+            create_buffer(physical_device, device, index_buffer_size, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, index_buffer, index_buffer_memory);
             
             // Copy over vertex / index buffers from staging buffer using a transient (one-time) command buffer
             VkCommandBuffer command_buffer = begin_transient_command_buffer();
@@ -809,7 +1111,7 @@ class PBR final : public Sample {
             
             unsigned mip_levels = 1u;
             unsigned layers = 6u;
-            unsigned width = 1024u;
+            unsigned width = 2048u;
             
             // Image needs to be created with the VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT flags enabled
             create_image(physical_device, device,
@@ -943,10 +1245,9 @@ class PBR final : public Sample {
                 
                 vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, compute_pipeline);
 				vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, compute_pipeline_layout, 0, 1, &compute_descriptor_set, 0, nullptr);
-				vkCmdDispatch(command_buffer, 1024 / 32, 1024 / 32, 6);
+				vkCmdDispatch(command_buffer, 2048u / 32, 2048u / 32, 6);
                 
-                // Transition cubemap to VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL for further processing
-                // transition_image(command_buffer, out.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, subresource_range, VK_ACCESS_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+                transition_image(command_buffer, cubemap.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, subresource_range, VK_ACCESS_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
             submit_transient_command_buffer(command_buffer);
             
             // Cleanup resources

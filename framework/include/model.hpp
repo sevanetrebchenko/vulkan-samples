@@ -14,6 +14,9 @@ struct Model {
     
     std::vector<Vertex> vertices;
     std::vector<unsigned> indices;
+    
+    std::size_t vertex_offset;
+    std::size_t index_offset;
 };
 
 // Primitives
