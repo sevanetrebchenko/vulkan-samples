@@ -4,6 +4,10 @@ set(GLFW_BUILD_TESTS OFF)
 set(GLFW_BUILD_EXAMPLES OFF)
 add_subdirectory(glfw)
 
+set(TINYGLTF_BUILD_LOADER_EXAMPLE OFF)
+set(TINYGLTF_INSTALL OFF)
+add_subdirectory(gltf)
+
 add_subdirectory(glm)
 
 message(STATUS "Pulling shaderc dependencies")

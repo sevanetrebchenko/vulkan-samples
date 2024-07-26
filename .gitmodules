@@ -10,3 +10,6 @@
 [submodule "framework/lib/tinyobjloader"]
 	path = framework/lib/tinyobjloader
 	url = git@github.com:tinyobjloader/tinyobjloader.git
+[submodule "framework/lib/gltf"]
+	path = framework/lib/gltf
+	url = git@github.com:syoyo/tinygltf.git
