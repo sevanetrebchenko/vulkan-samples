@@ -1,0 +1,66 @@
+
+#version 450
+
+layout (set = 0, binding = 0) uniform sampler2D equirectangular;
+layout (set = 0, binding = 1) writeonly uniform imageCube cubemap;
+
+layout(local_size_x = 32, local_size_y = 32, local_size_z = 1) in;
+
+// This compute shader is run 6 times, one for each face of the cubemap
+// The face direction is determined by the value in gl_GlobalInvocationID.z
+vec3 get_sample_direction() {
+    // Convert gl_GlobalInvocationID.xz to [-1.0, 1.0] to reconstruct the a vector that would point to the current fragment of the cubemap being processed
+    float dimension = float(imageSize(cubemap).x); // Same dimension on both sides
+
+    // Vulkan coordinate system has +y axis pointing down, flip it to match the coordinate system of the texture (uv coordinates)
+    vec2 uv = vec2(gl_GlobalInvocationID.x / dimension, 1.0f - gl_GlobalInvocationID.y / dimension) * 2.0f - 1.0f;
+    vec3 direction;
+
+    // Needs to match the order of cubemap faces
+    if (gl_GlobalInvocationID.z == 0) {
+        // +x
+        // Flipping z direction as the right edge corresponds to a negative Z coordinate
+        direction = vec3(1.0f, uv.y, -uv.x);
+    }
+    else if (gl_GlobalInvocationID.z == 1) {
+        // -x
+        direction = vec3(-1.0f, uv.y, uv.x);
+    }
+    else if (gl_GlobalInvocationID.z == 2) {
+        // +y
+        // Flipping Z direction as the top edge corresponds to a negative Z coordinate
+        direction = vec3(uv.x, 1.0f, -uv.y);
+    }
+    else if (gl_GlobalInvocationID.z == 3) {
+        // -y
+        direction = vec3(uv.x, -1.0f, uv.y);
+    }
+    else if (gl_GlobalInvocationID.z == 4) {
+        // +z
+        direction = vec3(uv.x, uv.y, 1.0f);
+    }
+    else { // if (gl_GlobalInvocationID.z == 5) {
+        // -z
+        // Flipping X direction as the right edge corresponds to a negative X coordinate
+        direction = vec3(-uv.x, uv.y, -1.0f);
+    }
+
+    return normalize(direction);
+}
+
+void main() {
+    float pi = 3.141592f;
+    vec3 direction = get_sample_direction();
+
+    // Convert Cartesian direction to spherical coordinates, as an equirectangular image maps projects to a sphere
+    // float radius = 1.0f; // Assuming the sphere we are projecting to has a radius of 1
+
+    // https://www.mathworks.com/help/simulink/ref_extras/cartesiantospherical.html
+    float theta = acos(direction.y); // Represents the polar angle θ, between the direction vector and the +y axis. Range: Range: [0, π]
+    float phi = atan(direction.z, direction.x); // Represents the azimuthan angle ϕ in the xy plane from the +x axis. Range: [-π, π]
+    vec2 uv = vec2(phi / (2.0f * pi) + 0.5f, theta / pi); // Normalize to range [0.0, 1.0]
+
+    vec4 color = texture(equirectangular, uv);
+
+    imageStore(cubemap, ivec3(gl_GlobalInvocationID), color);
+}

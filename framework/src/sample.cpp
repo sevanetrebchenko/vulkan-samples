@@ -1304,7 +1304,7 @@ void Sample::initialize_descriptor_pool(unsigned buffer_count, unsigned sampler_
     // Allocate a descriptor set per frame in flight to prevent writing to uniform buffers of one frame while they are still in use by the rendering operations of the previous frame
     pool_sizes[0].descriptorCount = buffer_count;
     
-    pool_sizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    pool_sizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; // TODO: should this be image samplers and storage samplers? no errors yet....?
     pool_sizes[1].descriptorCount = sampler_count;
     
     VkDescriptorPoolCreateInfo descriptor_pool_create_info { };
@@ -1312,6 +1312,7 @@ void Sample::initialize_descriptor_pool(unsigned buffer_count, unsigned sampler_
     descriptor_pool_create_info.poolSizeCount = 1;
     descriptor_pool_create_info.pPoolSizes = pool_sizes;
     descriptor_pool_create_info.maxSets = buffer_count + sampler_count; // TODO: not sure this is right
+    descriptor_pool_create_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT; // Allow for freeing descriptor sets up at runtime
     
     if (vkCreateDescriptorPool(device, &descriptor_pool_create_info, nullptr, &descriptor_pool) != VK_SUCCESS) {
         throw std::runtime_error("failed to create descriptor pool!");
