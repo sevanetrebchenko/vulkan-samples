@@ -30,26 +30,24 @@ Model load_gltf(const char* filename) {
     
     // TODO: extensions
     
-    VkSamplerCreateInfo sampler_create_info { };
-    
-    // Load texture samplers
-    struct SamplerData {
-        int min_filter;
-        int mag_filter;
-        
-        // No w sampling
-        int address_mode_u;
-        int address_mode_v;
-    };
-    
-    std::vector<SamplerData> samplers;
-    for (const tinygltf::Sampler& sampler : model.samplers) {
-        SamplerData& data = samplers.emplace_back();
-        data.min_filter = sampler.minFilter;
-        data.mag_filter = sampler.magFilter;
-        data.address_mode_u = sampler.wrapS;
-        data.address_mode_v = sampler.wrapT;
-    }
+//    // Load texture samplers
+//    struct SamplerData {
+//        int min_filter;
+//        int mag_filter;
+//
+//        // No w sampling
+//        int address_mode_u;
+//        int address_mode_v;
+//    };
+//
+//    std::vector<SamplerData> samplers;
+//    for (const tinygltf::Sampler& sampler : model.samplers) {
+//        SamplerData& data = samplers.emplace_back();
+//        data.min_filter = sampler.minFilter;
+//        data.mag_filter = sampler.magFilter;
+//        data.address_mode_u = sampler.wrapS;
+//        data.address_mode_v = sampler.wrapT;
+//    }
     
     // Load vertex / index data
     std::vector<glm::vec3> positions;

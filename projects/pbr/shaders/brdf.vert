@@ -20,12 +20,14 @@ layout (set = 1, binding = 0) uniform ObjectUniforms {
 
 layout (location = 0) out vec3 world_position;
 layout (location = 1) out vec3 world_normal;
+layout (location = 2) out vec2 uv;
 
 void main() {
     vec4 wp = object.model * vec4(vertex_position, 1.0f);
 
     world_position = wp.xyz;
     world_normal = normalize(object.normal * vec4(vertex_normal, 0.0f)).xyz;
+    uv = vertex_uv;
 
     // M * V * P
     // Output fragment position in NDC space

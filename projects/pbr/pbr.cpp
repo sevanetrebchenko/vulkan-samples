@@ -18,9 +18,6 @@ class PBR final : public Sample {
     public:
         PBR() : Sample("Physically-Based Rendering") {
             enabled_physical_device_features.geometryShader = (VkBool32) true;
-            
-            camera.set_position(glm::vec3(0, 0, 12));
-            camera.set_look_direction(glm::vec3(0.0f, 0.0f, -1.0f));
         }
         
         ~PBR() override {
@@ -30,6 +27,17 @@ class PBR final : public Sample {
         // PBR scene consists of an array of models to showcase different material properties
         Model model;
         std::vector<Transform> transforms;
+        
+        struct Texture {
+            VkImage image;
+            VkDeviceMemory memory;
+            VkImageView view;
+            VkSampler sampler;
+        };
+        
+        Texture albedo;
+        
+        VkSampler color_sampler;
         
         // Sphere geometry buffers
         VkBuffer vertex_buffer;
@@ -70,16 +78,17 @@ class PBR final : public Sample {
         void* uniform_buffer_mapped;
 
         void initialize_resources() override {
-            initialize_textures();
+            initialize_scene();
             
-            initialize_transforms();
+            initialize_samplers();
+            initialize_textures();
             
             initialize_buffers();
             
             initialize_render_pass();
             initialize_framebuffers();
 
-            initialize_descriptor_pool(1 + transforms.size(), 0);
+            initialize_descriptor_pool(1 + transforms.size(), 1);
             
             initialize_uniform_buffer();
             
@@ -141,6 +150,8 @@ class PBR final : public Sample {
             destroy_uniform_buffer();
             destroy_buffers();
             destroy_render_passes();
+            destroy_textures();
+            destroy_samplers();
         }
         
         void update() override {
@@ -418,23 +429,8 @@ class PBR final : public Sample {
                 // Global camera information
                 create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0),
                 
-//                // Positions
-//                create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 2),
-//
-//                // Normals
-//                create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 3),
-//
-//                // Ambient
-//                create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 4),
-//
-//                // Diffuse
-//                create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 5),
-//
-//                // Specular
-//                create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 6),
-//
-//                // Shadow map
-//                create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 7),
+                // Albedo material properties
+                create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 1),
             };
             
             VkDescriptorSetLayoutCreateInfo layout_create_info { };
@@ -470,6 +466,22 @@ class PBR final : public Sample {
             descriptor_write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
             descriptor_write.descriptorCount = 1;
             descriptor_write.pBufferInfo = &buffer_info;
+            
+            vkUpdateDescriptorSets(device, 1, &descriptor_write, 0, nullptr);
+            
+            // Binding 1
+            VkDescriptorImageInfo image_info { };
+            image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            image_info.imageView = albedo.view;
+            image_info.sampler = albedo.sampler;
+            
+            descriptor_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            descriptor_write.dstSet = global_descriptor_set;
+            descriptor_write.dstBinding = 1;
+            descriptor_write.dstArrayElement = 0;
+            descriptor_write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            descriptor_write.descriptorCount = 1;
+            descriptor_write.pImageInfo = &image_info;
             
             vkUpdateDescriptorSets(device, 1, &descriptor_write, 0, nullptr);
         }
@@ -586,88 +598,78 @@ class PBR final : public Sample {
             vkFreeMemory(device, vertex_buffer_memory, nullptr);
         }
         
-        void initialize_transforms() {
-            glm::ivec2 dimension = glm::vec2(5, 3);
-            float scale = 1.0f;
-            float spacing = 2.5f;
-            transforms.resize(dimension.x * dimension.y);
-
-            for (int y = 0; y < dimension.y; ++y) {
-                for (int x = 0; x < dimension.x; ++x) {
-                    Transform& transform = transforms[y * dimension.x + x];
-                    transform.set_position(glm::vec3(((float)x - (float)dimension.x / 2.0f + scale / 2.0f) * spacing, ((float)y - (float)dimension.y / 2.0f + scale / 2.0f) * spacing, 0.0f));
-                    transform.set_scale(glm::vec3(scale));
+        void initialize_scene() {
+            enum Configuration {
+                Spheres,
+                Model
+            };
+            
+            Configuration configuration = Model;
+            
+            switch (configuration) {
+                case Spheres: {
+                    glm::ivec2 dimension = glm::vec2(5, 3);
+                    float scale = 1.0f;
+                    float spacing = 2.5f;
+                    transforms.resize(dimension.x * dimension.y);
+        
+                    for (int y = 0; y < dimension.y; ++y) {
+                        for (int x = 0; x < dimension.x; ++x) {
+                            Transform& transform = transforms[y * dimension.x + x];
+                            transform.set_position(glm::vec3(((float)x - (float)dimension.x / 2.0f + scale / 2.0f) * spacing, ((float)y - (float)dimension.y / 2.0f + scale / 2.0f) * spacing, 0.0f));
+                            transform.set_scale(glm::vec3(scale));
+                        }
+                    }
+                    break;
+                    
+                    camera.set_position(glm::vec3(0, 0, 12));
                 }
+                case Model:
+                    Transform& transform = transforms.emplace_back();
+                    transform.set_rotation(glm::vec3(90.0f, 0.0f, 0.0f));
+                    
+                    camera.set_position(glm::vec3(0, 0, 5));
+                    break;
+            }
+            
+            camera.set_look_direction(glm::vec3(0.0f, 0.0f, -1.0f));
+        }
+
+        void initialize_samplers() {
+            VkSamplerCreateInfo color_sampler_create_info { };
+            color_sampler_create_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+            color_sampler_create_info.magFilter = VK_FILTER_NEAREST;
+            color_sampler_create_info.minFilter = VK_FILTER_NEAREST;
+            color_sampler_create_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+            color_sampler_create_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+            color_sampler_create_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+
+            if (enabled_physical_device_features.samplerAnisotropy) {
+                color_sampler_create_info.anisotropyEnable = VK_TRUE;
+                color_sampler_create_info.maxAnisotropy = physical_device_properties.limits.maxSamplerAnisotropy;
+            }
+            else {
+                color_sampler_create_info.anisotropyEnable = VK_FALSE;
+                color_sampler_create_info.maxAnisotropy = 1.0f;
+            }
+
+            color_sampler_create_info.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK;
+            color_sampler_create_info.unnormalizedCoordinates = VK_FALSE;
+            color_sampler_create_info.compareEnable = VK_FALSE;
+            color_sampler_create_info.compareOp = VK_COMPARE_OP_ALWAYS;
+            color_sampler_create_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+            color_sampler_create_info.mipLodBias = 0.0f;
+            color_sampler_create_info.minLod = 0.0f;
+            color_sampler_create_info.maxLod = 1.0f;
+
+            if (vkCreateSampler(device, &color_sampler_create_info, nullptr, &color_sampler) != VK_SUCCESS) {
+                throw std::runtime_error("failed to create color sampler!");
             }
         }
-        
-//
-//        void initialize_samplers() {
-//            VkSamplerCreateInfo color_sampler_create_info { };
-//            color_sampler_create_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-//            color_sampler_create_info.magFilter = VK_FILTER_LINEAR;
-//            color_sampler_create_info.minFilter = VK_FILTER_LINEAR;
-//            color_sampler_create_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-//            color_sampler_create_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-//            color_sampler_create_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-//
-//            if (enabled_physical_device_features.samplerAnisotropy) {
-//                color_sampler_create_info.anisotropyEnable = VK_TRUE;
-//                color_sampler_create_info.maxAnisotropy = physical_device_properties.limits.maxSamplerAnisotropy;
-//            }
-//            else {
-//                color_sampler_create_info.anisotropyEnable = VK_FALSE;
-//                color_sampler_create_info.maxAnisotropy = 1.0f;
-//            }
-//
-//            color_sampler_create_info.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK;
-//            color_sampler_create_info.unnormalizedCoordinates = VK_FALSE;
-//            color_sampler_create_info.compareEnable = VK_FALSE;
-//            color_sampler_create_info.compareOp = VK_COMPARE_OP_ALWAYS;
-//            color_sampler_create_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-//            color_sampler_create_info.mipLodBias = 0.0f;
-//            color_sampler_create_info.minLod = 0.0f;
-//            color_sampler_create_info.maxLod = 1.0f;
-//
-//            if (vkCreateSampler(device, &color_sampler_create_info, nullptr, &color_sampler) != VK_SUCCESS) {
-//                throw std::runtime_error("failed to create color sampler!");
-//            }
-//
-//            VkSamplerCreateInfo depth_sampler_create_info { };
-//            depth_sampler_create_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-//            depth_sampler_create_info.magFilter = VK_FILTER_LINEAR;
-//            depth_sampler_create_info.minFilter = VK_FILTER_LINEAR;
-//            depth_sampler_create_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-//            depth_sampler_create_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-//            depth_sampler_create_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-//
-//            if (enabled_physical_device_features.samplerAnisotropy) {
-//                depth_sampler_create_info.anisotropyEnable = VK_TRUE;
-//                depth_sampler_create_info.maxAnisotropy = physical_device_properties.limits.maxSamplerAnisotropy;
-//            }
-//            else {
-//                depth_sampler_create_info.anisotropyEnable = VK_FALSE;
-//                depth_sampler_create_info.maxAnisotropy = 1.0f;
-//            }
-//
-//            depth_sampler_create_info.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK;
-//            depth_sampler_create_info.unnormalizedCoordinates = VK_FALSE;
-//            depth_sampler_create_info.compareEnable = VK_FALSE;
-//            depth_sampler_create_info.compareOp = VK_COMPARE_OP_ALWAYS;
-//            depth_sampler_create_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-//            depth_sampler_create_info.mipLodBias = 0.0f;
-//            depth_sampler_create_info.minLod = 0.0f;
-//            depth_sampler_create_info.maxLod = 1.0f;
-//
-//            if (vkCreateSampler(device, &depth_sampler_create_info, nullptr, &depth_sampler) != VK_SUCCESS) {
-//                throw std::runtime_error("failed to create depth sampler!");
-//            }
-//        }
-//
-//        void destroy_samplers() {
-//            vkDestroySampler(device, color_sampler, nullptr);
-//            vkDestroySampler(device, depth_sampler, nullptr);
-//        }
+
+        void destroy_samplers() {
+            vkDestroySampler(device, color_sampler, nullptr);
+        }
         
         void initialize_uniform_buffer() {
             std::size_t uniform_buffer_size = align_to_device_boundary(physical_device, sizeof(GlobalUniforms)) + (align_to_device_boundary(physical_device, sizeof(ObjectUniforms))) * transforms.size();
@@ -709,17 +711,68 @@ class PBR final : public Sample {
         }
         
         void initialize_textures() {
-            stbi_set_flip_vertically_on_load(true);
+//            stbi_set_flip_vertically_on_load(true);
+//            int width;
+//            int height;
+//            int channels;
+//            float* data = stbi_loadf("assets/textures/loft.hdr", &width, &height, &channels, 0);
+//            if (!data) {
+//                throw std::runtime_error("failed to load hdr environment map!");
+//            }
+            
+            // Albedo texture
             int width;
             int height;
             int channels;
-            float* data = stbi_loadf("assets/textures/loft.hdr", &width, &height, &channels, 0);
-            if (!data) {
-                throw std::runtime_error("failed to load hdr environment map!");
+            stbi_uc* image_data = stbi_load("assets/models/damaged_helmet/Default_albedo.jpg", &width, &height, &channels, STBI_rgb_alpha);
+            
+            if (!image_data) {
+                throw std::runtime_error("failed to load albedo texture!");
             }
             
+            create_image(physical_device, device, width, height, 1, 1, VK_SAMPLE_COUNT_1_BIT, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 0, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, albedo.image, albedo.memory);
+            create_image_view(device, albedo.image, VK_IMAGE_VIEW_TYPE_2D, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_ASPECT_COLOR_BIT, 1, 1, albedo.view);
+            albedo.sampler = color_sampler;
             
+            VkBuffer staging_buffer { };
+            VkDeviceMemory staging_buffer_memory { };
+            VkBufferUsageFlags staging_buffer_usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+            VkMemoryPropertyFlags staging_buffer_memory_properties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
             
+            std::size_t staging_buffer_size = width * height * 4; // Texture is loaded as RGBA, even if it may not have all of the components
+            create_buffer(physical_device, device, staging_buffer_size, staging_buffer_usage, staging_buffer_memory_properties, staging_buffer, staging_buffer_memory);
+            
+            // Upload image pixel data into staging buffer
+            void* data;
+            vkMapMemory(device, staging_buffer_memory, 0, staging_buffer_size, 0, &data);
+                memcpy(data, image_data, staging_buffer_size);
+            vkUnmapMemory(device, staging_buffer_memory);
+            
+            stbi_image_free(image_data); // No longer necessary
+            
+            VkImageSubresourceRange subresource_range { };
+            subresource_range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            subresource_range.baseMipLevel = 0;
+            subresource_range.levelCount = 1;
+            subresource_range.baseArrayLayer = 0;
+            subresource_range.layerCount = 1;
+            
+            VkCommandBuffer command_buffer = begin_transient_command_buffer();
+                transition_image(command_buffer, albedo.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, subresource_range, 0, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+                copy_buffer_to_image(command_buffer, staging_buffer, 0, albedo.image, 0, width, height);
+                // All shader read operations must wait until the transfer stage is completed
+                transition_image(command_buffer, albedo.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, subresource_range, VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+            submit_transient_command_buffer(command_buffer);
+            
+            // Staging buffer resources are no longer necessary
+            vkFreeMemory(device, staging_buffer_memory, nullptr);
+            vkDestroyBuffer(device, staging_buffer, nullptr);
+        }
+        
+        void destroy_textures() {
+            vkDestroyImage(device, albedo.image, nullptr);
+            vkFreeMemory(device, albedo.memory, nullptr);
+            vkDestroyImageView(device, albedo.view, nullptr);
         }
         
         void on_key_pressed(int key) override {

@@ -12,6 +12,7 @@ void create_image(VkPhysicalDevice physical_device, VkDevice device, unsigned im
 void create_buffer(VkPhysicalDevice physical_device, VkDevice device, VkDeviceSize allocation_size, VkBufferUsageFlags buffer_usage, VkMemoryPropertyFlags desired_properties, VkBuffer& buffer, VkDeviceMemory& buffer_memory);
 
 void copy_buffer(VkCommandBuffer command_buffer, VkBuffer src, VkDeviceSize src_offset, VkBuffer dst,  VkDeviceSize dst_offset, VkDeviceSize size);
+void copy_buffer_to_image(VkCommandBuffer command_buffer, VkBuffer src, VkDeviceSize src_offset, VkImage dst, int mip_level, int width, int height);
 
 VkDescriptorSetLayoutBinding create_descriptor_set_layout_binding(VkDescriptorType type, VkShaderStageFlags stages, unsigned binding);
 
@@ -19,5 +20,9 @@ std::size_t align_to_device_boundary(VkPhysicalDevice physical_device, std::size
 
 // TODO: determine access masks from src/dsk pipeline stage
 void transition_image(VkCommandBuffer command_buffer, VkImage image, VkImageLayout src, VkImageLayout dst, VkImageSubresourceRange subresource_range, VkAccessFlags src_access_mask, VkPipelineStageFlags src_stage_mask, VkAccessFlags dst_access_mask, VkPipelineStageFlags dst_stage_mask);
+
+
+
+
 
 #endif // HELPERS_HPP
