@@ -33,9 +33,14 @@ class PBR final : public Sample {
             VkDeviceMemory memory;
             VkImageView view;
             VkSampler sampler;
+            VkFormat format;
         };
         
+        Texture ao;
         Texture albedo;
+        Texture emissive;
+        Texture roughness;
+        Texture normals;
         
         VkSampler color_sampler;
         
@@ -60,6 +65,16 @@ class PBR final : public Sample {
             glm::vec3 camera_position;
             int debug_view;
         };
+        
+        // Debug views
+        int PBR_IBL = 1;
+        int PBR_ONLY = 2;
+        int ALBEDO = 3;
+        int AO = 4;
+        int EMISSIVE = 5;
+        int ROUGHNESS = 6;
+        int NORMAL = 7;
+        int debug_view = PBR_ONLY;
         
         struct ObjectUniforms {
             glm::mat4 model;
@@ -88,7 +103,7 @@ class PBR final : public Sample {
             initialize_render_pass();
             initialize_framebuffers();
 
-            initialize_descriptor_pool(1 + transforms.size(), 1);
+            initialize_descriptor_pool(1 + transforms.size(), 5);
             
             initialize_uniform_buffer();
             
@@ -429,8 +444,20 @@ class PBR final : public Sample {
                 // Global camera information
                 create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0),
                 
-                // Albedo material properties
+                // Albedo
                 create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 1),
+                
+                // AO
+                create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 2),
+                
+                // Emissive
+                create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 3),
+                
+                // Roughness
+                create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 4),
+                
+                // Normals
+                create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 5),
             };
             
             VkDescriptorSetLayoutCreateInfo layout_create_info { };
@@ -469,21 +496,24 @@ class PBR final : public Sample {
             
             vkUpdateDescriptorSets(device, 1, &descriptor_write, 0, nullptr);
             
-            // Binding 1
-            VkDescriptorImageInfo image_info { };
-            image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            image_info.imageView = albedo.view;
-            image_info.sampler = albedo.sampler;
-            
-            descriptor_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            descriptor_write.dstSet = global_descriptor_set;
-            descriptor_write.dstBinding = 1;
-            descriptor_write.dstArrayElement = 0;
-            descriptor_write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            descriptor_write.descriptorCount = 1;
-            descriptor_write.pImageInfo = &image_info;
-            
-            vkUpdateDescriptorSets(device, 1, &descriptor_write, 0, nullptr);
+            // Bindings 1 - 6
+            VkImageView textures[5] = { albedo.view, ao.view, emissive.view, roughness.view, normals.view };
+            for (int i = 0; i < sizeof(textures) / sizeof(textures[0]); ++i) {
+                VkDescriptorImageInfo image_info { };
+                image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                image_info.imageView = textures[i];
+                image_info.sampler = color_sampler;
+                
+                descriptor_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                descriptor_write.dstSet = global_descriptor_set;
+                descriptor_write.dstBinding = 1 + i;
+                descriptor_write.dstArrayElement = 0;
+                descriptor_write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                descriptor_write.descriptorCount = 1;
+                descriptor_write.pImageInfo = &image_info;
+                
+                vkUpdateDescriptorSets(device, 1, &descriptor_write, 0, nullptr);
+            }
         }
         
         void initialize_object_descriptor_sets() {
@@ -686,7 +716,7 @@ class PBR final : public Sample {
                 uniforms.view = camera.get_view_matrix();
                 uniforms.projection = camera.get_projection_matrix();
                 uniforms.camera_position = camera.get_position();
-                uniforms.debug_view = 0;
+                uniforms.debug_view = debug_view;
                 
                 memcpy((void*)(((char*) uniform_buffer_mapped) + offset), &uniforms, sizeof(GlobalUniforms));
                 offset += align_to_device_boundary(physical_device, sizeof(GlobalUniforms));
@@ -710,29 +740,19 @@ class PBR final : public Sample {
             vkDestroyBuffer(device, uniform_buffer, nullptr);
         }
         
-        void initialize_textures() {
-//            stbi_set_flip_vertically_on_load(true);
-//            int width;
-//            int height;
-//            int channels;
-//            float* data = stbi_loadf("assets/textures/loft.hdr", &width, &height, &channels, 0);
-//            if (!data) {
-//                throw std::runtime_error("failed to load hdr environment map!");
-//            }
-            
-            // Albedo texture
+        void load_rgba_texture(const char* filepath, Texture& texture) {
             int width;
             int height;
             int channels;
-            stbi_uc* image_data = stbi_load("assets/models/damaged_helmet/Default_albedo.jpg", &width, &height, &channels, STBI_rgb_alpha);
+            stbi_uc* image_data = stbi_load(filepath, &width, &height, &channels, STBI_rgb_alpha);
             
             if (!image_data) {
-                throw std::runtime_error("failed to load albedo texture!");
+                throw std::runtime_error("failed to load '" + std::string(filepath) + "' texture!");
             }
             
-            create_image(physical_device, device, width, height, 1, 1, VK_SAMPLE_COUNT_1_BIT, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 0, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, albedo.image, albedo.memory);
-            create_image_view(device, albedo.image, VK_IMAGE_VIEW_TYPE_2D, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_ASPECT_COLOR_BIT, 1, 1, albedo.view);
-            albedo.sampler = color_sampler;
+            create_image(physical_device, device, width, height, 1, 1, VK_SAMPLE_COUNT_1_BIT, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 0, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, texture.image, texture.memory);
+            create_image_view(device, texture.image, VK_IMAGE_VIEW_TYPE_2D, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_ASPECT_COLOR_BIT, 1, 1, texture.view);
+            texture.sampler = color_sampler;
             
             VkBuffer staging_buffer { };
             VkDeviceMemory staging_buffer_memory { };
@@ -758,10 +778,10 @@ class PBR final : public Sample {
             subresource_range.layerCount = 1;
             
             VkCommandBuffer command_buffer = begin_transient_command_buffer();
-                transition_image(command_buffer, albedo.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, subresource_range, 0, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
-                copy_buffer_to_image(command_buffer, staging_buffer, 0, albedo.image, 0, width, height);
+                transition_image(command_buffer, texture.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, subresource_range, 0, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+                copy_buffer_to_image(command_buffer, staging_buffer, 0, texture.image, 0, width, height);
                 // All shader read operations must wait until the transfer stage is completed
-                transition_image(command_buffer, albedo.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, subresource_range, VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+                transition_image(command_buffer, texture.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, subresource_range, VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
             submit_transient_command_buffer(command_buffer);
             
             // Staging buffer resources are no longer necessary
@@ -769,15 +789,69 @@ class PBR final : public Sample {
             vkDestroyBuffer(device, staging_buffer, nullptr);
         }
         
+        void initialize_textures() {
+//            stbi_set_flip_vertically_on_load(true);
+//            int width;
+//            int height;
+//            int channels;
+//            float* data = stbi_loadf("assets/textures/loft.hdr", &width, &height, &channels, 0);
+//            if (!data) {
+//                throw std::runtime_error("failed to load hdr environment map!");
+//            }
+            
+            load_rgba_texture("assets/models/damaged_helmet/Default_albedo.jpg", albedo);
+            load_rgba_texture("assets/models/damaged_helmet/Default_AO.jpg", ao);
+            load_rgba_texture("assets/models/damaged_helmet/Default_emissive.jpg", emissive);
+            load_rgba_texture("assets/models/damaged_helmet/Default_metalRoughness.jpg", roughness);
+            load_rgba_texture("assets/models/damaged_helmet/Default_normal.jpg", normals);
+        }
+        
         void destroy_textures() {
             vkDestroyImage(device, albedo.image, nullptr);
             vkFreeMemory(device, albedo.memory, nullptr);
             vkDestroyImageView(device, albedo.view, nullptr);
+            
+            vkDestroyImage(device, ao.image, nullptr);
+            vkFreeMemory(device, ao.memory, nullptr);
+            vkDestroyImageView(device, ao.view, nullptr);
+            
+            vkDestroyImage(device, emissive.image, nullptr);
+            vkFreeMemory(device, emissive.memory, nullptr);
+            vkDestroyImageView(device, emissive.view, nullptr);
+            
+            vkDestroyImage(device, roughness.image, nullptr);
+            vkFreeMemory(device, roughness.memory, nullptr);
+            vkDestroyImageView(device, roughness.view, nullptr);
+            
+            vkDestroyImage(device, normals.image, nullptr);
+            vkFreeMemory(device, normals.memory, nullptr);
+            vkDestroyImageView(device, normals.view, nullptr);
         }
         
         void on_key_pressed(int key) override {
             if (key == GLFW_KEY_F) {
                 take_screenshot(swapchain_images[frame_index], surface_format.format, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, "pbr.ppm"); // Output attachment
+            }
+            else if (key == GLFW_KEY_1) {
+                debug_view = PBR_IBL;
+            }
+            else if (key == GLFW_KEY_2) {
+                debug_view = PBR_ONLY;
+            }
+            else if (key == GLFW_KEY_3) {
+                debug_view = ALBEDO;
+            }
+            else if (key == GLFW_KEY_4) {
+                debug_view = AO;
+            }
+            else if (key == GLFW_KEY_5) {
+                debug_view = EMISSIVE;
+            }
+            else if (key == GLFW_KEY_6) {
+                debug_view = ROUGHNESS;
+            }
+            else if (key == GLFW_KEY_7) {
+                debug_view = NORMAL;
             }
         }
         
