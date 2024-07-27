@@ -1262,7 +1262,7 @@ void Sample::submit_transient_command_buffer(VkCommandBuffer command_buffer) {
     VkFenceCreateInfo fence_create_info { };
     fence_create_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
     fence_create_info.flags = 0;
-    
+
     VkFence fence { };
     if (vkCreateFence(device, &fence_create_info, nullptr, &fence) != VK_SUCCESS) {
         throw std::runtime_error("failed to create fence!");
@@ -1275,12 +1275,12 @@ void Sample::submit_transient_command_buffer(VkCommandBuffer command_buffer) {
     // Easier just to wait for the one time operation to complete
     // An alternative approach here would be to use a fence, which would allow scheduling multiple transfers in parallel and give the GPU more opportunities to optimize
     
-    VkResult r = vkWaitForFences(device, 1, &fence, VK_TRUE, 2'000'000'000);
+    VkResult r = vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX);
     if (r != VK_SUCCESS) {
         throw std::runtime_error("failed to wait on fence!");
     }
     
-    // vkQueueWaitIdle(queue);
+//    vkQueueWaitIdle(queue);
     
     vkDestroyFence(device, fence, nullptr);
     vkFreeCommandBuffers(device, transient_command_pool, 1, &command_buffer);

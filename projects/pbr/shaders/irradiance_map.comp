@@ -1,0 +1,88 @@
+
+#version 450
+
+layout (set = 0, binding = 0) uniform samplerCube environment_map;
+layout (set = 0, binding = 1) writeonly uniform imageCube irradiance_map;
+
+// This compute shader is run 6 times, one for each face of the cubemap
+// The face direction is determined by the value in gl_GlobalInvocationID.z
+vec3 get_sample_direction() {
+    // Convert gl_GlobalInvocationID.xz to [-1.0, 1.0] to reconstruct the a vector that would point to the current fragment of the cubemap being processed
+    float dimension = float(imageSize(irradiance_map).x); // Same dimension on both sides
+
+    // Vulkan coordinate system has +y axis pointing down, flip it to match the coordinate system of the texture (uv coordinates)
+    vec2 uv = vec2(gl_GlobalInvocationID.x / dimension, 1.0f - gl_GlobalInvocationID.y / dimension) * 2.0f - 1.0f;
+    vec3 direction;
+
+    // Needs to match the order of cubemap faces
+    if (gl_GlobalInvocationID.z == 0) {
+        // +x
+        // Flipping z direction as the right edge corresponds to a negative Z coordinate
+        direction = vec3(1.0f, uv.y, -uv.x);
+    }
+    else if (gl_GlobalInvocationID.z == 1) {
+        // -x
+        direction = vec3(-1.0f, uv.y, uv.x);
+    }
+    else if (gl_GlobalInvocationID.z == 2) {
+        // +y
+        // Flipping Z direction as the top edge corresponds to a negative Z coordinate
+        direction = vec3(uv.x, 1.0f, -uv.y);
+    }
+    else if (gl_GlobalInvocationID.z == 3) {
+        // -y
+        direction = vec3(uv.x, -1.0f, uv.y);
+    }
+    else if (gl_GlobalInvocationID.z == 4) {
+        // +z
+        direction = vec3(uv.x, uv.y, 1.0f);
+    }
+    else { // if (gl_GlobalInvocationID.z == 5) {
+        // -z
+        // Flipping X direction as the right edge corresponds to a negative X coordinate
+        direction = vec3(-uv.x, uv.y, -1.0f);
+    }
+
+    return normalize(direction);
+}
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+void main() {
+    float pi = 3.141592f;
+    vec3 irradiance = vec3(0.0f);
+
+    // Compute orthonormal basis around the hemisphere normal
+    vec3 normal = get_sample_direction(); // Hemisphere normal
+    vec3 right = normalize(cross(normal, vec3(0.0f, 1.0f, 0.0f)));
+    vec3 up = normalize(cross(normal, right));
+
+    // This causes VK_DEVICE_LOST errors on waiting on the fence is this is too low
+    // Probably because the OS considers the GPU under 100% load as hanging and resets it?
+    // Best to keep this number as high as possible while maintaining visual fidelity
+    // A better approach would be to use spherical harmonics or importance sampling to generate biased sample directions and increase the conversion at which the integral is approximated
+    float step = 0.025f;
+    int num_samples = 0;
+
+    // [0.0, 2π]
+    for (float phi = 0.0f; phi < 2.0f * pi; phi += step) {
+        // [0.0, π / 2.0] (hemisphere)
+        for (float theta = 0.0f; theta < 0.5f * pi; theta += step) {
+            // Compute sample direction in tangent space
+            float st = sin(theta);
+            float ct = cos(theta);
+            vec3 tangent = vec3(st * cos(phi), st * sin(phi), ct);
+
+            // Transform sample direction to world space relative to the hemisphere normal
+            vec3 sample_direction = tangent.x * right + tangent.y * up + tangent.z * normal;
+
+            // The area being sampled decreases the higher the zenith angle (theta) gets as the sample regions converge towards the top of the hemisphere
+            // Compensate for this by weighing the contribution by sin(theta), which is smaller towards the base of the hemisphere and larger towards the top
+            // cos(theta) is applied because of the Lambertian cosine law, which accounts for the light contribution decreasing as the angle between the hemisphere normal and sample direction increases
+            irradiance += texture(environment_map, sample_direction).rgb * ct * st;
+            ++num_samples;
+        }
+    }
+
+    irradiance *= pi / float(num_samples); // Riemann sum
+    imageStore(irradiance_map, ivec3(gl_GlobalInvocationID), vec4(irradiance, 1.0f));
+}

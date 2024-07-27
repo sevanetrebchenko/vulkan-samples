@@ -46,7 +46,9 @@ class PBR final : public Sample {
         Texture roughness;
         Texture normals;
         
+        unsigned environment_map_size = 1024;
         Texture environment_map;
+        Texture irradiance_map;
         
         VkSampler color_sampler;
         
@@ -747,7 +749,7 @@ class PBR final : public Sample {
             vkUpdateDescriptorSets(device, 1, &descriptor_write, 0, nullptr);
             VkDescriptorImageInfo image_info { };
             image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            image_info.imageView = environment_map.view;
+            image_info.imageView = irradiance_map.view;
             image_info.sampler = color_sampler;
             
             descriptor_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -1113,11 +1115,10 @@ class PBR final : public Sample {
             
             unsigned mip_levels = 1u;
             unsigned layers = 6u;
-            unsigned width = 2048u;
             
             // Image needs to be created with the VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT flags enabled
             create_image(physical_device, device,
-                         width, width, mip_levels, layers,
+                         environment_map_size, environment_map_size, mip_levels, layers,
                          VK_SAMPLE_COUNT_1_BIT,
                          VK_FORMAT_R16G16B16A16_SFLOAT,
                          VK_IMAGE_TILING_OPTIMAL,
@@ -1133,6 +1134,26 @@ class PBR final : public Sample {
                 std::cout << "converting equirectangular environment map to cubemap" << std::endl;
                 auto start = std::chrono::high_resolution_clock::now();
                     convert_equirectangular_to_cubemap(environment, environment_map);
+                auto end = std::chrono::high_resolution_clock::now();
+                std::cout << "done (" << std::chrono::duration<double, std::milli>(end - start).count() << " ms)" << std::endl;
+            }
+            
+            // Irradiance map is also a cube map
+            create_image(physical_device, device,
+                         environment_map_size, environment_map_size, mip_levels, layers,
+                         VK_SAMPLE_COUNT_1_BIT,
+                         VK_FORMAT_R16G16B16A16_SFLOAT,
+                         VK_IMAGE_TILING_OPTIMAL,
+                         VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                         VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT,
+                         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                         irradiance_map.image, irradiance_map.memory);
+            create_image_view(device, irradiance_map.image, VK_IMAGE_VIEW_TYPE_CUBE, VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_ASPECT_COLOR_BIT, mip_levels, layers, irradiance_map.view);
+            
+            {
+                std::cout << "computing convoluted irradiance map" << std::endl;
+                auto start = std::chrono::high_resolution_clock::now();
+                    precompute_irradiance_map(environment_map, irradiance_map);
                 auto end = std::chrono::high_resolution_clock::now();
                 std::cout << "done (" << std::chrono::duration<double, std::milli>(end - start).count() << " ms)" << std::endl;
             }
@@ -1247,9 +1268,125 @@ class PBR final : public Sample {
                 
                 vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, compute_pipeline);
 				vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, compute_pipeline_layout, 0, 1, &compute_descriptor_set, 0, nullptr);
-				vkCmdDispatch(command_buffer, 2048u / 32, 2048u / 32, 6);
+				vkCmdDispatch(command_buffer, environment_map_size / 32, environment_map_size / 32, 6);
                 
                 transition_image(command_buffer, cubemap.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, subresource_range, VK_ACCESS_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+            submit_transient_command_buffer(command_buffer);
+            
+            // Cleanup resources
+            vkDestroyPipelineLayout(device, compute_pipeline_layout, nullptr);
+            vkDestroyPipeline(device, compute_pipeline, nullptr);
+            vkDestroyDescriptorSetLayout(device, compute_descriptor_set_layout, nullptr);
+            vkFreeDescriptorSets(device, descriptor_pool, 1, &compute_descriptor_set);
+        }
+        
+        void precompute_irradiance_map(const Texture& environment, Texture& irradiance) {
+            // The irradiance map is used for diffuse indirect lighting
+            // It represents the total incoming light integrated over the hemisphere for each point, and aims to account for the contributions of the incoming light from all texels in the environment map (if each texel was its own light source)
+            // The irradiance map is precomputed once for all possible incoming directions and stored in a cubemap (similar to the environment map), as this computation is too expensive to perform real time
+            // Determining the amount of diffuse lighting on the surface of a fragment requires sampling the irradiance map for the hemisphere of the surface normal
+            
+            VkDescriptorSetLayout compute_descriptor_set_layout { };
+            VkDescriptorSet compute_descriptor_set { };
+            
+            VkDescriptorSetLayoutBinding bindings[] {
+                // Environment map (input texture)
+                create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT, 0),
+                // Irradiance map (output texture)
+                create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 1),
+            };
+            
+            VkDescriptorSetLayoutCreateInfo layout_create_info { };
+            layout_create_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+            layout_create_info.bindingCount = sizeof(bindings) / sizeof(bindings[0]);
+            layout_create_info.pBindings = bindings;
+            if (vkCreateDescriptorSetLayout(device, &layout_create_info, nullptr, &compute_descriptor_set_layout) != VK_SUCCESS) {
+                throw std::runtime_error("failed to create compute descriptor set layout!");
+            }
+            
+            VkDescriptorSetAllocateInfo set_create_info { };
+            set_create_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+            set_create_info.descriptorPool = descriptor_pool;
+            set_create_info.descriptorSetCount = 1;
+            set_create_info.pSetLayouts = &compute_descriptor_set_layout;
+            if (vkAllocateDescriptorSets(device, &set_create_info, &compute_descriptor_set) != VK_SUCCESS) {
+                throw std::runtime_error("failed to allocate compute descriptor set!");
+            }
+            
+            VkWriteDescriptorSet descriptor_writes[2] { };
+            VkDescriptorImageInfo image_infos[2] { };
+            
+            // Binding 0
+            image_infos[0].imageView = environment.view;
+            image_infos[0].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            image_infos[0].sampler = color_sampler;
+            
+            descriptor_writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            descriptor_writes[0].dstSet = compute_descriptor_set;
+            descriptor_writes[0].dstBinding = 0;
+            descriptor_writes[0].dstArrayElement = 0;
+            descriptor_writes[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            descriptor_writes[0].descriptorCount = 1;
+            descriptor_writes[0].pImageInfo = &image_infos[0];
+            
+            // Binding 1
+            image_infos[1].imageView = irradiance.view;
+            image_infos[1].imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+            image_infos[1].sampler = color_sampler;
+            
+            descriptor_writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            descriptor_writes[1].dstSet = compute_descriptor_set;
+            descriptor_writes[1].dstBinding = 1;
+            descriptor_writes[1].dstArrayElement = 0;
+            descriptor_writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+            descriptor_writes[1].descriptorCount = 1;
+            descriptor_writes[1].pImageInfo = &image_infos[1];
+            
+            vkUpdateDescriptorSets(device, sizeof(descriptor_writes) / sizeof(descriptor_writes[0]), descriptor_writes, 0, nullptr);
+            
+            // Create pipeline
+            VkPipelineLayout compute_pipeline_layout { };
+            VkPipeline compute_pipeline { };
+            
+            // Pipeline layout
+            VkPipelineLayoutCreateInfo compute_pipeline_layout_create_info { };
+            compute_pipeline_layout_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+            compute_pipeline_layout_create_info.setLayoutCount = 1;
+            compute_pipeline_layout_create_info.pSetLayouts = { &compute_descriptor_set_layout };
+            if (vkCreatePipelineLayout(device, &compute_pipeline_layout_create_info, nullptr, &compute_pipeline_layout) != VK_SUCCESS) {
+                throw std::runtime_error("failed to create compute pipeline layout!");
+            }
+            
+            VkComputePipelineCreateInfo pipeline_create_info { };
+            pipeline_create_info.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+            pipeline_create_info.layout = compute_pipeline_layout;
+            
+            VkShaderModule shader_module = create_shader_module(device, "shaders/irradiance_map.comp");
+            pipeline_create_info.stage = create_shader_stage(shader_module, VK_SHADER_STAGE_COMPUTE_BIT);
+            if (vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &pipeline_create_info, nullptr, &compute_pipeline) != VK_SUCCESS) {
+                throw std::runtime_error("failed to create compute pipeline!");
+            }
+            
+            vkDestroyShaderModule(device, shader_module, nullptr);
+            
+            VkCommandBuffer command_buffer = begin_transient_command_buffer();
+                // Environment map is already in VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL (from the equirectangular to cubemap conversion), for optimal shader reads
+//                transition_image(command_buffer, environment.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, subresource_range, VK_ACCESS_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+                
+                // Convert irradiance map to VK_IMAGE_LAYOUT_GENERAL for storage image writes
+                VkImageSubresourceRange subresource_range { };
+                subresource_range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                subresource_range.baseMipLevel = 0;
+                subresource_range.levelCount = 1;
+                subresource_range.baseArrayLayer = 0;
+                subresource_range.layerCount = 6; // Cubemap layers
+                transition_image(command_buffer, irradiance.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresource_range, 0, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_ACCESS_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+                
+                vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, compute_pipeline);
+				vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, compute_pipeline_layout, 0, 1, &compute_descriptor_set, 0, nullptr);
+				vkCmdDispatch(command_buffer, environment_map_size / 16, environment_map_size / 16, 6);
+                
+                transition_image(command_buffer, irradiance.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, subresource_range, VK_ACCESS_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
             submit_transient_command_buffer(command_buffer);
             
             // Cleanup resources
