@@ -7,5 +7,11 @@ layout (location = 0) in vec3 world_position;
 layout (location = 0) out vec4 out_color;
 
 void main() {
-    out_color = vec4(texture(skybox, normalize(world_position)).xyz, 1.0f);
+    vec3 color = texture(skybox, normalize(world_position)).xyz;
+
+    // Tone mapping
+    color = color / (color + vec3(1.0f));
+    color = pow(color, vec3(1.0f / 2.2f));
+
+    out_color = vec4(color, 1.0f);
 }

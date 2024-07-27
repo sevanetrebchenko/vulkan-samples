@@ -11,7 +11,7 @@ vec3 get_sample_direction() {
     float dimension = float(imageSize(irradiance_map).x); // Same dimension on both sides
 
     // Vulkan coordinate system has +y axis pointing down, flip it to match the coordinate system of the texture (uv coordinates)
-    vec2 uv = vec2(gl_GlobalInvocationID.x / dimension, 1.0f - gl_GlobalInvocationID.y / dimension) * 2.0f - 1.0f;
+    vec2 uv = vec2(float(gl_GlobalInvocationID.x) / dimension, 1.0f - float(gl_GlobalInvocationID.y) / dimension) * 2.0f - 1.0f;
     vec3 direction;
 
     // Needs to match the order of cubemap faces
@@ -48,19 +48,19 @@ vec3 get_sample_direction() {
 
 layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 void main() {
-    float pi = 3.141592f;
+    float pi = 3.14159265f;
     vec3 irradiance = vec3(0.0f);
 
     // Compute orthonormal basis around the hemisphere normal
     vec3 normal = get_sample_direction(); // Hemisphere normal
-    vec3 right = normalize(cross(normal, vec3(0.0f, 1.0f, 0.0f)));
+    vec3 right = normalize(cross(vec3(0.0f, 1.0f, 0.0f), normal));
     vec3 up = normalize(cross(normal, right));
 
     // This causes VK_DEVICE_LOST errors on waiting on the fence is this is too low
     // Probably because the OS considers the GPU under 100% load as hanging and resets it?
     // Best to keep this number as high as possible while maintaining visual fidelity
     // A better approach would be to use spherical harmonics or importance sampling to generate biased sample directions and increase the conversion at which the integral is approximated
-    float step = 0.05f;
+    float step = 0.03f;
     int num_samples = 0;
 
     // [0.0, 2π]
