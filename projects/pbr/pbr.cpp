@@ -25,6 +25,8 @@ class PBR final : public Sample {
         }
         
     private:
+        OrbitCamera cam;
+        
         // PBR scene consists of an array of models to showcase different material properties
         Model model;
         std::vector<Transform> transforms;
@@ -917,11 +919,11 @@ class PBR final : public Sample {
                     Transform& transform = transforms.emplace_back();
                     transform.set_rotation(glm::vec3(90.0f, 0.0f, 0.0f));
                     
-                    camera.set_position(glm::vec3(0, 0, 5));
+                    cam.zoom_out(5.0f);
                     break;
             }
             
-            camera.set_look_direction(glm::vec3(0.0f, 0.0f, -1.0f));
+            // camera.set_look_direction(glm::vec3(0.0f, 0.0f, -1.0f));
         }
 
         void initialize_samplers() {
@@ -974,9 +976,9 @@ class PBR final : public Sample {
             // set 0 binding 0 (global uniforms)
             {
                 GlobalUniforms uniforms { };
-                uniforms.view = camera.get_view_matrix();
-                uniforms.projection = camera.get_projection_matrix();
-                uniforms.camera_position = camera.get_position();
+                uniforms.view = cam.get_view_matrix();
+                uniforms.projection = cam.get_projection_matrix();
+                uniforms.camera_position = cam.get_position();
                 uniforms.debug_view = debug_view;
                 
                 memcpy((void*)(((char*) uniform_buffer_mapped) + offset), &uniforms, sizeof(GlobalUniforms));
@@ -1284,6 +1286,9 @@ class PBR final : public Sample {
         }
         
         void on_key_pressed(int key) override {
+            float zoom_speed = 600.0f;
+            float rotation_speed = 6000.0f;
+            
             if (key == GLFW_KEY_F) {
                 take_screenshot(swapchain_images[frame_index], surface_format.format, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, "pbr.ppm"); // Output attachment
             }
@@ -1307,6 +1312,26 @@ class PBR final : public Sample {
             }
             else if (key == GLFW_KEY_7) {
                 debug_view = NORMAL;
+            }
+            
+            // Orbit camera movement
+            else if (key == GLFW_KEY_A) {
+                cam.rotate_left(dt * rotation_speed);
+            }
+            else if (key == GLFW_KEY_D) {
+                cam.rotate_right(dt * rotation_speed);
+            }
+            else if (key == GLFW_KEY_S) {
+                cam.zoom_out(dt * zoom_speed);
+            }
+            else if (key == GLFW_KEY_W) {
+                cam.zoom_in(dt * zoom_speed);
+            }
+            else if (key == GLFW_KEY_E) {
+                cam.rotate_down(dt * rotation_speed);
+            }
+            else if (key == GLFW_KEY_Q) {
+                cam.rotate_up(dt * rotation_speed);
             }
         }
         
