@@ -749,7 +749,7 @@ class PBR final : public Sample {
             vkUpdateDescriptorSets(device, 1, &descriptor_write, 0, nullptr);
             VkDescriptorImageInfo image_info { };
             image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            image_info.imageView = irradiance_map.view;
+            image_info.imageView = environment_map.view;
             image_info.sampler = color_sampler;
             
             descriptor_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -1420,6 +1420,10 @@ class PBR final : public Sample {
             vkDestroyImage(device, environment_map.image, nullptr);
             vkFreeMemory(device, environment_map.memory, nullptr);
             vkDestroyImageView(device, environment_map.view, nullptr);
+            
+            vkDestroyImage(device, irradiance_map.image, nullptr);
+            vkFreeMemory(device, irradiance_map.memory, nullptr);
+            vkDestroyImageView(device, irradiance_map.view, nullptr);
         }
         
         void on_key_pressed(int key) override {

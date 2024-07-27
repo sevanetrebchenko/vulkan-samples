@@ -60,7 +60,7 @@ void main() {
     // Probably because the OS considers the GPU under 100% load as hanging and resets it?
     // Best to keep this number as high as possible while maintaining visual fidelity
     // A better approach would be to use spherical harmonics or importance sampling to generate biased sample directions and increase the conversion at which the integral is approximated
-    float step = 0.025f;
+    float step = 0.05f;
     int num_samples = 0;
 
     // [0.0, 2π]
