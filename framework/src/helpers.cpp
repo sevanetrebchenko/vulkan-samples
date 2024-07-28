@@ -28,7 +28,7 @@ unsigned get_memory_type_index(VkPhysicalDevice physical_device, VkMemoryRequire
     return selected_memory_type;
 }
 
-void create_image_view(VkDevice device, VkImage image, VkImageViewType type, VkFormat format, VkImageAspectFlags aspect, unsigned mip_levels, unsigned layer_count, VkImageView& image_view) {
+void create_image_view(VkDevice device, VkImage image, VkImageViewType type, VkFormat format, VkImageAspectFlags aspect, unsigned base_mip_level, unsigned num_mip_levels, unsigned layer_count, VkImageView& image_view) {
     VkImageViewCreateInfo image_view_ci { };
     image_view_ci.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     image_view_ci.image = image;
@@ -44,8 +44,8 @@ void create_image_view(VkDevice device, VkImage image, VkImageViewType type, VkF
     
     image_view_ci.subresourceRange.aspectMask = aspect;
     
-    image_view_ci.subresourceRange.baseMipLevel = 0;
-    image_view_ci.subresourceRange.levelCount = mip_levels;
+    image_view_ci.subresourceRange.baseMipLevel = base_mip_level;
+    image_view_ci.subresourceRange.levelCount = num_mip_levels;
     
     // Only one image layer
     image_view_ci.subresourceRange.baseArrayLayer = 0;
@@ -132,7 +132,7 @@ void create_buffer(VkPhysicalDevice physical_device, VkDevice device, VkDeviceSi
     vkBindBufferMemory(device, buffer, buffer_memory, 0);
 }
 
-VkDescriptorSetLayoutBinding create_descriptor_set_layout_binding(VkDescriptorType type, VkShaderStageFlags stages, unsigned binding) {
+VkDescriptorSetLayoutBinding create_descriptor_set_layout_binding(VkDescriptorType type, VkShaderStageFlags stages, unsigned binding, unsigned descriptor_count) {
     VkDescriptorSetLayoutBinding set_binding { };
     
     // Should match with the 'binding' indicator on the buffer
@@ -141,7 +141,7 @@ VkDescriptorSetLayoutBinding create_descriptor_set_layout_binding(VkDescriptorTy
     set_binding.descriptorType = type;
     
     // Allows for an array of uniform buffer objects
-    set_binding.descriptorCount = 1;
+    set_binding.descriptorCount = descriptor_count;
     
     // Describe what stages this buffer is accessed in (can be a bitwise-or of VkShaderStageFlagBits, or VK_SHADER_STAGE_ALL_GRAPHICS)
     set_binding.stageFlags = stages;
@@ -189,6 +189,24 @@ void copy_buffer_to_image(VkCommandBuffer command_buffer, VkBuffer src, VkDevice
     vkCmdCopyBufferToImage(command_buffer, src, dst, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy_region);
 }
 
+void copy_image_to_image(VkCommandBuffer command_buffer, VkImage src, VkImage dst, unsigned mip_level, unsigned layer_count, unsigned width, unsigned height, unsigned depth) {
+    VkImageSubresourceLayers src_subresource { };
+    src_subresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    src_subresource.mipLevel = mip_level;
+    src_subresource.baseArrayLayer = 0u;
+    src_subresource.layerCount = layer_count;
+    
+    VkImageSubresourceLayers dst_subresource = src_subresource;
+    
+    VkImageCopy copy_region { };
+    copy_region.srcSubresource = src_subresource;
+    copy_region.dstSubresource = dst_subresource;
+    copy_region.extent = { width, height, depth };
+    copy_region.srcOffset = { 0, 0, 0 };
+    copy_region.dstOffset = { 0, 0, 0 };
+    
+    vkCmdCopyImage(command_buffer, src, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dst, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy_region);
+}
 
 void transition_image(VkCommandBuffer command_buffer, VkImage image, VkImageLayout src, VkImageLayout dst, VkImageSubresourceRange subresource_range, VkAccessFlags src_access_mask, VkPipelineStageFlags src_stage_mask, VkAccessFlags dst_access_mask, VkPipelineStageFlags dst_stage_mask) {
     // One of the most common ways to transition layouts for images is using an image memory barrier, which is a type of pipeline barrier

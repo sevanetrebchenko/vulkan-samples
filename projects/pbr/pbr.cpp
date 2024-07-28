@@ -47,8 +47,11 @@ class PBR final : public Sample {
         Texture normals;
         
         unsigned environment_map_size = 1024;
+        
         Texture environment_map;
         Texture irradiance_map;
+        
+        Texture prefiltered_environment_map;
         
         VkSampler color_sampler;
         
@@ -1019,7 +1022,7 @@ class PBR final : public Sample {
             }
             
             create_image(physical_device, device, width, height, 1, 1, VK_SAMPLE_COUNT_1_BIT, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 0, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, texture.image, texture.memory);
-            create_image_view(device, texture.image, VK_IMAGE_VIEW_TYPE_2D, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_ASPECT_COLOR_BIT, 1, 1, texture.view);
+            create_image_view(device, texture.image, VK_IMAGE_VIEW_TYPE_2D, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 1, texture.view);
             texture.sampler = color_sampler;
             
             VkBuffer staging_buffer { };
@@ -1067,7 +1070,7 @@ class PBR final : public Sample {
             }
             
             create_image(physical_device, device, width, height, 1, 1, VK_SAMPLE_COUNT_1_BIT, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 0, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, texture.image, texture.memory);
-            create_image_view(device, texture.image, VK_IMAGE_VIEW_TYPE_2D, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_ASPECT_COLOR_BIT, 1, 1, texture.view);
+            create_image_view(device, texture.image, VK_IMAGE_VIEW_TYPE_2D, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 1, texture.view);
             texture.sampler = color_sampler;
             
             VkBuffer staging_buffer { };
@@ -1116,22 +1119,21 @@ class PBR final : public Sample {
             Texture environment { };
             load_hdr_texture("assets/textures/loft.hdr", environment);
             
-            unsigned mip_levels = 1u;
             unsigned layers = 6u;
             
             // Image needs to be created with the VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT flags enabled
             create_image(physical_device, device,
-                         environment_map_size, environment_map_size, mip_levels, layers,
+                         environment_map_size, environment_map_size, 1, layers,
                          VK_SAMPLE_COUNT_1_BIT,
                          VK_FORMAT_R16G16B16A16_SFLOAT,
                          VK_IMAGE_TILING_OPTIMAL,
-                         VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                         VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
                          VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT,
                          VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
                          environment_map.image, environment_map.memory);
             
             // Image view needs to be created with VK_IMAGE_VIEW_TYPE_CUBE to support cube maps
-            create_image_view(device, environment_map.image, VK_IMAGE_VIEW_TYPE_CUBE, VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_ASPECT_COLOR_BIT, mip_levels, layers, environment_map.view);
+            create_image_view(device, environment_map.image, VK_IMAGE_VIEW_TYPE_CUBE, VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, layers, environment_map.view);
             
             {
                 std::cout << "converting equirectangular environment map to cubemap" << std::endl;
@@ -1143,7 +1145,7 @@ class PBR final : public Sample {
             
             // Irradiance map is also a cube map
             create_image(physical_device, device,
-                         environment_map_size, environment_map_size, mip_levels, layers,
+                         environment_map_size, environment_map_size, 1, layers,
                          VK_SAMPLE_COUNT_1_BIT,
                          VK_FORMAT_R16G16B16A16_SFLOAT,
                          VK_IMAGE_TILING_OPTIMAL,
@@ -1151,12 +1153,20 @@ class PBR final : public Sample {
                          VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT,
                          VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
                          irradiance_map.image, irradiance_map.memory);
-            create_image_view(device, irradiance_map.image, VK_IMAGE_VIEW_TYPE_CUBE, VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_ASPECT_COLOR_BIT, mip_levels, layers, irradiance_map.view);
+            create_image_view(device, irradiance_map.image, VK_IMAGE_VIEW_TYPE_CUBE, VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, layers, irradiance_map.view);
             
             {
                 std::cout << "computing convoluted irradiance map" << std::endl;
                 auto start = std::chrono::high_resolution_clock::now();
                     precompute_irradiance_map(environment_map, irradiance_map);
+                auto end = std::chrono::high_resolution_clock::now();
+                std::cout << "done (" << std::chrono::duration<double, std::milli>(end - start).count() << " ms)" << std::endl;
+            }
+            
+            {
+                std::cout << "computing prefiltered environment map" << std::endl;
+                auto start = std::chrono::high_resolution_clock::now();
+                    compute_prefiltered_environment_map();
                 auto end = std::chrono::high_resolution_clock::now();
                 std::cout << "done (" << std::chrono::duration<double, std::milli>(end - start).count() << " ms)" << std::endl;
             }
@@ -1397,6 +1407,201 @@ class PBR final : public Sample {
             vkDestroyPipeline(device, compute_pipeline, nullptr);
             vkDestroyDescriptorSetLayout(device, compute_descriptor_set_layout, nullptr);
             vkFreeDescriptorSets(device, descriptor_pool, 1, &compute_descriptor_set);
+        }
+        
+        unsigned compute_num_mipmap_levels(unsigned w, unsigned h) {
+            return (unsigned)(std::floor(std::log2(std::max(w, h)))) + 1;
+        }
+        
+        void compute_prefiltered_environment_map() {
+            unsigned num_mipmap_levels = compute_num_mipmap_levels(environment_map_size, environment_map_size);
+            unsigned num_mipmap_tail_levels = num_mipmap_levels - 1; // Subtract one for level 0, which is the original texture
+
+            // The prefiltered environment map is an array of cubemaps for varying roughness levels
+            create_image(physical_device, device,
+                         environment_map_size, environment_map_size, num_mipmap_levels, 6,
+                         VK_SAMPLE_COUNT_1_BIT,
+                         VK_FORMAT_R16G16B16A16_SFLOAT,
+                         VK_IMAGE_TILING_OPTIMAL,
+                         VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+                         VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT,
+                         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                         prefiltered_environment_map.image, prefiltered_environment_map.memory);
+
+            // Image view covers all mipmap levels
+            // This is to be able to sample at different LODs in the specular portion of the PBR shader
+            // Can also use VK_REMAINING_MIP_LEVELS instead of hardcoding the number of mipmap levels
+            create_image_view(device, prefiltered_environment_map.image, VK_IMAGE_VIEW_TYPE_CUBE, VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_ASPECT_COLOR_BIT, 0, num_mipmap_levels, 6, prefiltered_environment_map.view);
+            
+            unsigned layers = 6u;
+            
+            VkDescriptorSetLayout compute_descriptor_set_layout { };
+            VkDescriptorSet compute_descriptor_set { };
+            
+            VkDescriptorSetLayoutBinding bindings[] {
+                // Environment map (input texture)
+                create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT, 0),
+                // Prefiltered environment map (output texture)
+                create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 1, num_mipmap_tail_levels),
+            };
+            
+            VkDescriptorSetLayoutCreateInfo layout_create_info { };
+            layout_create_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+            layout_create_info.bindingCount = sizeof(bindings) / sizeof(bindings[0]);
+            layout_create_info.pBindings = bindings;
+            if (vkCreateDescriptorSetLayout(device, &layout_create_info, nullptr, &compute_descriptor_set_layout) != VK_SUCCESS) {
+                throw std::runtime_error("failed to create compute descriptor set layout!");
+            }
+            
+            VkDescriptorSetAllocateInfo set_create_info { };
+            set_create_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+            set_create_info.descriptorPool = descriptor_pool;
+            set_create_info.descriptorSetCount = 1;
+            set_create_info.pSetLayouts = &compute_descriptor_set_layout;
+            if (vkAllocateDescriptorSets(device, &set_create_info, &compute_descriptor_set) != VK_SUCCESS) {
+                throw std::runtime_error("failed to allocate compute descriptor set!");
+            }
+            
+            VkWriteDescriptorSet descriptor_writes[2] { };
+            
+            // Binding 0 (contains an image view to the source environment map)
+            VkDescriptorImageInfo environment_map_image_info { };
+            environment_map_image_info.imageView = environment_map.view;
+            environment_map_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            environment_map_image_info.sampler = color_sampler;
+            
+            descriptor_writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            descriptor_writes[0].dstSet = compute_descriptor_set;
+            descriptor_writes[0].dstBinding = 0;
+            descriptor_writes[0].dstArrayElement = 0;
+            descriptor_writes[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            descriptor_writes[0].descriptorCount = 1;
+            descriptor_writes[0].pImageInfo = &environment_map_image_info;
+            
+            // Binding 1 (contains an array of image views to each mipmap level of the prefiltered environment map)
+            std::vector<VkImageView> image_views(num_mipmap_tail_levels);
+            std::vector<VkDescriptorImageInfo> image_infos(num_mipmap_tail_levels);
+            
+            // Starting at 1 (0 is the original image and is handled separately)
+            for (unsigned level = 1u; level < num_mipmap_levels; ++level) {
+                // Create an image view for this level
+                create_image_view(device, prefiltered_environment_map.image, VK_IMAGE_VIEW_TYPE_CUBE, VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_ASPECT_COLOR_BIT, level, 1, layers, image_views[level - 1u]);
+            
+                image_infos[level - 1].imageView = image_views[level - 1];
+                image_infos[level - 1].imageLayout = VK_IMAGE_LAYOUT_GENERAL; // For storage image reads
+                image_infos[level - 1].sampler = color_sampler;
+            }
+            
+            descriptor_writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            descriptor_writes[1].dstSet = compute_descriptor_set;
+            descriptor_writes[1].dstBinding = 1;
+            descriptor_writes[1].dstArrayElement = 0;
+            descriptor_writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+            descriptor_writes[1].descriptorCount = image_infos.size();
+            descriptor_writes[1].pImageInfo = image_infos.data();
+            
+            vkUpdateDescriptorSets(device, sizeof(descriptor_writes) / sizeof(descriptor_writes[0]), descriptor_writes, 0, nullptr);
+            
+            // Create pipeline
+            VkPipelineLayout compute_pipeline_layout { };
+            VkPipeline compute_pipeline { };
+            
+            // Pipeline layout
+            VkPipelineLayoutCreateInfo compute_pipeline_layout_create_info { };
+            compute_pipeline_layout_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+            compute_pipeline_layout_create_info.setLayoutCount = 1;
+            compute_pipeline_layout_create_info.pSetLayouts = { &compute_descriptor_set_layout };
+            
+            // Push constant ranges
+            struct PushConstants {
+                unsigned mip_level;
+                float roughness;
+            };
+            VkPushConstantRange push_constant_range { };
+            push_constant_range.size = sizeof(PushConstants);
+            push_constant_range.offset = 0u;
+            push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+            compute_pipeline_layout_create_info.pushConstantRangeCount = 1;
+            compute_pipeline_layout_create_info.pPushConstantRanges = &push_constant_range;
+            
+            if (vkCreatePipelineLayout(device, &compute_pipeline_layout_create_info, nullptr, &compute_pipeline_layout) != VK_SUCCESS) {
+                throw std::runtime_error("failed to create compute pipeline layout!");
+            }
+            
+            VkComputePipelineCreateInfo pipeline_create_info { };
+            pipeline_create_info.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+            pipeline_create_info.layout = compute_pipeline_layout;
+            
+            // Compute shader constants
+            VkSpecializationMapEntry specialization { };
+            
+            // layout (constant_id = 0) const int NUM_MIP_LEVELS;
+            specialization.constantID = 0;
+            specialization.size = sizeof(unsigned);
+            specialization.offset = 0;
+            
+            struct SpecializationData {
+                unsigned num_mipmap_levels;
+            };
+            SpecializationData data { };
+            data.num_mipmap_levels = num_mipmap_levels;
+            
+            VkSpecializationInfo specialization_info { };
+            specialization_info.mapEntryCount = 1;
+            specialization_info.pMapEntries = &specialization;
+            specialization_info.dataSize = sizeof(SpecializationData);
+            specialization_info.pData = &data;
+            
+            VkShaderModule shader_module = create_shader_module(device, "shaders/prefilter_environment_map.comp");
+            pipeline_create_info.stage = create_shader_stage(shader_module, VK_SHADER_STAGE_COMPUTE_BIT, &specialization_info);
+            if (vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &pipeline_create_info, nullptr, &compute_pipeline) != VK_SUCCESS) {
+                throw std::runtime_error("failed to create compute pipeline!");
+            }
+            
+            vkDestroyShaderModule(device, shader_module, nullptr);
+            
+            VkCommandBuffer command_buffer = begin_transient_command_buffer();
+                // Transfer images to expected formats
+                VkImageSubresourceRange subresource_range { };
+                subresource_range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                subresource_range.baseMipLevel = 0;
+                subresource_range.levelCount = 1;
+                subresource_range.baseArrayLayer = 0;
+                subresource_range.layerCount = 6; // Cubemap layers
+                
+                transition_image(command_buffer, environment_map.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, subresource_range, 0, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_ACCESS_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+                transition_image(command_buffer, prefiltered_environment_map.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, subresource_range, 0, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+
+                // Copy mipmap level 0 (original texture) into destination environment map
+                copy_image_to_image(command_buffer, environment_map.image, prefiltered_environment_map.image, 0, layers, environment_map_size, environment_map_size, 1);
+            
+                // Environment map is no longer needed, transition to VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL for use in the COMPUTE stage (for prefiltering individual mipmap levels)
+                transition_image(command_buffer, environment_map.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, subresource_range, VK_ACCESS_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+                
+                // Transition ALL MIPMAP LEVELS of the prefiltered environment map to VK_IMAGE_LAYOUT_GENERAL for storage image writes
+                subresource_range.baseMipLevel = 0;
+                subresource_range.levelCount = num_mipmap_levels;
+                transition_image(command_buffer, prefiltered_environment_map.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresource_range, VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+                
+                vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, compute_pipeline);
+                vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, compute_pipeline_layout, 0, 1, &compute_descriptor_set, 0, nullptr);
+                
+                // Each mipmap level is half the size of the previous level
+                for (unsigned level = 1u, size = environment_map_size / 2; level < num_mipmap_levels; ++level, size /= 2) {
+                    std::size_t num_work_groups = std::max(1u, size / 32);
+                    
+                    PushConstants push_constants { };
+                    push_constants.mip_level = level - 1;
+                    push_constants.roughness = 1.0f / (float) num_mipmap_tail_levels * (float) level;
+                    
+					vkCmdPushConstants(command_buffer, compute_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(PushConstants), &push_constants);
+                    vkCmdDispatch(command_buffer, num_work_groups, num_work_groups, 6);
+                }
+            submit_transient_command_buffer(command_buffer);
+        }
+        
+        void compute_brdf_lut(Texture& brdf_lut) {
         }
         
         void destroy_textures() {

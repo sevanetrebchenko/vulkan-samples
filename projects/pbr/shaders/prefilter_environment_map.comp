@@ -1,0 +1,26 @@
+
+#version 450
+
+layout (constant_id = 0) const uint NUM_MIP_LEVELS = 1;
+
+layout (set = 0, binding = 0) uniform samplerCube environment_map;
+layout (set = 0, binding = 1) writeonly uniform imageCube prefiltered_environment_map[NUM_MIP_LEVELS];
+
+layout (push_constant) uniform PushConstants {
+    uint mip_level;
+    float roughness;
+} push_constants;
+
+layout(local_size_x = 32, local_size_y = 32, local_size_z = 1) in;
+void main() {
+    uint mip_level = push_constants.mip_level;
+    float roughness = push_constants.roughness;
+
+	ivec2 size = imageSize(prefiltered_environment_map[mip_level]);
+
+	if (gl_GlobalInvocationID.x >= size.x || gl_GlobalInvocationID.y >= size.y) {
+		return;
+	}
+
+    imageStore(prefiltered_environment_map[mip_level], ivec3(gl_GlobalInvocationID), vec4(vec3(roughness), 1.0f));
+}
