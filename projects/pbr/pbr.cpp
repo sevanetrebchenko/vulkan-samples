@@ -1599,6 +1599,24 @@ class PBR final : public Sample {
                     vkCmdDispatch(command_buffer, num_work_groups, num_work_groups, 6);
                 }
             submit_transient_command_buffer(command_buffer);
+            
+            // Destroy resources
+            // Image views for mip chain
+            for (VkImageView view : image_views) {
+                vkDestroyImageView(device, view, nullptr);
+            }
+            
+            // Pipeline layout
+            vkDestroyPipelineLayout(device, compute_pipeline_layout, nullptr);
+            
+            // Pipeline
+            vkDestroyPipeline(device, compute_pipeline, nullptr);
+            
+            // Descriptor set layout
+            vkDestroyDescriptorSetLayout(device, compute_descriptor_set_layout, nullptr);
+            
+            // Descriptor sets
+            vkFreeDescriptorSets(device, descriptor_pool, 1, &compute_descriptor_set);
         }
         
         void compute_brdf_lut(Texture& brdf_lut) {
@@ -1632,6 +1650,10 @@ class PBR final : public Sample {
             vkDestroyImage(device, irradiance_map.image, nullptr);
             vkFreeMemory(device, irradiance_map.memory, nullptr);
             vkDestroyImageView(device, irradiance_map.view, nullptr);
+            
+            vkDestroyImage(device, prefiltered_environment_map.image, nullptr);
+            vkFreeMemory(device, prefiltered_environment_map.memory, nullptr);
+            vkDestroyImageView(device, prefiltered_environment_map.view, nullptr);
         }
         
         void on_key_pressed(int key) override {
