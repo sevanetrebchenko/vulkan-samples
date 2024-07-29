@@ -66,7 +66,7 @@ void main() {
         vec3 N = normalize(world_normal);
         vec3 V = normalize(global.camera_position - world_position);
 
-        vec3 R = 2.0f * V * N - V;
+        vec3 R = reflect(-V, N);
 
         // Model uses a combined metallic / roughness map
         // Metallic is sampled from the B channel, roughness is sampled from the G channel
