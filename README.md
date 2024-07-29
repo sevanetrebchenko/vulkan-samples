@@ -2,6 +2,18 @@
 A collection of visual effects, rendering techniques, and small samples built on top of a bare-bones framework to experiment with the Vulkan rendering API. 
 
 ## Sample List
+| [Physically-Based Rendering](https://github.com/sevanetrebchenko/vulkan-samples/tree/master/projects/pbr) |
+|:---------------------------------------------------------------------------------------------------------:|
+| ![pbr.jpg](https://github.com/sevanetrebchenko/vulkan-samples/blob/master/artifacts/pbr/pbr.jpg) <br> A physically-based rendering pipeline with image-based lighting. |
+
+|                                                  [Directional Shadow Mapping](https://github.com/sevanetrebchenko/vulkan-samples/tree/master/projects/shadow_mapping)                                                  |
+|:----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------:|
+| ![shadow_mapping.jpg](https://github.com/sevanetrebchenko/vulkan-samples/blob/master/artifacts/shadow_mapping/directional_shadow_mapping.jpg) <br> An implementation of shadow mapping for a single directional light. |
+
+|                                                        [Omnidirectional Shadow Mapping](https://github.com/sevanetrebchenko/vulkan-samples/tree/master/projects/omnidirectional_shadow_mapping)                                                        |
+|:------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------:|
+| ![omnidirectional_shadow_mapping.jpg](https://github.com/sevanetrebchenko/vulkan-samples/blob/master/artifacts/omnidirectional_shadow_mapping/omnidirectional_shadow_mapping.jpg) <br> An implementation of shadow mapping for a single omnidirectional (point) light. |
+
 |                                               [Ambient Occlusion](https://github.com/sevanetrebchenko/vulkan-samples/tree/master/projects/ambient_occlusion)                                                |
 |:-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------:|
 | ![ambient_occlusion.jpg](https://github.com/sevanetrebchenko/vulkan-samples/blob/master/artifacts/ambient_occlusion/ambient_occlusion.jpg) <br> An implementation of screen-space ambient occlusion (SSAO). |
@@ -14,14 +26,6 @@ A collection of visual effects, rendering techniques, and small samples built on
 |:-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------:|
 | ![deferred_normals.jpg](https://github.com/sevanetrebchenko/vulkan-samples/blob/master/artifacts/deferred_rendering/normals.jpg) <br> An implementation of a deferred rendering pipeline. |
 
-|                                                  [Directional Shadow Mapping](https://github.com/sevanetrebchenko/vulkan-samples/tree/master/projects/shadow_mapping)                                                  |
-|:----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------:|
-| ![shadow_mapping.jpg](https://github.com/sevanetrebchenko/vulkan-samples/blob/master/artifacts/shadow_mapping/directional_shadow_mapping.jpg) <br> An implementation of shadow mapping for a single directional light. |
 
-|                                                        [Omnidirectional Shadow Mapping](https://github.com/sevanetrebchenko/vulkan-samples/tree/master/projects/omnidirectional_shadow_mapping)                                                        |
-|:------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------:|
-| ![omnidirectional_shadow_mapping.jpg](https://github.com/sevanetrebchenko/vulkan-samples/blob/master/artifacts/omnidirectional_shadow_mapping/omnidirectional_shadow_mapping.jpg) <br> An implementation of shadow mapping for a single omnidirectional (point) light. |
 
-| [Physically-Based Rendering](https://github.com/sevanetrebchenko/vulkan-samples/tree/master/projects/pbr) |
-|:---------------------------------------------------------------------------------------------------------:|
-| ![pbr.jpg](https://github.com/sevanetrebchenko/vulkan-samples/blob/master/artifacts/pbr/pbr.jpg) <br> WIP |
+
