@@ -24,4 +24,4 @@ A collection of visual effects, rendering techniques, and small samples built on
 
 |                                                        [Physically-Based Rendering]()                                                        |
 |:------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------:|
-| ![pbr.jpg]() <br> Coming soon!. |
+| ![pbr.png(https://github.com/sevanetrebchenko/vulkan-samples/blob/master/artifacts/pbr/pbr.png]() <br> WIP. |
