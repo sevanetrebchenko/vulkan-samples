@@ -15,7 +15,7 @@ void copy_buffer(VkCommandBuffer command_buffer, VkBuffer src, VkDeviceSize src_
 void copy_buffer_to_image(VkCommandBuffer command_buffer, VkBuffer src, VkDeviceSize src_offset, VkImage dst, int mip_level, int width, int height);
 
 // Assumes src is in VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dst in VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
-void copy_image_to_image(VkCommandBuffer command_buffer, VkImage src, VkImage dst, unsigned mip_level, unsigned layer_count, unsigned width, unsigned height, unsigned depth = 1);
+void copy_image_to_image(VkCommandBuffer command_buffer, VkImage src, VkImage dst, unsigned mip_level, unsigned layer, unsigned layer_count, unsigned width, unsigned height, unsigned depth);
 
 VkDescriptorSetLayoutBinding create_descriptor_set_layout_binding(VkDescriptorType type, VkShaderStageFlags stages, unsigned binding, unsigned descriptor_count = 1);
 

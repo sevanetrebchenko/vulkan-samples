@@ -1650,7 +1650,7 @@ class PBR final : public Sample {
                 transition_image(command_buffer, prefiltered_environment_map.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, subresource_range, 0, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
 
                 // Copy mipmap level 0 (original texture) into destination environment map
-                copy_image_to_image(command_buffer, environment_map.image, prefiltered_environment_map.image, 0, layers, environment_map_size, environment_map_size, 1);
+                copy_image_to_image(command_buffer, environment_map.image, prefiltered_environment_map.image, 0, 0, layers, environment_map_size, environment_map_size, 1);
             
                 // Environment map is no longer needed, transition to VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL (use VK_IMAGE_LAYOUT_UNDEFINED because only the first layer was transitioned to VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL) for use in the COMPUTE stage (for prefiltering individual mipmap levels)
                 subresource_range.levelCount = VK_REMAINING_MIP_LEVELS;

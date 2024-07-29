@@ -189,11 +189,11 @@ void copy_buffer_to_image(VkCommandBuffer command_buffer, VkBuffer src, VkDevice
     vkCmdCopyBufferToImage(command_buffer, src, dst, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy_region);
 }
 
-void copy_image_to_image(VkCommandBuffer command_buffer, VkImage src, VkImage dst, unsigned mip_level, unsigned layer_count, unsigned width, unsigned height, unsigned depth) {
+void copy_image_to_image(VkCommandBuffer command_buffer, VkImage src, VkImage dst, unsigned mip_level, unsigned layer, unsigned layer_count, unsigned width, unsigned height, unsigned depth) {
     VkImageSubresourceLayers src_subresource { };
     src_subresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     src_subresource.mipLevel = mip_level;
-    src_subresource.baseArrayLayer = 0u;
+    src_subresource.baseArrayLayer = layer;
     src_subresource.layerCount = layer_count;
     
     VkImageSubresourceLayers dst_subresource = src_subresource;

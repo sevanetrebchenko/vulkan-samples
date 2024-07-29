@@ -54,7 +54,7 @@ void main() {
     // Compute orthonormal basis around the hemisphere normal
     vec3 normal = get_sample_direction(); // Hemisphere normal
     vec3 right = normalize(cross(vec3(0.0f, 1.0f, 0.0f), normal));
-    vec3 up = normalize(cross(normal, right));
+    vec3 up = normalize(cross(right, normal));
 
     // This causes VK_DEVICE_LOST errors on waiting on the fence is this is too low
     // Probably because the OS considers the GPU under 100% load as hanging and resets it?
@@ -78,7 +78,7 @@ void main() {
             // The area being sampled decreases the higher the zenith angle (theta) gets as the sample regions converge towards the top of the hemisphere
             // Compensate for this by weighing the contribution by sin(theta), which is smaller towards the base of the hemisphere and larger towards the top
             // cos(theta) is applied because of the Lambertian cosine law, which accounts for the light contribution decreasing as the angle between the hemisphere normal and sample direction increases
-            irradiance += texture(environment_map, sample_direction).rgb * ct * st;
+            irradiance += textureLod(environment_map, sample_direction, 0.0f).rgb * ct * st;
             ++num_samples;
         }
     }
