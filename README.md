@@ -22,6 +22,6 @@ A collection of visual effects, rendering techniques, and small samples built on
 |:------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------:|
 | ![omnidirectional_shadow_mapping.jpg](https://github.com/sevanetrebchenko/vulkan-samples/blob/master/artifacts/omnidirectional_shadow_mapping/omnidirectional_shadow_mapping.jpg) <br> An implementation of shadow mapping for a single omnidirectional (point) light. |
 
-|                                                        [Physically-Based Rendering]()                                                        |
-|:------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------:|
-| ![pbr.png(https://github.com/sevanetrebchenko/vulkan-samples/blob/master/artifacts/pbr/pbr.png]() <br> WIP. |
+|                                        [Physically-Based Rendering]()                                       |
+|:-----------------------------------------------------------------------------------------------------------:|
+| ![pbr.png](https://github.com/sevanetrebchenko/vulkan-samples/blob/master/artifacts/pbr/pbr.png]() <br> WIP |
