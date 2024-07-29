@@ -1147,7 +1147,7 @@ class PBR final : public Sample {
             
             // Load (equirectangular) environment map
             Texture environment { };
-            load_hdr_texture("assets/textures/ninomaru_teien_4k.hdr", environment);
+            load_hdr_texture("assets/textures/loft.hdr", environment);
             
             unsigned layers = 6u;
             unsigned mipmap_levels = compute_num_mipmap_levels(environment_map_size, environment_map_size);

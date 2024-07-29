@@ -92,8 +92,13 @@ void main() {
         vec3 specular_brdf = (F0 * brdf.x + brdf.y) * textureLod(prefiltered_environment_map, R, roughness * mipmap_levels).rgb;
         vec3 diffuse_brdf = kD * albedo * irradiance;
 
-        // PBR + IBL output
-        out_color = vec4(diffuse_brdf + specular_brdf, 1.0f);
+        vec3 color = diffuse_brdf + specular_brdf;
+
+        // Tone mapping
+        color = color / (color + vec3(1.0f));
+        color = pow(color, vec3(1.0f / 2.2f));
+
+        out_color = vec4(color, 1.0f);
     }
     else if (global.debug_view == 2) {
         // PBR output
