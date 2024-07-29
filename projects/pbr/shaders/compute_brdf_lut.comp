@@ -1,0 +1,10 @@
+
+#version 450
+
+layout (set = 0, binding = 0) writeonly uniform image2D brdf_lut;
+
+layout(local_size_x = 32, local_size_y = 32, local_size_z = 1) in;
+
+void main() {
+    imageStore(brdf_lut, ivec2(gl_GlobalInvocationID), vec4(1.0f));
+}

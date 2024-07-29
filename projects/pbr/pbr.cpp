@@ -49,12 +49,14 @@ class PBR final : public Sample {
         Texture roughness;
         Texture normals;
         
-        unsigned environment_map_size = 1024;
+        unsigned environment_map_size = 1024u;
+        unsigned brdf_lut_size = 512u;
         
         Texture environment_map;
         Texture irradiance_map;
         
         Texture prefiltered_environment_map;
+        Texture brdf_lut;
         
         VkSampler color_sampler;
         
@@ -93,7 +95,7 @@ class PBR final : public Sample {
         int NORMAL = 7;
         int debug_view = PBR_ONLY;
         
-        unsigned mipmap_level = 10;
+        unsigned mipmap_level = 0;
         
         struct ObjectUniforms {
             glm::mat4 model;
@@ -1228,6 +1230,14 @@ class PBR final : public Sample {
                 std::cout << "done (" << std::chrono::duration<double, std::milli>(end - start).count() << " ms)" << std::endl;
             }
             
+            {
+                std::cout << "computing BRDF look-up table" << std::endl;
+                auto start = std::chrono::high_resolution_clock::now();
+                    compute_brdf_lut();
+                auto end = std::chrono::high_resolution_clock::now();
+                std::cout << "done (" << std::chrono::duration<double, std::milli>(end - start).count() << " ms)" << std::endl;
+            }
+            
             // Delete equirectangular texture once no longer needed
             vkDestroyImageView(device, environment.view, nullptr);
             vkDestroyImage(device, environment.image, nullptr);
@@ -1686,7 +1696,117 @@ class PBR final : public Sample {
             vkFreeDescriptorSets(device, descriptor_pool, 1, &compute_descriptor_set);
         }
         
-        void compute_brdf_lut(Texture& brdf_lut) {
+        void compute_brdf_lut() {
+            // The BRDF LUT is a 2D texture that represents how the BRDF of the object responds
+            create_image(physical_device, device,
+                         brdf_lut_size, brdf_lut_size, 1, 1,
+                         VK_SAMPLE_COUNT_1_BIT,
+                         VK_FORMAT_R16G16B16A16_SFLOAT,
+                         VK_IMAGE_TILING_OPTIMAL,
+                         VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+                         0,
+                         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                         brdf_lut.image, brdf_lut.memory);
+            create_image_view(device, brdf_lut.image, VK_IMAGE_VIEW_TYPE_2D, VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 1, brdf_lut.view);
+            
+            VkDescriptorSetLayout compute_descriptor_set_layout { };
+            VkDescriptorSet compute_descriptor_set { };
+            
+            VkDescriptorSetLayoutBinding bindings[] {
+                // BRDF LUT (output texture)
+                create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0)
+            };
+            
+            VkDescriptorSetLayoutCreateInfo layout_create_info { };
+            layout_create_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+            layout_create_info.bindingCount = sizeof(bindings) / sizeof(bindings[0]);
+            layout_create_info.pBindings = bindings;
+            if (vkCreateDescriptorSetLayout(device, &layout_create_info, nullptr, &compute_descriptor_set_layout) != VK_SUCCESS) {
+                throw std::runtime_error("failed to create compute descriptor set layout!");
+            }
+            
+            VkDescriptorSetAllocateInfo set_create_info { };
+            set_create_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+            set_create_info.descriptorPool = descriptor_pool;
+            set_create_info.descriptorSetCount = 1;
+            set_create_info.pSetLayouts = &compute_descriptor_set_layout;
+            if (vkAllocateDescriptorSets(device, &set_create_info, &compute_descriptor_set) != VK_SUCCESS) {
+                throw std::runtime_error("failed to allocate compute descriptor set!");
+            }
+            
+            // Binding 0 (contains an image view to the output texture)
+            VkDescriptorImageInfo image_info { };
+            image_info.imageView = brdf_lut.view;
+            image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL; // For storage image reads;
+            image_info.sampler = color_sampler;
+            
+            VkWriteDescriptorSet descriptor_write { };
+            descriptor_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            descriptor_write.dstSet = compute_descriptor_set;
+            descriptor_write.dstBinding = 0;
+            descriptor_write.dstArrayElement = 0;
+            descriptor_write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+            descriptor_write.descriptorCount = 1;
+            descriptor_write.pImageInfo = &image_info;
+            
+            vkUpdateDescriptorSets(device, 1, &descriptor_write, 0, nullptr);
+            
+            // Create pipeline
+            VkPipelineLayout compute_pipeline_layout { };
+            VkPipeline compute_pipeline { };
+            
+            // Pipeline layout
+            VkPipelineLayoutCreateInfo compute_pipeline_layout_create_info { };
+            compute_pipeline_layout_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+            compute_pipeline_layout_create_info.setLayoutCount = 1;
+            compute_pipeline_layout_create_info.pSetLayouts = { &compute_descriptor_set_layout };
+            compute_pipeline_layout_create_info.pushConstantRangeCount = 0;
+            compute_pipeline_layout_create_info.pPushConstantRanges = nullptr;
+            if (vkCreatePipelineLayout(device, &compute_pipeline_layout_create_info, nullptr, &compute_pipeline_layout) != VK_SUCCESS) {
+                throw std::runtime_error("failed to create compute pipeline layout!");
+            }
+            
+            VkShaderModule shader_module = create_shader_module(device, "shaders/compute_brdf_lut.comp");
+            
+            VkComputePipelineCreateInfo pipeline_create_info { };
+            pipeline_create_info.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+            pipeline_create_info.layout = compute_pipeline_layout;
+            pipeline_create_info.stage = create_shader_stage(shader_module, VK_SHADER_STAGE_COMPUTE_BIT);
+            if (vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &pipeline_create_info, nullptr, &compute_pipeline) != VK_SUCCESS) {
+                throw std::runtime_error("failed to create compute pipeline!");
+            }
+            
+            vkDestroyShaderModule(device, shader_module, nullptr);
+            
+            VkCommandBuffer command_buffer = begin_transient_command_buffer();
+                // Transfer images to expected formats
+                VkImageSubresourceRange subresource_range { };
+                subresource_range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                subresource_range.baseMipLevel = 0;
+                subresource_range.levelCount = 1;
+                subresource_range.baseArrayLayer = 0;
+                subresource_range.layerCount = 1;
+            
+                transition_image(command_buffer, brdf_lut.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresource_range, 0, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_ACCESS_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+                
+                vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, compute_pipeline);
+                vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, compute_pipeline_layout, 0, 1, &compute_descriptor_set, 0, nullptr);
+                vkCmdDispatch(command_buffer, 32, 32, 1);
+                
+                transition_image(command_buffer, brdf_lut.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, subresource_range, VK_ACCESS_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+            submit_transient_command_buffer(command_buffer);
+            
+            // Pipeline layout
+            vkDestroyPipelineLayout(device, compute_pipeline_layout, nullptr);
+            
+            // Pipeline
+            vkDestroyPipeline(device, compute_pipeline, nullptr);
+            
+            // Descriptor set layout
+            vkDestroyDescriptorSetLayout(device, compute_descriptor_set_layout, nullptr);
+            
+            // Descriptor sets
+            vkFreeDescriptorSets(device, descriptor_pool, 1, &compute_descriptor_set);
         }
         
         void destroy_textures() {
@@ -1721,6 +1841,10 @@ class PBR final : public Sample {
             vkDestroyImage(device, prefiltered_environment_map.image, nullptr);
             vkFreeMemory(device, prefiltered_environment_map.memory, nullptr);
             vkDestroyImageView(device, prefiltered_environment_map.view, nullptr);
+            
+            vkDestroyImage(device, brdf_lut.image, nullptr);
+            vkFreeMemory(device, brdf_lut.memory, nullptr);
+            vkDestroyImageView(device, brdf_lut.view, nullptr);
         }
         
         void on_key_pressed(int key) override {
@@ -1753,7 +1877,6 @@ class PBR final : public Sample {
             }
             else if (key == GLFW_KEY_P) {
                 mipmap_level = glm::clamp(++mipmap_level, 0u, compute_num_mipmap_levels(environment_map_size, environment_map_size));
-                std::cout << mipmap_level << std::endl;
             }
             else if (key == GLFW_KEY_O) {
                 if (mipmap_level > 0) {
