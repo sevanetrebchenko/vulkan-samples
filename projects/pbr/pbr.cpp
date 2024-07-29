@@ -949,7 +949,7 @@ class PBR final : public Sample {
                 }
                 case Model:
                     Transform& transform = transforms.emplace_back();
-                    transform.set_rotation(glm::vec3(90.0f, 0.0f, 0.0f));
+                    transform.set_rotation(glm::vec3(90.0f, 0.0f, 180.0f));
                     
                     cam.zoom_out(5.0f);
                     break;
