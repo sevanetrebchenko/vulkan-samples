@@ -150,21 +150,28 @@ void main() {
 
         float NdotL = max(dot(N, L), 0.0f);
         if (NdotL > 0.0f) {
-            float NdotH = max(dot(N, H), 0.0f);
+            const bool use_filtered_importance_sampling = true;
 
-            // Use Mipmap Filtered Importance Sampling to improve convergence, by sampling at different mipmap levels
-            // https://developer.nvidia.com/gpugems/gpugems3/part-iii-rendering/chapter-20-gpu-based-importance-sampling, section 20.4
+            if (use_filtered_importance_sampling) {
+                // Use Mipmap Filtered Importance Sampling to improve convergence, by sampling at different mipmap levels
+                // https://developer.nvidia.com/gpugems/gpugems3/part-iii-rendering/chapter-20-gpu-based-importance-sampling, section 20.4
 
-            // Scaling factor for the GGX distribution function cancels out based on the assumption that N = V = R
-            // float D = distribution_ggx(N, H, roughness);
-            // float pdf = (D * NdotH) / (4.0 * NdotH);
-            float pdf = distribution_ggx(N, H, roughness) / 4.0f;
+                // Scaling factor for the GGX distribution function cancels out based on the assumption that N = V = R
+                // float NdotH = max(dot(N, H), 0.0f);
+                // float D = distribution_ggx(N, H, roughness);
+                // float pdf = (D * NdotH) / (4.0 * NdotH);
+                float pdf = distribution_ggx(N, H, roughness) / 4.0f;
 
-            // Surface area of the solid angle associated with this sample
-			float sample_surface_area = 1.0f / (float(sample_count) * pdf);
+                // Surface area of the solid angle associated with this sample
+                float sample_surface_area = 1.0f / (float(sample_count) * pdf);
 
-			float mip_level = max(0.5f * log2(sample_surface_area / texel_surface_area) + 1.0f, 0.0f);
-            color += textureLod(environment_map, L, mip_level).rgb * NdotL;
+                float mip_level = max(0.5f * log2(sample_surface_area / texel_surface_area) + 1.0f, 0.0f);
+                color += textureLod(environment_map, L, mip_level).rgb * NdotL;
+            }
+            else {
+                // Simpler mipmap sampling algorithm, may result in visual artifacts due to high frequency details and varyling light directions in specular reflections
+                color += texture(environment_map, L).rgb * NdotL;
+            }
 
             // Weigh each sample by the cosine term as presented by Epic Games
             weight += NdotL;

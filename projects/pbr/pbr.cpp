@@ -93,7 +93,7 @@ class PBR final : public Sample {
         int NORMAL = 7;
         int debug_view = PBR_ONLY;
         
-        unsigned mipmap_level = 0;
+        unsigned mipmap_level = 10;
         
         struct ObjectUniforms {
             glm::mat4 model;
@@ -848,6 +848,7 @@ class PBR final : public Sample {
         
         void initialize_buffers() {
             model = load_gltf("assets/models/damaged_helmet/DamagedHelmet.gltf");
+//            model = load_obj("assets/models/sphere.obj");
             skybox = load_obj("assets/models/cube.obj");
             
             std::size_t vertex_buffer_size = (model.vertices.size() + skybox.vertices.size()) * sizeof(Model::Vertex);
@@ -976,7 +977,7 @@ class PBR final : public Sample {
             color_sampler_create_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR; // Trilinear filtering for mipmaps
             color_sampler_create_info.mipLodBias = 0.0f;
             color_sampler_create_info.minLod = 0.0f;
-            color_sampler_create_info.maxLod = 1.0f;
+            color_sampler_create_info.maxLod = (float) compute_num_mipmap_levels(environment_map_size, environment_map_size);
 
             if (vkCreateSampler(device, &color_sampler_create_info, nullptr, &color_sampler) != VK_SUCCESS) {
                 throw std::runtime_error("failed to create color sampler!");
@@ -1635,8 +1636,9 @@ class PBR final : public Sample {
                 // Copy mipmap level 0 (original texture) into destination environment map
                 copy_image_to_image(command_buffer, environment_map.image, prefiltered_environment_map.image, 0, layers, environment_map_size, environment_map_size, 1);
             
-                // Environment map is no longer needed, transition to VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL for use in the COMPUTE stage (for prefiltering individual mipmap levels)
-                transition_image(command_buffer, environment_map.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, subresource_range, VK_ACCESS_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+                // Environment map is no longer needed, transition to VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL (use VK_IMAGE_LAYOUT_UNDEFINED because only the first layer was transitioned to VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL) for use in the COMPUTE stage (for prefiltering individual mipmap levels)
+                subresource_range.levelCount = VK_REMAINING_MIP_LEVELS;
+                transition_image(command_buffer, environment_map.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, subresource_range, VK_ACCESS_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
                 
                 // Transition ALL MIPMAP LEVELS of the prefiltered environment map to VK_IMAGE_LAYOUT_GENERAL for storage image writes
                 subresource_range.baseMipLevel = 0;
@@ -1652,7 +1654,7 @@ class PBR final : public Sample {
                     
                     PushConstants push_constants { };
                     push_constants.mip_level = level - 1;
-                    push_constants.roughness = 1.0f / (float) num_mipmap_tail_levels * (float) level;
+                    push_constants.roughness =  (float) level / (float) num_mipmap_levels;
                     
 					vkCmdPushConstants(command_buffer, compute_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(PushConstants), &push_constants);
                     vkCmdDispatch(command_buffer, num_work_groups, num_work_groups, 6);

@@ -12,7 +12,7 @@ layout (push_constant) uniform PushConstants {
 } push_constants;
 
 void main() {
-    vec3 color = textureLod(skybox, normalize(world_position), push_constants.mip_level).xyz;
+    vec3 color = textureLod(skybox, normalize(world_position), float(push_constants.mip_level)).xyz;
 
     // Tone mapping
     color = color / (color + vec3(1.0f));
