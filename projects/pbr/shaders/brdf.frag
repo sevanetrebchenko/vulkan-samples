@@ -23,20 +23,50 @@ layout (set = 0, binding = 8) uniform sampler2D brdf_lut;
 
 layout (location = 0) out vec4 out_color;
 
-vec3 fresnel_schlick(vec3 N, vec3 V, vec3 F0, float roughness) {
+const float pi = 3.141592f;
+
+// Fresnel-Schlick
+vec3 F(vec3 N, vec3 V, vec3 F0, float roughness) {
     float cos_theta = max(dot(N, V), 0.0f);
     return F0 + (max(vec3(1.0f - roughness), F0) - F0) * pow(clamp(1.0f - cos_theta, 0.0f, 1.0f), 5.0f);
 }
 
+float geometry_shlick_ggx(float NdotV, float roughness) {
+    float a = roughness;
+
+    // This k has a different value when used for direct lighting from analytical lights
+    // This computation is specifically for IBL
+    float k = (a * a) / 2.0f;
+
+    return NdotV / (NdotV * (1.0f - k) + k);
+}
+
+// The geometry function G approximates the surface area that is obstructed or overshadowed by neighboring microfacets, causing light rays to be occluded
+// Higher levels of roughness results in a higher value of G, logically corresponding to a higher probability that surfaces shadow one another
+float G(vec3 N, vec3 V, vec3 L, float roughness) {
+    // Use Smith's method to account for both geometry obstruction (view direction, NdotV) and geometry shadowing (light direction, NdotL)
+    float NdotV = max(dot(N, V), 0.0f);
+    float NdotL = max(dot(N, L), 0.0f);
+    return geometry_shlick_ggx(NdotV, roughness) * geometry_shlick_ggx(NdotL, roughness);
+}
+
+// Trowbridge-Reitz GGX normal distribution function (D)
+float D(vec3 N, vec3 H, float roughness) {
+    // Uses Disney's reparametrization of alpha = roughness ^ 2
+	float alpha = roughness * roughness;
+    float alpha2 = alpha * alpha;
+    float NdotH = max(dot(N, H), 0.0f);
+    float denominator = (NdotH * NdotH) * (alpha2 - 1.0f) + 1.0f;
+
+    return alpha2 / (pi * denominator * denominator);
+}
+
 void main() {
     if (global.debug_view == 1) {
-        // PBR + IBL output
-        out_color = vec4(0.0f, 0.0f, 0.0f, 1.0f);
-    }
-    else if (global.debug_view == 2) {
-        // PBR output
         vec3 N = normalize(world_normal);
-        vec3 V = normalize(world_position - global.camera_position);
+        vec3 V = normalize(global.camera_position - world_position);
+
+        vec3 R = 2.0f * V * N - V;
 
         // Model uses a combined metallic / roughness map
         // Metallic is sampled from the B channel, roughness is sampled from the G channel
@@ -46,7 +76,39 @@ void main() {
         float ao = texture(ao_map, uv).r;
 
         vec3 F0 = mix(vec3(0.04), albedo, metallic);
-        vec3 ks = fresnel_schlick(N, V, F0, roughness);
+
+        vec3 fresnel = F(N, V, F0, roughness);
+
+        vec3 kS = fresnel;
+        vec3 kD = 1.0f - kS;
+        kD *= 1.0 - metallic;
+
+        vec3 irradiance = texture(irradiance_map, N).rgb;
+        vec3 diffuse = irradiance * albedo;
+
+        int mipmap_levels = textureQueryLevels(prefiltered_environment_map);
+        vec2 brdf = texture(brdf_lut, vec2(max(dot(N, V), 0.0f), roughness)).rg;
+
+        vec3 specular_brdf = (F0 * brdf.x + brdf.y) * textureLod(prefiltered_environment_map, R, roughness * mipmap_levels).rgb;
+        vec3 diffuse_brdf = kD * albedo * irradiance;
+
+        // PBR + IBL output
+        out_color = vec4(diffuse_brdf + specular_brdf, 1.0f);
+    }
+    else if (global.debug_view == 2) {
+        // PBR output
+        vec3 N = normalize(world_normal);
+        vec3 V = normalize(global.camera_position - world_position);
+
+        // Model uses a combined metallic / roughness map
+        // Metallic is sampled from the B channel, roughness is sampled from the G channel
+        float metallic = texture(metallic_roughness_map, uv).b;
+        float roughness = texture(metallic_roughness_map, uv).g;
+        vec3 albedo = texture(albedo_map, uv).rgb;
+        float ao = texture(ao_map, uv).r;
+
+        vec3 F0 = mix(vec3(0.04), albedo, metallic);
+        vec3 ks = F(N, V, F0, roughness);
         vec3 kd = 1.0f - ks;
 
         vec3 irradiance = texture(irradiance_map, N).rgb;
