@@ -17,6 +17,5 @@ void main() {
     mat4 view = mat4(mat3(global.view)); // Take away camera position transformation to render skybox from the origin of the world
 
     world_position = wp.xyz;
-    world_position.xz *= -1.0f;
     gl_Position = global.projection * view * wp;
 }

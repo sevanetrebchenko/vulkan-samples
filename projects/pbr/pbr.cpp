@@ -949,7 +949,7 @@ class PBR final : public Sample {
                 }
                 case Model:
                     Transform& transform = transforms.emplace_back();
-                    transform.set_rotation(glm::vec3(90.0f, 0.0f, 180.0f));
+                    transform.set_rotation(glm::vec3(90.0f, 0.0f, 0.0f));
                     
                     cam.zoom_out(5.0f);
                     break;
@@ -1091,6 +1091,7 @@ class PBR final : public Sample {
             int width;
             int height;
             int channels;
+//            stbi_set_flip_vertically_on_load(true);
             float* image_data = stbi_loadf(filepath, &width, &height, &channels, STBI_rgb_alpha);
             if (!image_data) {
                 throw std::runtime_error("failed to load HDR texture!");
