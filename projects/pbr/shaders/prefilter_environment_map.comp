@@ -11,6 +11,110 @@ layout (push_constant) uniform PushConstants {
     float roughness;
 } push_constants;
 
+const float pi = 3.141592f;
+
+// This compute shader is run 6 times, one for each face of the cubemap
+// The face direction is determined by the value in gl_GlobalInvocationID.z
+vec3 get_sample_direction() {
+    uint mip_level = push_constants.mip_level;
+
+    // Convert gl_GlobalInvocationID.xz to [-1.0, 1.0] to reconstruct the a vector that would point to the current fragment of the cubemap being processed
+    float dimension = float(imageSize(prefiltered_environment_map[mip_level]).x); // Same dimension on both sides
+
+    // Vulkan coordinate system has +y axis pointing down, flip it to match the coordinate system of the texture (uv coordinates)
+    vec2 uv = vec2(gl_GlobalInvocationID.x / dimension, 1.0f - gl_GlobalInvocationID.y / dimension) * 2.0f - 1.0f;
+    vec3 direction;
+
+    // Needs to match the order of cubemap faces
+    if (gl_GlobalInvocationID.z == 0) {
+        // +x
+        // Flipping z direction as the right edge corresponds to a negative Z coordinate
+        direction = vec3(1.0f, uv.y, -uv.x);
+    }
+    else if (gl_GlobalInvocationID.z == 1) {
+        // -x
+        direction = vec3(-1.0f, uv.y, uv.x);
+    }
+    else if (gl_GlobalInvocationID.z == 2) {
+        // +y
+        // Flipping Z direction as the top edge corresponds to a negative Z coordinate
+        direction = vec3(uv.x, 1.0f, -uv.y);
+    }
+    else if (gl_GlobalInvocationID.z == 3) {
+        // -y
+        direction = vec3(uv.x, -1.0f, uv.y);
+    }
+    else if (gl_GlobalInvocationID.z == 4) {
+        // +z
+        direction = vec3(uv.x, uv.y, 1.0f);
+    }
+    else { // if (gl_GlobalInvocationID.z == 5) {
+        // -z
+        // Flipping X direction as the right edge corresponds to a negative X coordinate
+        direction = vec3(-uv.x, uv.y, -1.0f);
+    }
+
+    return normalize(direction);
+}
+
+// http://holger.dammertz.org/stuff/notes_HammersleyOnHemisphere.html
+float radical_inverse_van_de_corput(uint bits) {
+    bits = (bits << 16u) | (bits >> 16u);
+    bits = ((bits & 0x55555555u) << 1u) | ((bits & 0xAAAAAAAAu) >> 1u);
+    bits = ((bits & 0x33333333u) << 2u) | ((bits & 0xCCCCCCCCu) >> 2u);
+    bits = ((bits & 0x0F0F0F0Fu) << 4u) | ((bits & 0xF0F0F0F0u) >> 4u);
+    bits = ((bits & 0x00FF00FFu) << 8u) | ((bits & 0xFF00FF00u) >> 8u);
+    return float(bits) * 2.3283064365386963e-10; // / 0x100000000
+}
+vec2 get_hammersley_point(uint i, uint num_samples) {
+    return vec2(float(i) / float(num_samples), radical_inverse_van_de_corput(i));
+}
+
+// Trowbridge-Reitz GGX normal distribution function (D)
+float distribution_ggx(vec3 N, vec3 H, float roughness) {
+    // Uses Disney's reparametrization of alpha = roughness ^ 2
+	float alpha = roughness * roughness;
+    float alpha2 = alpha * alpha;
+    float NdotH = max(dot(N, H), 0.0f);
+    float denominator = (NdotH * NdotH) * (alpha2 - 1.0f) + 1.0f;
+
+    return alpha2 / (pi * denominator * denominator);
+}
+
+vec3 importance_sample_ggx(vec2 Xi, vec3 N, float roughness) {
+    // The normal distribution function (NDF) approximates the surface area of microfacets exactly aligned with a given direction
+    // Put differently, it approximates the probability that a microfacet is aligned in a particular direction
+
+    // Given a direction (unit vector) h in the normal hemisphere and a small piece of solid angle d(ωℎ) representing a set of directions near h, the probability of a microfacet having a normal within
+    // d(ωℎ) is D(h) * d(ωℎ), where D(h) is the NDF
+    // The probability of the microfacet normal being contained within the hemisphere of the macrosurface normal is 100%, so the integral of the NDF should come out to 1
+    // A small caveat of this is the normalization factor, which accounts for the conversion between the macrosufrace area, aligned with the surface normal n, and the microsurface area, alighed with h (projected onto n)
+    // NDF: ∫ D(h) * (dot(n, h) d(ω) = 1
+    // https://www.reedbeta.com/blog/hows-the-ndf-really-defined/
+
+    // Derivation of the step from the PDF to the sampling function: https://blog.tobias-franke.eu/2014/03/30/notes_on_importance_sampling.html
+    // Used in the research presented by Epic Games: https://blog.selfshadow.com/publications/s2013-shading-course/karis/s2013_pbs_epic_notes_v2.pdf
+
+    // The more chaotic the microsurface (higher roughness), the smaller the probability
+    float alpha = roughness * roughness;
+
+    // Compute spherical coordinates
+    float phi = 2.0 * pi * Xi.x;
+    float cos_theta = sqrt((1.0f - Xi.y) / (1.0f + (alpha * alpha - 1.0f) * Xi.y));
+    float sin_theta = sqrt(1.0f - cos_theta * cos_theta);
+
+    // Convert to Cartesian coordinates
+    vec3 H = vec3(sin_theta * cos(phi), sin_theta * sin(phi), cos_theta);
+
+    // Compute orthonormal basis in tangent space
+    vec3 right = normalize(cross(vec3(0.0f, 1.0f, 0.0f), N));
+    vec3 up = normalize(cross(N, right));
+
+    // Transform basis from tangent space to world space by applying it to the surface normal to get a random (importance sampled) direction
+    return H.x * right + H.y * up + H.z * N;
+}
+
+
 layout(local_size_x = 32, local_size_y = 32, local_size_z = 1) in;
 void main() {
     uint mip_level = push_constants.mip_level;
@@ -18,9 +122,57 @@ void main() {
 
 	ivec2 size = imageSize(prefiltered_environment_map[mip_level]);
 
+    // Represents the solid angle of a single texel at mipmap level 0
+    float texel_surface_area = 4.0f * pi / (6 * size.x * size.y);
+
 	if (gl_GlobalInvocationID.x >= size.x || gl_GlobalInvocationID.y >= size.y) {
 		return;
 	}
 
-    imageStore(prefiltered_environment_map[mip_level], ivec3(gl_GlobalInvocationID), vec4(vec3(roughness), 1.0f));
+    uint sample_count = 2048u;
+
+    // Follow the Epic Games approximation, that assumes that the view direction (and specular reflection direction) is the same as the normal direction
+    // Doing this approximation means there will be no grazing specular reflections (seen when looking at a reflective surface from an angle)
+    // This also means the reflection direction R will also be the same as the normal direction
+    vec3 N = get_sample_direction();
+
+    float weight = 0.0f;
+    vec3 color = vec3(0.0f);
+
+    for (uint i = 0; i < sample_count; ++i) {
+        // Importance sample the specular lobe of the surface, taking into account the effect that increasing surface roughness has on the shape / size
+        // Use Hammersley points to generate a low-discrepancy sequence for generating Monte Carlo sample vectors, which results in a faster rate of conversion
+        vec2 Xi = get_hammersley_point(i, sample_count);
+        vec3 H = importance_sample_ggx(Xi, N, roughness);
+
+        // Based on the above assumption, the view direction (V) / reflection direction (R) as the same as the normal (N)
+        vec3 L = normalize(2.0f * dot(N, H) * H - N);
+
+        float NdotL = max(dot(N, L), 0.0f);
+        if (NdotL > 0.0f) {
+            float NdotH = max(dot(N, H), 0.0f);
+
+            // Use Mipmap Filtered Importance Sampling to improve convergence, by sampling at different mipmap levels
+            // https://developer.nvidia.com/gpugems/gpugems3/part-iii-rendering/chapter-20-gpu-based-importance-sampling, section 20.4
+
+            // Scaling factor for the GGX distribution function cancels out based on the assumption that N = V = R
+            // float D = distribution_ggx(N, H, roughness);
+            // float pdf = (D * NdotH) / (4.0 * NdotH);
+            float pdf = distribution_ggx(N, H, roughness) / 4.0f;
+
+            // Surface area of the solid angle associated with this sample
+			float sample_surface_area = 1.0f / (float(sample_count) * pdf);
+
+			float mip_level = max(0.5f * log2(sample_surface_area / texel_surface_area) + 1.0f, 0.0f);
+            color += textureLod(environment_map, L, mip_level).rgb * NdotL;
+
+            // Weigh each sample by the cosine term as presented by Epic Games
+            weight += NdotL;
+        }
+    }
+
+    imageStore(prefiltered_environment_map[mip_level], ivec3(gl_GlobalInvocationID), vec4(color / weight, 1.0f));
+
+    // For debugging purposes
+    // imageStore(prefiltered_environment_map[mip_level], ivec3(gl_GlobalInvocationID), vec4(vec3(roughness), 1.0f));
 }

@@ -38,6 +38,9 @@ class PBR final : public Sample {
             VkImageView view;
             VkSampler sampler;
             VkFormat format;
+            
+            unsigned width;
+            unsigned height;
         };
         
         Texture ao;
@@ -89,6 +92,8 @@ class PBR final : public Sample {
         int ROUGHNESS = 6;
         int NORMAL = 7;
         int debug_view = PBR_ONLY;
+        
+        unsigned mipmap_level = 0;
         
         struct ObjectUniforms {
             glm::mat4 model;
@@ -159,6 +164,7 @@ class PBR final : public Sample {
                 throw std::runtime_error("failed to begin command buffer recording!");
             }
             
+            // Render skybox
             {
                 VkRenderPassBeginInfo render_pass_info { };
                 render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
@@ -176,6 +182,9 @@ class PBR final : public Sample {
                 vkCmdBeginRenderPass(command_buffer, &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
                     vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, skybox_pipeline);
                     vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, skybox_pipeline_layout, 0, 1, &skybox_descriptor_set, 0, nullptr);
+                    
+                    // Update push constants
+                    vkCmdPushConstants(command_buffer, skybox_pipeline_layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(unsigned), &mipmap_level);
                     
                     VkDeviceSize offsets[] = { skybox.vertex_offset };
                     vkCmdBindVertexBuffers(command_buffer, 0, 1, &vertex_buffer, offsets);
@@ -465,8 +474,14 @@ class PBR final : public Sample {
             VkDescriptorSetLayout layouts[1] = { skybox_descriptor_set_layout };
             pipeline_layout_create_info.setLayoutCount = sizeof(layouts) / sizeof(layouts[0]);
             pipeline_layout_create_info.pSetLayouts = layouts;
-            pipeline_layout_create_info.pushConstantRangeCount = 0;
-            pipeline_layout_create_info.pPushConstantRanges = nullptr;
+            
+            VkPushConstantRange push_constant_range { };
+            push_constant_range.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+            push_constant_range.offset = 0u;
+            push_constant_range.size = sizeof(unsigned);
+            
+            pipeline_layout_create_info.pushConstantRangeCount = 1;
+            pipeline_layout_create_info.pPushConstantRanges = &push_constant_range;
         
             if (vkCreatePipelineLayout(device, &pipeline_layout_create_info, nullptr, &skybox_pipeline_layout) != VK_SUCCESS) {
                 throw std::runtime_error("failed to create skybox pipeline layout!");
@@ -755,7 +770,7 @@ class PBR final : public Sample {
             vkUpdateDescriptorSets(device, 1, &descriptor_write, 0, nullptr);
             VkDescriptorImageInfo image_info { };
             image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            image_info.imageView = environment_map.view;
+            image_info.imageView = prefiltered_environment_map.view;
             image_info.sampler = color_sampler;
             
             descriptor_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -958,7 +973,7 @@ class PBR final : public Sample {
             color_sampler_create_info.unnormalizedCoordinates = VK_FALSE;
             color_sampler_create_info.compareEnable = VK_FALSE;
             color_sampler_create_info.compareOp = VK_COMPARE_OP_ALWAYS;
-            color_sampler_create_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+            color_sampler_create_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR; // Trilinear filtering for mipmaps
             color_sampler_create_info.mipLodBias = 0.0f;
             color_sampler_create_info.minLod = 0.0f;
             color_sampler_create_info.maxLod = 1.0f;
@@ -1021,6 +1036,9 @@ class PBR final : public Sample {
                 throw std::runtime_error("failed to load '" + std::string(filepath) + "' texture!");
             }
             
+            texture.width = width;
+            texture.height = height;
+            
             create_image(physical_device, device, width, height, 1, 1, VK_SAMPLE_COUNT_1_BIT, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 0, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, texture.image, texture.memory);
             create_image_view(device, texture.image, VK_IMAGE_VIEW_TYPE_2D, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 1, texture.view);
             texture.sampler = color_sampler;
@@ -1068,6 +1086,9 @@ class PBR final : public Sample {
             if (!image_data) {
                 throw std::runtime_error("failed to load HDR texture!");
             }
+            
+            texture.width = width;
+            texture.height = height;
             
             create_image(physical_device, device, width, height, 1, 1, VK_SAMPLE_COUNT_1_BIT, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 0, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, texture.image, texture.memory);
             create_image_view(device, texture.image, VK_IMAGE_VIEW_TYPE_2D, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 1, texture.view);
@@ -1120,20 +1141,22 @@ class PBR final : public Sample {
             load_hdr_texture("assets/textures/loft.hdr", environment);
             
             unsigned layers = 6u;
+            unsigned mipmap_levels = compute_num_mipmap_levels(environment_map_size, environment_map_size);
             
             // Image needs to be created with the VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT flags enabled
             create_image(physical_device, device,
-                         environment_map_size, environment_map_size, 1, layers,
+                         environment_map_size, environment_map_size, mipmap_levels, layers,
                          VK_SAMPLE_COUNT_1_BIT,
                          VK_FORMAT_R16G16B16A16_SFLOAT,
                          VK_IMAGE_TILING_OPTIMAL,
-                         VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+                         VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
                          VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT,
                          VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
                          environment_map.image, environment_map.memory);
             
             // Image view needs to be created with VK_IMAGE_VIEW_TYPE_CUBE to support cube maps
-            create_image_view(device, environment_map.image, VK_IMAGE_VIEW_TYPE_CUBE, VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, layers, environment_map.view);
+            // The environment map is created with mipmaps for prefiltering during specular PBR
+            create_image_view(device, environment_map.image, VK_IMAGE_VIEW_TYPE_CUBE, VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_ASPECT_COLOR_BIT, 0, mipmap_levels, layers, environment_map.view);
             
             {
                 std::cout << "converting equirectangular environment map to cubemap" << std::endl;
@@ -1143,6 +1166,39 @@ class PBR final : public Sample {
                 std::cout << "done (" << std::chrono::duration<double, std::milli>(end - start).count() << " ms)" << std::endl;
             }
             
+            // Generate environment map mipmaps
+            VkCommandBuffer command_buffer = begin_transient_command_buffer();
+                VkImageSubresourceRange subresource_range = { };
+                subresource_range.baseMipLevel = 0;
+                subresource_range.levelCount = 1;
+                subresource_range.baseArrayLayer = 0;
+                subresource_range.layerCount = 6;
+                subresource_range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            
+                for (unsigned level = 1u, size = environment_map_size / 2; level < mipmap_levels; ++level, size /= 2) {
+                    // Transition source mipmap level to VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL
+                    subresource_range.baseMipLevel = level - 1;
+                    transition_image(command_buffer, environment_map.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, subresource_range, VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+                    
+                    // Transition destination mipmap level to VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
+                    subresource_range.baseMipLevel = level;
+                    transition_image(command_buffer, environment_map.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, subresource_range, 0, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+                    
+                    VkImageBlit blit_region = { };
+                    blit_region.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, level - 1, 0, 6 };
+                    blit_region.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, level, 0, 6 };
+                    blit_region.srcOffsets[1] = { (int) (size * 2), (int) (size * 2), 1 };
+                    blit_region.dstOffsets[1] = { (int) size, (int) size, 1 };
+                    vkCmdBlitImage(command_buffer, environment_map.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, environment_map.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit_region, VK_FILTER_LINEAR);
+                }
+                
+                // Transition entire image to VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+                subresource_range.baseMipLevel = 0;
+                subresource_range.levelCount = VK_REMAINING_MIP_LEVELS;
+                transition_image(command_buffer, environment_map.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, subresource_range, VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+
+            submit_transient_command_buffer(command_buffer);
+
             // Irradiance map is also a cube map
             create_image(physical_device, device,
                          environment_map_size, environment_map_size, 1, layers,
@@ -1154,7 +1210,7 @@ class PBR final : public Sample {
                          VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
                          irradiance_map.image, irradiance_map.memory);
             create_image_view(device, irradiance_map.image, VK_IMAGE_VIEW_TYPE_CUBE, VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, layers, irradiance_map.view);
-            
+
             {
                 std::cout << "computing convoluted irradiance map" << std::endl;
                 auto start = std::chrono::high_resolution_clock::now();
@@ -1162,7 +1218,7 @@ class PBR final : public Sample {
                 auto end = std::chrono::high_resolution_clock::now();
                 std::cout << "done (" << std::chrono::duration<double, std::milli>(end - start).count() << " ms)" << std::endl;
             }
-            
+
             {
                 std::cout << "computing prefiltered environment map" << std::endl;
                 auto start = std::chrono::high_resolution_clock::now();
@@ -1266,17 +1322,20 @@ class PBR final : public Sample {
             vkDestroyShaderModule(device, shader_module, nullptr);
             
             VkCommandBuffer command_buffer = begin_transient_command_buffer();
-                // Equirectangular texture is already in VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, for optimal shader reads
-                // transition_image(command_buffer, equirectangular.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, subresource_range, 0, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
-                
-                // Convert cubemap to VK_IMAGE_LAYOUT_GENERAL for storage image writes
-                // Cubemap texture is only being written to (VK_ACCESS_SHADER_WRITE_BIT access)
                 VkImageSubresourceRange subresource_range { };
                 subresource_range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
                 subresource_range.baseMipLevel = 0;
                 subresource_range.levelCount = 1;
                 subresource_range.baseArrayLayer = 0;
-                subresource_range.layerCount = 6; // Cubemap layers
+                subresource_range.layerCount = 1;
+            
+                // Equirectangular texture is already in VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, for optimal shader reads
+                transition_image(command_buffer, equirectangular.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, subresource_range, 0, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+                
+                // Convert cubemap to VK_IMAGE_LAYOUT_GENERAL for storage image writes
+                // Cubemap texture is only being written to (VK_ACCESS_SHADER_WRITE_BIT access)
+                subresource_range.levelCount = VK_REMAINING_MIP_LEVELS;
+                subresource_range.layerCount = VK_REMAINING_ARRAY_LAYERS;
                 transition_image(command_buffer, cubemap.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, subresource_range, 0, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_ACCESS_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
                 
                 vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, compute_pipeline);
@@ -1598,6 +1657,12 @@ class PBR final : public Sample {
 					vkCmdPushConstants(command_buffer, compute_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(PushConstants), &push_constants);
                     vkCmdDispatch(command_buffer, num_work_groups, num_work_groups, 6);
                 }
+                
+                // Transition image + all mipmap levels to VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+                subresource_range.baseMipLevel = 0;
+                subresource_range.levelCount = VK_REMAINING_MIP_LEVELS;
+                transition_image(command_buffer, prefiltered_environment_map.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, subresource_range, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+            
             submit_transient_command_buffer(command_buffer);
             
             // Destroy resources
@@ -1683,6 +1748,16 @@ class PBR final : public Sample {
             }
             else if (key == GLFW_KEY_7) {
                 debug_view = NORMAL;
+            }
+            else if (key == GLFW_KEY_P) {
+                mipmap_level = glm::clamp(++mipmap_level, 0u, compute_num_mipmap_levels(environment_map_size, environment_map_size));
+                std::cout << mipmap_level << std::endl;
+            }
+            else if (key == GLFW_KEY_O) {
+                if (mipmap_level > 0) {
+                    // Avoid unsigned overflow
+                    --mipmap_level;
+                }
             }
             
             // Orbit camera movement
