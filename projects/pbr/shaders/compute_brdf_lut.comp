@@ -5,6 +5,119 @@ layout (set = 0, binding = 0) writeonly uniform image2D brdf_lut;
 
 layout(local_size_x = 32, local_size_y = 32, local_size_z = 1) in;
 
+const float pi = 3.141592f;
+
+// http://holger.dammertz.org/stuff/notes_HammersleyOnHemisphere.html
+float radical_inverse_van_de_corput(uint bits) {
+    bits = (bits << 16u) | (bits >> 16u);
+    bits = ((bits & 0x55555555u) << 1u) | ((bits & 0xAAAAAAAAu) >> 1u);
+    bits = ((bits & 0x33333333u) << 2u) | ((bits & 0xCCCCCCCCu) >> 2u);
+    bits = ((bits & 0x0F0F0F0Fu) << 4u) | ((bits & 0xF0F0F0F0u) >> 4u);
+    bits = ((bits & 0x00FF00FFu) << 8u) | ((bits & 0xFF00FF00u) >> 8u);
+    return float(bits) * 2.3283064365386963e-10; // / 0x100000000
+}
+vec2 get_hammersley_point(uint i, uint num_samples) {
+    return vec2(float(i) / float(num_samples), radical_inverse_van_de_corput(i));
+}
+
+vec3 importance_sample_ggx(vec2 Xi, vec3 N, float roughness) {
+    // The normal distribution function (NDF) approximates the surface area of microfacets exactly aligned with a given direction
+    // Put differently, it approximates the probability that a microfacet is aligned in a particular direction
+
+    // Given a direction (unit vector) h in the normal hemisphere and a small piece of solid angle d(ωℎ) representing a set of directions near h, the probability of a microfacet having a normal within
+    // d(ωℎ) is D(h) * d(ωℎ), where D(h) is the NDF
+    // The probability of the microfacet normal being contained within the hemisphere of the macrosurface normal is 100%, so the integral of the NDF should come out to 1
+    // A small caveat of this is the normalization factor, which accounts for the conversion between the macrosufrace area, aligned with the surface normal n, and the microsurface area, alighed with h (projected onto n)
+    // NDF: ∫ D(h) * (dot(n, h) d(ω) = 1
+    // https://www.reedbeta.com/blog/hows-the-ndf-really-defined/
+
+    // Derivation of the step from the PDF to the sampling function: https://blog.tobias-franke.eu/2014/03/30/notes_on_importance_sampling.html
+    // Used in the research presented by Epic Games: https://blog.selfshadow.com/publications/s2013-shading-course/karis/s2013_pbs_epic_notes_v2.pdf
+
+    // The more chaotic the microsurface (higher roughness), the smaller the probability
+    float alpha = roughness * roughness;
+
+    // Compute spherical coordinates
+    float phi = 2.0 * pi * Xi.x;
+    float cos_theta = sqrt((1.0f - Xi.y) / (1.0f + (alpha * alpha - 1.0f) * Xi.y));
+    float sin_theta = sqrt(1.0f - cos_theta * cos_theta);
+
+    // Convert to Cartesian coordinates
+    vec3 H = vec3(sin_theta * cos(phi), sin_theta * sin(phi), cos_theta);
+
+    // Compute orthonormal basis in tangent space
+    vec3 right = normalize(cross(vec3(0.0f, 1.0f, 0.0f), N));
+    vec3 up = normalize(cross(N, right));
+
+    // Transform basis from tangent space to world space by applying it to the surface normal to get a random (importance sampled) direction
+    return H.x * right + H.y * up + H.z * N;
+}
+
+float geometry_shlick_ggx(float NdotV, float roughness) {
+    float a = roughness;
+
+    // This k has a different value when used for direct lighting from analytical lights
+    // This computation is specifically for IBL
+    float k = (a * a) / 2.0f;
+
+    return NdotV / (NdotV * (1.0f - k) + k);
+}
+
+// The geometry function G approximates the surface area that is obstructed or overshadowed by neighboring microfacets, causing light rays to be occluded
+// Higher levels of roughness results in a higher value of G, logically corresponding to a higher probability that surfaces shadow one another
+float G(vec3 N, vec3 V, vec3 L, float roughness) {
+    // Use Smith's method to account for both geometry obstruction (view direction, NdotV) and geometry shadowing (light direction, NdotL)
+    float NdotV = max(dot(N, V), 0.0f);
+    float NdotL = max(dot(N, L), 0.0f);
+    return geometry_shlick_ggx(NdotV, roughness) * geometry_shlick_ggx(NdotL, roughness);
+}
+
 void main() {
-    imageStore(brdf_lut, ivec2(gl_GlobalInvocationID), vec4(1.0f));
+    // BRDF convolution shader operates on a 2D plane, using texture coordinates directly as inputs to the BRDF LUT (u = NdotV, v = roughness)
+    vec2 uv = vec2(vec2(gl_GlobalInvocationID) / vec2(imageSize(brdf_lut)));
+
+    const float epsilon = 0.001f;
+
+    float NdotV = max(uv.s, epsilon); // Avoid divisions by zero
+    float roughness = uv.t;
+
+    // Compute the viewing direction from NdotV
+    // This calculation uses a local coordinate system with the assumption that the normal is aligned with the +Z axis
+    // Note: all calculations in this shader are done in this tangent space for consistency, as this is an integration of the BRDF alone
+    // All that matters is the relative orientation between N, L, and V
+
+    // Using trigonometric identity sin^2(θ) + cos^2(θ) = 1, sin(θ) represents the magnitude of the projection of the input direction vector onto the xy plane
+    vec3 V = normalize(vec3(sqrt(1.0f - NdotV * NdotV), 0.0f, NdotV));
+    vec3 N = vec3(0.0f, 0.0f, 1.0f);
+
+    float scale = 0.0f;;
+    float bias = 0.0f;
+
+    uint sample_count = 2048;
+
+    for (uint i = 0u; i < sample_count; ++i) {
+        vec2 Xi = get_hammersley_point(i, sample_count);
+        vec3 H = importance_sample_ggx(Xi, N, roughness);
+        vec3 L = normalize(2.0f * dot(V, H) * H - V);
+
+        float NdotL = max(L.z, 0.0f);
+        if (NdotL > 0.0f) {
+            float NdotH = max(H.z, 0.0f);
+            float VdotH = max(dot(V, H), 0.0f);
+
+            // Approximates reflectance variation based on the angle of incidence (Fresnel)
+            float fresnel = pow(1.0f - VdotH, 5.0f);
+
+            // Accounts for occlusion / self-shadowing based on microsurface properties
+            float geometry = G(N, V, L, roughness);
+
+            // Ensures accurate integration of the BRDF by accounting for how the visibility of the reflectd light is affected by the view direction and the half-vector with the normal
+            float geometric_attenuation = (geometry * VdotH) / (NdotH * NdotV);
+
+            scale += (1.0f - fresnel) * geometric_attenuation;
+            bias += fresnel * geometric_attenuation;
+        }
+    }
+
+    imageStore(brdf_lut, ivec2(gl_GlobalInvocationID), vec4(scale, bias, 0.0f, 0.0f) / float(sample_count));
 }

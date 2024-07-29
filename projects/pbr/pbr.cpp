@@ -668,6 +668,12 @@ class PBR final : public Sample {
                 
                 // Irradiance map
                 create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 6),
+                
+                // Prefiltered environment map
+                create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 7),
+                
+                // 2D BRDF LUT
+                create_descriptor_set_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 8),
             };
             
             VkDescriptorSetLayoutCreateInfo layout_create_info { };
@@ -706,8 +712,8 @@ class PBR final : public Sample {
             
             vkUpdateDescriptorSets(device, 1, &descriptor_write, 0, nullptr);
             
-            // Bindings 1 - 6
-            VkImageView textures[6] = { albedo.view, ao.view, emissive.view, roughness.view, normals.view, irradiance_map.view };
+            // Bindings 1 - 8
+            VkImageView textures[8] = { albedo.view, ao.view, emissive.view, roughness.view, normals.view, irradiance_map.view, prefiltered_environment_map.view, brdf_lut.view };
             for (int i = 0; i < sizeof(textures) / sizeof(textures[0]); ++i) {
                 VkDescriptorImageInfo image_info { };
                 image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;

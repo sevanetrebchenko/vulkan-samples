@@ -18,6 +18,8 @@ layout (set = 0, binding = 3) uniform sampler2D emissive_map;
 layout (set = 0, binding = 4) uniform sampler2D metallic_roughness_map;
 layout (set = 0, binding = 5) uniform sampler2D normal_map;
 layout (set = 0, binding = 6) uniform samplerCube irradiance_map;
+layout (set = 0, binding = 7) uniform samplerCube prefiltered_environment_map;
+layout (set = 0, binding = 8) uniform sampler2D brdf_lut;
 
 layout (location = 0) out vec4 out_color;
 
