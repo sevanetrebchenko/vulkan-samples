@@ -50,9 +50,9 @@ void main() {
         vec3 kd = 1.0f - ks;
 
         vec3 irradiance = texture(irradiance_map, N).rgb;
-        vec3 diffuse = irradiance * albedo;
+        vec3 diffuse = irradiance; // * albedo;
 
-        vec3 color = (kd * diffuse) * ao;
+        vec3 color = diffuse; // (kd * diffuse) * ao;
 
         // Tone mapping
         color = color / (color + vec3(1.0f));
