@@ -239,14 +239,15 @@ class PBR final : public Sample {
         
         void initialize_pipeline() {
             VkVertexInputBindingDescription vertex_binding_descriptions[] {
-                create_vertex_binding_description(0, sizeof(glm::vec3) * 2 + sizeof(glm::vec2), VK_VERTEX_INPUT_RATE_VERTEX) // One element is vertex position (vec3) + normal (vec3) + uv (vec2)
+                create_vertex_binding_description(0, sizeof(Model::Vertex), VK_VERTEX_INPUT_RATE_VERTEX) // One element is vertex position (vec3) + normal (vec3) + tangent (vec3) + uv (vec2)
             };
             
             // Vertex attributes describe how to extract individual vertex data from a binding description (done above)
             VkVertexInputAttributeDescription vertex_attribute_descriptions[] {
                 create_vertex_attribute_description(0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0), // Vertex position
                 create_vertex_attribute_description(0, 1, VK_FORMAT_R32G32B32_SFLOAT, sizeof(glm::vec3)), // Vertex normal
-                create_vertex_attribute_description(0, 2, VK_FORMAT_R32G32_SFLOAT, sizeof(glm::vec3) + sizeof(glm::vec3)), // Vertex uv
+                create_vertex_attribute_description(0, 2, VK_FORMAT_R32G32B32_SFLOAT, sizeof(glm::vec3) * 2), // Vertex tangent
+                create_vertex_attribute_description(0, 3, VK_FORMAT_R32G32_SFLOAT, sizeof(glm::vec3) * 2 + sizeof(glm::vec4)), // Vertex uv
             };
             
             // Describe the format of the vertex data passed to the vertex shader
@@ -377,7 +378,7 @@ class PBR final : public Sample {
         
         void initialize_skybox_pipeline() {
             VkVertexInputBindingDescription vertex_binding_descriptions[] {
-                create_vertex_binding_description(0, sizeof(glm::vec3) * 2 + sizeof(glm::vec2), VK_VERTEX_INPUT_RATE_VERTEX) // One element is vertex position (vec3) + normal (vec3) + uv (vec2)
+                create_vertex_binding_description(0, sizeof(Model::Vertex), VK_VERTEX_INPUT_RATE_VERTEX) // One element is vertex position (vec3) + normal (vec3) + tangent (vec3) + uv (vec2)
             };
             
             // Vertex attributes describe how to extract individual vertex data from a binding description (done above)

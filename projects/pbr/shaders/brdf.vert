@@ -3,7 +3,8 @@
 
 layout (location = 0) in vec3 vertex_position;
 layout (location = 1) in vec3 vertex_normal;
-layout (location = 2) in vec2 vertex_uv;
+layout (location = 2) in vec3 vertex_tangent;
+layout (location = 3) in vec2 vertex_uv;
 
 layout (set = 0, binding = 0) uniform GlobalUniforms {
     mat4 view;
@@ -21,12 +22,19 @@ layout (set = 1, binding = 0) uniform ObjectUniforms {
 layout (location = 0) out vec3 world_position;
 layout (location = 1) out vec3 world_normal;
 layout (location = 2) out vec2 uv;
+layout (location = 3) out mat3 tbn;
 
 void main() {
     vec4 wp = object.model * vec4(vertex_position, 1.0f);
-
     world_position = wp.xyz;
-    world_normal = normalize(object.normal * vec4(vertex_normal, 0.0f)).xyz;
+
+    vec3 normal = normalize(object.normal * vec4(vertex_normal, 0.0f)).xyz;
+    vec3 tangent = normalize(object.normal * vec4(vertex_tangent, 0.0f)).xyz;
+    vec3 bitangent = cross(normal, tangent);
+
+    world_normal = normal;
+    tbn = mat3(tangent, bitangent, normal);
+
     uv = vertex_uv;
 
     // M * V * P
