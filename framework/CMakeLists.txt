@@ -24,6 +24,7 @@ target_link_libraries(${PROJECT_NAME} PUBLIC glm)
 target_link_libraries(${PROJECT_NAME} PUBLIC shaderc)
 target_link_libraries(${PROJECT_NAME} PUBLIC tinyobjloader)
 target_link_libraries(${PROJECT_NAME} PUBLIC stb)
+target_link_libraries(${PROJECT_NAME} PUBLIC mikktspace)
 
 target_include_directories(${PROJECT_NAME} PUBLIC "${PROJECT_SOURCE_DIR}/include")
 # target_include_directories(${PROJECT_NAME} PRIVATE "${PROJECT_SOURCE_DIR}/src") # Private engine headers are mixed in with project source

@@ -31,3 +31,5 @@ add_subdirectory(shaderc)
 add_subdirectory(tinyobjloader)
 
 add_subdirectory(stb)
+
+add_subdirectory(mikktspace)

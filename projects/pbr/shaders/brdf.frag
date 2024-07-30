@@ -4,7 +4,10 @@
 layout (location = 0) in vec3 world_position;
 layout (location = 1) in vec3 world_normal;
 layout (location = 2) in vec2 uv;
-layout (location = 3) in mat3 tbn;
+
+// TBN matrix converts from tangent space to object space
+layout (location = 3) in vec3 tangent;
+layout (location = 4) in vec3 bitangent;
 
 layout (set = 0, binding = 0) uniform GlobalUniforms {
     mat4 view;
@@ -64,9 +67,12 @@ float D(vec3 N, vec3 H, float roughness) {
 
 void main() {
     if (global.debug_view == 1) {
+        mat3 tbn = mat3(tangent, bitangent, world_normal);
+
         // Normals in the normal map are defined in the tangent space of the surface
         vec3 normal = texture(normal_map, uv).rgb * 2.0f - 1.0f; // Remap from [0.0, 1.0] range in normal map to [-1.0, 1.0]
         vec3 N = normalize(tbn * normal); // Tangent to world space
+
         vec3 V = normalize(global.camera_position - world_position);
 
         vec3 R = reflect(-V, N);
@@ -147,14 +153,15 @@ void main() {
         out_color = vec4(texture(metallic_roughness_map, uv).xyz, 1.0f);
     }
     else if (global.debug_view == 7) {
+        mat3 tbn = mat3(tangent, bitangent, world_normal);
+
         // Normals (debug)
         vec3 normal = texture(normal_map, uv).rgb * 2.0f - 1.0f; // Remap from [0.0, 1.0] range in normal map to [-1.0, 1.0]
         vec3 N = normalize(tbn * normal); // Tangent to world space
-
         out_color = vec4(N, 1.0f);
 
         // TODO: cycle between surface normals, normal map texture, and per-fragment normals
 
-        // out_color = vec4(texture(normal_map, uv).xyz, 1.0f);
+        // out_color = vec4(world_normal, 1.0f);
     }
 }

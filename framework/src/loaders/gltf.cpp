@@ -5,8 +5,91 @@
 #include <tiny_gltf.h>
 #include <vulkan/vulkan.h>
 
+#include <mikktspace.h>
+
 #include <iostream> // std::cout, std::endl
 #include <queue> // std::queue
+
+// Needs to provide definitions for MikkTSpace interface defined in mikktspace.h
+// Reference: https://www.turais.de/using-mikktspace-in-your-project/
+
+int get_vertex_index(const SMikkTSpaceContext* context, int face_index, int vertex_index);
+int get_num_faces(const SMikkTSpaceContext* context);
+int get_num_face_vertices(const SMikkTSpaceContext* context, int face_index);
+void get_position(const SMikkTSpaceContext *context, float* out, int face_index, int vertex_index);
+void get_normal(const SMikkTSpaceContext *context, float* out, int face_index, int vertex_index);
+void get_uv(const SMikkTSpaceContext *context, float* out, int face_index, int vertex_index);
+void set_tangent(const SMikkTSpaceContext *context, const float* tangent, float sign, int face_index, int vertex_index);
+
+int get_vertex_index(const SMikkTSpaceContext* context, int face_index, int vertex_index) {
+    Model* model = static_cast<Model*>(context->m_pUserData);
+    return model->indices[face_index * get_num_face_vertices(context, face_index) + vertex_index];
+}
+
+// Returns the total number of faces on the mesh to be processed
+int get_num_faces(const SMikkTSpaceContext* context) {
+    Model* model = static_cast<Model*>(context->m_pUserData);
+    return model->indices.size() / 3;
+}
+
+// Returns the number of vertices, for the given face
+// face_index is guaranteed to be in the range [0, get_num_faces(...) - 1]
+int get_num_face_vertices(const SMikkTSpaceContext* context, int face_index) {
+    // Hardcoded for triangle meshes (for now)
+    return 3;
+}
+
+// Returns the vertex position / normal / UV coordinate for the given vertex, for the given face
+// face_index is guaranteed to be in the range [0, get_num_faces(...) - 1]
+// vertex_index is in the range [0, 2] for triangles and [0, 3] for quads
+void get_position(const SMikkTSpaceContext *context, float* out, int face_index, int vertex_index) {
+    Model* model = static_cast<Model*>(context->m_pUserData);
+    const glm::vec3& position = model->vertices[get_vertex_index(context, face_index, vertex_index)].position;
+    out[0] = position.x;
+    out[1] = position.y;
+    out[2] = position.z;
+}
+
+void get_normal(const SMikkTSpaceContext *context, float* out, int face_index, int vertex_index) {
+    Model* model = static_cast<Model*>(context->m_pUserData);
+    const glm::vec3& normal = model->vertices[get_vertex_index(context, face_index, vertex_index)].normal;
+    out[0] = normal.x;
+    out[1] = normal.y;
+    out[2] = normal.z;
+}
+
+void get_uv(const SMikkTSpaceContext *context, float* out, int face_index, int vertex_index) {
+    Model* model = static_cast<Model*>(context->m_pUserData);
+    const glm::vec2& uv = model->vertices[get_vertex_index(context, face_index, vertex_index)].uv;
+    out[0] = uv.s;
+    out[1] = uv.t;
+}
+
+// Returns the tangent and orientation (sign)
+// Note: results are not indexed // TODO: is this a problem?
+void set_tangent(const SMikkTSpaceContext *context, const float* in, float sign, int face_index, int vertex_index) {
+    // Assumes tangent array is preallocated
+    Model* model = static_cast<Model*>(context->m_pUserData);
+    glm::vec4& tangent = model->vertices[get_vertex_index(context, face_index, vertex_index)].tangent;
+    tangent = glm::vec4(glm::normalize(glm::vec3(in[0], in[1], in[2])), sign);
+}
+
+// Loads model tangents using MikkTSpace
+void load_tangents(Model& model) {
+    SMikkTSpaceInterface interface { };
+    interface.m_getNumFaces = get_num_faces;
+    interface.m_getNumVerticesOfFace = get_num_face_vertices;
+    interface.m_getPosition = get_position;
+    interface.m_getNormal = get_normal;
+    interface.m_getTexCoord = get_uv;
+    interface.m_setTSpaceBasic = set_tangent;
+    
+    SMikkTSpaceContext context { };
+    context.m_pInterface = &interface;
+    context.m_pUserData = &model;
+    
+    genTangSpaceDefault(&context);
+}
 
 Model load_gltf(const char* filename) {
     tinygltf::Model glftmodel;
@@ -228,52 +311,18 @@ Model load_gltf(const char* filename) {
     
     assert(indices.size() % 3 == 0);
     
-
-    
-    std::size_t size = positions.size();
+    std::size_t num_vertices = positions.size();
     bool has_normals = !normals.empty();
     bool has_uvs = !uvs.empty();
     bool has_tangents = !tangents.empty();
     
-    if ((has_normals && size != normals.size()) || (has_uvs && size != uvs.size()) || (has_tangents && size != tangents.size())) {
+    if ((has_normals && num_vertices != normals.size()) || (has_uvs && num_vertices != uvs.size()) || (has_tangents && num_vertices != tangents.size())) {
         // Assume gLTF models are indexed
         throw std::runtime_error("error mapping model");
     }
     
     if (!has_normals) {
         // TODO: compute vertex normals
-    }
-    
-    if (has_uvs && !has_tangents) {
-        for (std::size_t i = 0u; i < indices.size() / 3; i += 3) {
-            const glm::vec3& p0 = positions[indices[i + 0]];
-            const glm::vec3& p1 = positions[indices[i + 1]];
-            const glm::vec3& p2 = positions[indices[i + 2]];
-            
-            const glm::vec2& uv0 = uvs[indices[i + 0]];
-            const glm::vec2& uv1 = uvs[indices[i + 1]];
-            const glm::vec2& uv2 = uvs[indices[i + 2]];
-            
-            glm::vec3 e1 = p1 - p0;
-            glm::vec3 e2 = p2 - p0;
-            
-            glm::vec2 duv1 = uv1 - uv0;
-            glm::vec2 duv2 = uv2 - uv0;
-            
-            float f = 1.0f / (duv1.x * duv2.y - duv2.x * duv1.y);
-        
-            glm::vec3 tangent;
-            tangent.x = f * (duv2.y * e1.x - duv1.y * e2.x);
-            tangent.y = f * (duv2.y * e1.y - duv1.y * e2.y);
-            tangent.z = f * (duv2.y * e1.z - duv1.y * e2.z);
-            
-            // TODO: average all tangents per vertex
-            tangents.emplace_back(tangent, 1.0f);
-            tangents.emplace_back(tangent, 1.0f);
-            tangents.emplace_back(tangent, 1.0f);
-        }
-        
-        has_tangents = true;
     }
     
     Model model { };
@@ -287,13 +336,54 @@ Model load_gltf(const char* filename) {
             vertex.normal = normals[i];
         }
         
-        if (has_tangents) {
-            vertex.tangent = tangents[i];
-        }
-        
         if (has_uvs) {
             vertex.uv = uvs[i];
         }
+    }
+    
+    if (has_uvs && !has_tangents) {
+        load_tangents(model);
+        has_tangents = true;
+        
+//        std::vector<glm::vec3> temp(num_vertices, glm::vec3(0.0f));
+//
+//        for (std::size_t i = 0u; i < indices.size() / 3; i += 3) {
+//            // Derivation: https://web.archive.org/web/20110708081637/http://www.terathon.com/code/tangent.html
+//
+//            const glm::vec3& p0 = positions[indices[i + 0]];
+//            const glm::vec3& p1 = positions[indices[i + 1]];
+//            const glm::vec3& p2 = positions[indices[i + 2]];
+//
+//            const glm::vec2& uv0 = uvs[indices[i + 0]];
+//            const glm::vec2& uv1 = uvs[indices[i + 1]];
+//            const glm::vec2& uv2 = uvs[indices[i + 2]];
+//
+//            glm::vec3 q1 = p1 - p0;
+//            glm::vec3 q2 = p2 - p0;
+//
+//            glm::vec2 st1 = uv1 - uv0;
+//            glm::vec2 st2 = uv2 - uv0;
+//
+//            float f = 1.0f / (st1.s * st2.t - st2.s * st1.t);
+//
+//            glm::vec3 tangent;
+//            tangent.x = f * (st2.t * q1.x - st1.t * q2.x);
+//            tangent.y = f * (st2.t * q1.y - st1.t * q2.y);
+//            tangent.z = f * (st2.t * q1.z - st1.t * q2.z);
+//
+//            temp[indices[i + 0]] += tangent;
+//            temp[indices[i + 1]] += tangent;
+//            temp[indices[i + 2]] += tangent;
+//        }
+//
+//        tangents.resize(num_vertices);
+//
+//        // Normalize tangents, similar to how normalizing normals works
+//        for (std::size_t i = 0u; i < num_vertices; ++i) {
+//            tangents[i] = glm::vec4(glm::normalize(temp[i]), 1.0f);
+//        }
+//
+//        has_tangents = true;
     }
     
     return model;
