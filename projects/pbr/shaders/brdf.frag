@@ -72,8 +72,8 @@ vec3 calculate_normal() {
     // vec3 e1 = p1 - p0;
     // vec3 e2 = p2 - p0;
 
-    vec3 q1 = dFdx(world_position);
-    vec3 q2 = dFdy(world_position);
+    vec3 e1 = dFdx(world_position);
+    vec3 e2 = dFdy(world_position);
 
     // vec2 st1 = uv1 - uv0;
     // vec2 st2 = uv2 - uv0;
@@ -81,8 +81,8 @@ vec3 calculate_normal() {
     vec2 uv_dx = dFdx(uv);
 	vec2 uv_dy = dFdy(uv);
 
-    vec3 tangent = normalize((uv_dy.t * q1 - uv_dx.t * q2) / (uv_dx.s * uv_dy.t - uv_dy.s * uv_dx.t));
-    // vec3 bitangent = f * (st2.s * q1 - st1.s * q2);
+    vec3 tangent = normalize((uv_dy.t * e1 - uv_dx.t * e2) / (uv_dx.s * uv_dy.t - uv_dy.s * uv_dx.t));
+    // vec3 bitangent = f * (st2.s * e1 - st1.s * e2);
 
     // The result of this can be used to offset the geometry normal by the tangent space normal texture (normal mapping) by creating a TBN matrix
 
@@ -92,7 +92,6 @@ vec3 calculate_normal() {
 
     // Texture normal (tangent space) remapped from [0.0, 1.0] to [-1.0, 1.0]
     vec3 texture_normal = normalize(texture(normal_map, uv).rgb * 2.0 - vec3(1.0));
-
     return normalize(mat3(T, B, N) * texture_normal);
 }
 

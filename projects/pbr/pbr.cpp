@@ -987,7 +987,7 @@ class PBR final : public Sample {
             color_sampler_create_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR; // Trilinear filtering for mipmaps
             color_sampler_create_info.mipLodBias = 0.0f;
             color_sampler_create_info.minLod = 0.0f;
-            color_sampler_create_info.maxLod = (float) compute_num_mipmap_levels(environment_map_size, environment_map_size);
+            color_sampler_create_info.maxLod = 1.0f; // (float) compute_num_mipmap_levels(environment_map_size, environment_map_size);
 
             if (vkCreateSampler(device, &color_sampler_create_info, nullptr, &color_sampler) != VK_SUCCESS) {
                 throw std::runtime_error("failed to create color sampler!");
