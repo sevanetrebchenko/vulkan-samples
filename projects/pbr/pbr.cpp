@@ -1037,7 +1037,7 @@ class PBR final : public Sample {
             vkDestroyBuffer(device, uniform_buffer, nullptr);
         }
         
-        void load_rgba_texture(const char* filepath, Texture& texture) {
+        void load_rgba_texture(const char* filepath, Texture& texture, VkFormat format) {
             int width;
             int height;
             int channels;
@@ -1050,8 +1050,8 @@ class PBR final : public Sample {
             texture.width = width;
             texture.height = height;
             
-            create_image(physical_device, device, width, height, 1, 1, VK_SAMPLE_COUNT_1_BIT, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 0, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, texture.image, texture.memory);
-            create_image_view(device, texture.image, VK_IMAGE_VIEW_TYPE_2D, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 1, texture.view);
+            create_image(physical_device, device, width, height, 1, 1, VK_SAMPLE_COUNT_1_BIT, format, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 0, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, texture.image, texture.memory);
+            create_image_view(device, texture.image, VK_IMAGE_VIEW_TYPE_2D, format, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 1, texture.view);
             texture.sampler = color_sampler;
                 
             VkBuffer staging_buffer { };
@@ -1142,11 +1142,12 @@ class PBR final : public Sample {
         }
         
         void initialize_textures() {
-            load_rgba_texture("assets/models/damaged_helmet/Default_albedo.jpg", albedo);
-            load_rgba_texture("assets/models/damaged_helmet/Default_AO.jpg", ao);
-            load_rgba_texture("assets/models/damaged_helmet/Default_emissive.jpg", emissive);
-            load_rgba_texture("assets/models/damaged_helmet/Default_metalRoughness.jpg", roughness);
-            load_rgba_texture("assets/models/damaged_helmet/Default_normal.jpg", normals);
+            // SRGB
+            load_rgba_texture("assets/models/damaged_helmet/Default_albedo.jpg", albedo, VK_FORMAT_R8G8B8A8_SRGB);
+            load_rgba_texture("assets/models/damaged_helmet/Default_AO.jpg", ao, VK_FORMAT_R8G8B8A8_UNORM);
+            load_rgba_texture("assets/models/damaged_helmet/Default_emissive.jpg", emissive, VK_FORMAT_R8G8B8A8_UNORM);
+            load_rgba_texture("assets/models/damaged_helmet/Default_metalRoughness.jpg", roughness, VK_FORMAT_R8G8B8A8_SRGB);
+            load_rgba_texture("assets/models/damaged_helmet/Default_normal.jpg", normals, VK_FORMAT_R8G8B8A8_UNORM);
             
             // Load (equirectangular) environment map
             Texture environment { };

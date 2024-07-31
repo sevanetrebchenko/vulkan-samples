@@ -115,32 +115,31 @@ Model load_gltf(const char* filename) {
 //    }
 
     // Normalize UV coordinates
-
     
-//    for (Mesh& mesh : model.meshes) {
-//        for (int i = 0; i < 2; ++i) {
-//            // 0 = x, 1 = y
-//            float min = std::numeric_limits<float>::max();
-//            float max = std::numeric_limits<float>::lowest();
-//
-//            for (Vertex& vertex : mesh.vertices) {
-//                if (vertex.uv[0] > max) {
-//                    max = vertex.uv[0];
-//                }
-//
-//                if (vertex.uv[0] < min) {
-//                    min = vertex.uv[0];
-//                }
-//            }
-//
-//            float scale = (max - min);
-//            float offset = min;
-//
-//            for (Vertex& vertex : mesh.vertices) {
-//                vertex.uv[0] = (vertex.uv[0] - offset) / scale;
-//            }
-//        }
-//    }
+    for (Mesh& mesh : model.meshes) {
+        for (int i = 0; i < 2; ++i) {
+            // 0 = x, 1 = y
+            float min = std::numeric_limits<float>::max();
+            float max = std::numeric_limits<float>::lowest();
+
+            for (Vertex& vertex : mesh.vertices) {
+                if (vertex.uv[0] > max) {
+                    max = vertex.uv[0];
+                }
+
+                if (vertex.uv[0] < min) {
+                    min = vertex.uv[0];
+                }
+            }
+
+            float scale = (max - min);
+            float offset = min;
+
+            for (Vertex& vertex : mesh.vertices) {
+                vertex.uv[0] = (vertex.uv[0] - offset) / scale;
+            }
+        }
+    }
     
     return model;
 }

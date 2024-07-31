@@ -178,7 +178,7 @@ void main() {
     }
     else if (global.debug_view == 6) {
         // Metallic / roughness (debug)
-        out_color = vec4(texture(metallic_roughness_map, uv).xyz, 1.0f);
+        out_color = vec4(texture(metallic_roughness_map, uv).bbb * 0.1f, 1.0f);
     }
     else if (global.debug_view == 7) {
         // Normals (debug)
