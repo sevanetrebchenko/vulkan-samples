@@ -58,21 +58,21 @@ Model load_gltf(const char* filename) {
                 mesh.indices.emplace_back(mesh.indices.size());
             }
             
-//            // Load material data
-//            if (assimp_mesh.mMaterialIndex >= 0) {
-//                const aiMaterial& assimp_material = *scene->mMaterials[assimp_mesh.mMaterialIndex];
-//
-//                static const auto load = [](const aiMaterial& assimp_material, aiTextureType type) -> Texture* {
-//                    if (assimp_material.GetTextureCount(type) > 0) {
-//                        aiString texture_path { };
-//                        assimp_material.GetTexture(type, 0, &texture_path);
-//                        return load_texture(texture_path.C_Str());
-//                    }
-//                    return nullptr;
-//                };
-//
-//                PBRMaterial* material = new PBRMaterial();
-//
+            // Load material data
+            if (assimp_mesh.mMaterialIndex >= 0) {
+                const aiMaterial& assimp_material = *scene->mMaterials[assimp_mesh.mMaterialIndex];
+
+                static const auto load = [](const aiMaterial& assimp_material, aiTextureType type) -> Texture* {
+                    if (assimp_material.GetTextureCount(type) > 0) {
+                        aiString texture_path { };
+                        assimp_material.GetTexture(type, 0, &texture_path);
+                        return load_texture(texture_path.C_Str());
+                    }
+                    return nullptr;
+                };
+
+                PBRMaterial* material = new PBRMaterial();
+
 //                material->albedo = load(assimp_material, aiTextureType_DIFFUSE);
 //                material->normals = load(assimp_material, aiTextureType_NORMALS);
 //
@@ -91,12 +91,12 @@ Model load_gltf(const char* filename) {
 //
 //                material->ambient_occlusion = load(assimp_material, aiTextureType_AMBIENT_OCCLUSION);
 //                material->emissive = load(assimp_material, aiTextureType_EMISSION_COLOR);
-//
-//                assimp_material.Get(AI_MATKEY_METALLIC_FACTOR, material->metallic_scale);
-//                assimp_material.Get(AI_MATKEY_ROUGHNESS_FACTOR, material->roughness_scale);
-//
-//                model.meshes.emplace_back(material);
-//            }
+
+                assimp_material.Get(AI_MATKEY_METALLIC_FACTOR, material->metallic_scale);
+                assimp_material.Get(AI_MATKEY_ROUGHNESS_FACTOR, material->roughness_scale);
+
+                model.materials.emplace_back(material);
+            }
         }
     }
     

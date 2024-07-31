@@ -64,55 +64,42 @@ float D(vec3 N, vec3 H, float roughness) {
     return alpha2 / (pi * denominator * denominator);
 }
 
+vec3 calculate_normal() {
+    // This calculation follows the calculation of vertex tangents, except using derivatives of the interpolated world position / texture coordinates
+    // Derivation: https://web.archive.org/web/20110708081637/http://www.terathon.com/code/tangent.html
 
-//// Get normal, tangent and bitangent vectors.
-//vec3 get_normal() {
-//    vec2 uv_dx = dFdx(-uv);
-//    vec2 uv_dy = dFdy(-uv);
-//
-//    if (length(uv_dx) <= 1e-2) {
-//      uv_dx = vec2(1.0, 0.0);
-//    }
-//
-//    if (length(uv_dy) <= 1e-2) {
-//      uv_dy = vec2(0.0, 1.0);
-//    }
-//
-//    vec3 t_ = (uv_dy.t * dFdx(world_position) - uv_dx.t * dFdy(world_position)) / (uv_dx.s * uv_dy.t - uv_dy.s * uv_dx.t);
-//    vec3 n, t, b, ng;
-//
-//    ng = normalize(cross(dFdx(world_position), dFdy(world_position)));
-//    t = normalize(t_ - dot(ng, t_) * ng);
-//    b = cross(ng, t);
-//    return normalize(mat3(t, b, ng) * normalize(texture(normal_map, uv).rgb * 2.0 - vec3(1.0)));
-//}
+    // Assuming points p0, p1, and p2 with respective texture coordinates uv0, uv1, and uv2, the calculation is as follows:
+    // vec3 e1 = p1 - p0;
+    // vec3 e2 = p2 - p0;
 
-vec3 NormalTBN(vec3 textureNormal, vec3 worldPos, vec3 normal, vec2 texCoord)
-{
-	vec3 Q1 = dFdx(worldPos);
-	vec3 Q2 = dFdy(worldPos);
-	vec2 st1 = dFdx(texCoord);
-	vec2 st2 = dFdy(texCoord);
+    vec3 q1 = dFdx(world_position);
+    vec3 q2 = dFdy(world_position);
 
-	vec3 N = normalize(normal);
-	vec3 T = normalize(Q1 * st2.y - Q2 * st1.y);
-	vec3 B = normalize(cross(N, T));
+    // vec2 st1 = uv1 - uv0;
+    // vec2 st2 = uv2 - uv0;
 
-	mat3 TBN = mat3(T, B, N);
+    vec2 uv_dx = dFdx(uv);
+	vec2 uv_dy = dFdy(uv);
 
-	return normalize(TBN * textureNormal);
-}
+    vec3 tangent = normalize((uv_dy.t * q1 - uv_dx.t * q2) / (uv_dx.s * uv_dy.t - uv_dy.s * uv_dx.t));
+    // vec3 bitangent = f * (st2.s * q1 - st1.s * q2);
 
-vec3 get_normal() {
-    vec3 normal = texture(normal_map, uv).rgb * 2.0f - 1.0f; // Remap from [0.0, 1.0] range in normal map to [-1.0, 1.0]
-    vec3 N = NormalTBN(normal, world_position, world_normal, uv);
-    return normalize(N);
+    // The result of this can be used to offset the geometry normal by the tangent space normal texture (normal mapping) by creating a TBN matrix
+
+	vec3 N = normalize(world_normal); // Geometry normal
+	vec3 T = normalize(tangent - dot(N, tangent) * N); // Re-orthogonalize
+	vec3 B = cross(N, T);
+
+    // Texture normal (tangent space) remapped from [0.0, 1.0] to [-1.0, 1.0]
+    vec3 texture_normal = normalize(texture(normal_map, uv).rgb * 2.0 - vec3(1.0));
+
+    return normalize(mat3(T, B, N) * texture_normal);
 }
 
 void main() {
     if (global.debug_view == 1) {
         // Normals in the normal map are defined in the tangent space of the surface
-        vec3 N = get_normal();
+        vec3 N = calculate_normal();
         vec3 V = normalize(global.camera_position - world_position);
 
         vec3 R = reflect(-V, N);
@@ -157,7 +144,9 @@ void main() {
         // Model uses a combined metallic / roughness map
         // Metallic is sampled from the B channel, roughness is sampled from the G channel
         float metallic = texture(metallic_roughness_map, uv).b;
+
         float roughness = texture(metallic_roughness_map, uv).g;
+
         vec3 albedo = texture(albedo_map, uv).rgb;
         float ao = texture(ao_map, uv).r;
 
@@ -194,7 +183,7 @@ void main() {
     }
     else if (global.debug_view == 7) {
         // Normals (debug)
-        vec3 N = get_normal();
+        vec3 N = calculate_normal();
         out_color = vec4(N, 1.0f);
 
         // TODO: cycle between surface normals, normal map texture, and per-fragment normals
