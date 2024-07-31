@@ -93,8 +93,7 @@ class PBR final : public Sample {
         int EMISSIVE = 5;
         int ROUGHNESS = 6;
         int NORMAL = 7;
-        int debug_view = PBR_ONLY;
-        
+        int debug_view = PBR_IBL;
         unsigned mipmap_level = 0;
         
         struct ObjectUniforms {
@@ -152,6 +151,10 @@ class PBR final : public Sample {
         }
         
         void update() override {
+            // Rotate main model
+            Transform& transform = transforms[0];
+            transform.set_rotation(transform.get_rotation() + (float) dt * glm::vec3(0.0f, 0.0f, 10.0f));
+            
             update_uniform_buffers();
         }
         
@@ -953,7 +956,9 @@ class PBR final : public Sample {
                     Transform& transform = transforms.emplace_back();
                     transform.set_rotation(glm::vec3(90.0f, 0.0f, 0.0f));
                     
-                    cam.zoom_out(5.0f);
+                    cam.zoom_out(0.5f);
+                    cam.rotate_down(10.0f);
+                    cam.rotate_left(45.0f);
                     break;
             }
             
@@ -1152,6 +1157,7 @@ class PBR final : public Sample {
             // Load (equirectangular) environment map
             Texture environment { };
             load_hdr_texture("assets/textures/loft.hdr", environment);
+            mipmap_level = 1u; // Render slightly blurred
             
             unsigned layers = 6u;
             unsigned mipmap_levels = compute_num_mipmap_levels(environment_map_size, environment_map_size);
