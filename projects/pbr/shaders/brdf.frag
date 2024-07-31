@@ -129,6 +129,10 @@ void main() {
 
         vec3 color = diffuse_brdf + specular_brdf;
 
+        // TODO: glTF defines component-wise emissive texture strength that should probably be used here for correct rendering output
+        // TODO: bloom pass on this texture to give it a more emissive effect
+        color += texture(emissive_map, uv).rgb;
+
         // Tone mapping
         color = color / (color + vec3(1.0f));
         color = pow(color, vec3(1.0f / 2.2f));

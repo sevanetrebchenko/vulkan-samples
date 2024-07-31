@@ -1145,7 +1145,7 @@ class PBR final : public Sample {
             // SRGB
             load_rgba_texture("assets/models/damaged_helmet/Default_albedo.jpg", albedo, VK_FORMAT_R8G8B8A8_SRGB);
             load_rgba_texture("assets/models/damaged_helmet/Default_AO.jpg", ao, VK_FORMAT_R8G8B8A8_UNORM);
-            load_rgba_texture("assets/models/damaged_helmet/Default_emissive.jpg", emissive, VK_FORMAT_R8G8B8A8_UNORM);
+            load_rgba_texture("assets/models/damaged_helmet/Default_emissive.jpg", emissive, VK_FORMAT_R8G8B8A8_SRGB);
             load_rgba_texture("assets/models/damaged_helmet/Default_metalRoughness.jpg", roughness, VK_FORMAT_R8G8B8A8_SRGB);
             load_rgba_texture("assets/models/damaged_helmet/Default_normal.jpg", normals, VK_FORMAT_R8G8B8A8_UNORM);
             
