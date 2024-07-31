@@ -4,6 +4,6 @@
 
 #include "model.hpp"
 
-Model load_obj(const char* filepath);
+//Model load_obj(const char* filepath);
 
 #endif // OBJ_HPP

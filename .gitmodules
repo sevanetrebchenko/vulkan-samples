@@ -7,9 +7,6 @@
 [submodule "framework/lib/shaderc"]
 	path = framework/lib/shaderc
 	url = git@github.com:google/shaderc.git
-[submodule "framework/lib/tinyobjloader"]
-	path = framework/lib/tinyobjloader
-	url = git@github.com:tinyobjloader/tinyobjloader.git
-[submodule "framework/lib/gltf"]
-	path = framework/lib/gltf
-	url = git@github.com:syoyo/tinygltf.git
+[submodule "framework/lib/assimp"]
+	path = framework/lib/assimp
+	url = git@github.com:assimp/assimp.git

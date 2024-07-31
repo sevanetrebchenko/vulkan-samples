@@ -184,15 +184,15 @@ class PBR final : public Sample {
                 vkCmdBeginRenderPass(command_buffer, &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
                     vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, skybox_pipeline);
                     vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, skybox_pipeline_layout, 0, 1, &skybox_descriptor_set, 0, nullptr);
-                    
+
                     // Update push constants
                     vkCmdPushConstants(command_buffer, skybox_pipeline_layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(unsigned), &mipmap_level);
-                    
-                    VkDeviceSize offsets[] = { skybox.vertex_offset };
+
+                    VkDeviceSize offsets[] = { skybox.meshes[0].vertex_offset };
                     vkCmdBindVertexBuffers(command_buffer, 0, 1, &vertex_buffer, offsets);
-                    vkCmdBindIndexBuffer(command_buffer, index_buffer, skybox.index_offset, VK_INDEX_TYPE_UINT32);
-                    
-                    vkCmdDrawIndexed(command_buffer, (unsigned) skybox.indices.size(), 1, 0, 0, 0);
+                    vkCmdBindIndexBuffer(command_buffer, index_buffer, skybox.meshes[0].index_offset, VK_INDEX_TYPE_UINT32);
+
+                    vkCmdDrawIndexed(command_buffer, (unsigned) skybox.meshes[0].indices.size(), 1, 0, 0, 0);
                 vkCmdEndRenderPass(command_buffer);
             }
             
@@ -222,11 +222,11 @@ class PBR final : public Sample {
                     for (std::size_t i = 0u; i < transforms.size(); ++i) {
                         vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout, 1, 1, &object_descriptor_sets[i], 0, nullptr);
 
-                        VkDeviceSize offsets[] = { model.vertex_offset };
+                        VkDeviceSize offsets[] = { model.meshes[0].vertex_offset };
                         vkCmdBindVertexBuffers(command_buffer, 0, 1, &vertex_buffer, offsets);
-                        vkCmdBindIndexBuffer(command_buffer, index_buffer, model.index_offset, VK_INDEX_TYPE_UINT32);
+                        vkCmdBindIndexBuffer(command_buffer, index_buffer, model.meshes[0].index_offset, VK_INDEX_TYPE_UINT32);
 
-                        vkCmdDrawIndexed(command_buffer, (unsigned) model.indices.size(), 1, 0, 0, 0);
+                        vkCmdDrawIndexed(command_buffer, (unsigned) model.meshes[0].indices.size(), 1, 0, 0, 0);
                     }
 
                 vkCmdEndRenderPass(command_buffer);
@@ -239,7 +239,7 @@ class PBR final : public Sample {
         
         void initialize_pipeline() {
             VkVertexInputBindingDescription vertex_binding_descriptions[] {
-                create_vertex_binding_description(0, sizeof(Model::Vertex), VK_VERTEX_INPUT_RATE_VERTEX) // One element is vertex position (vec3) + normal (vec3) + tangent (vec3) + uv (vec2)
+                create_vertex_binding_description(0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX) // One element is vertex position (vec3) + normal (vec3) + tangent (vec3) + uv (vec2)
             };
             
             // Vertex attributes describe how to extract individual vertex data from a binding description (done above)
@@ -247,7 +247,7 @@ class PBR final : public Sample {
                 create_vertex_attribute_description(0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0), // Vertex position
                 create_vertex_attribute_description(0, 1, VK_FORMAT_R32G32B32_SFLOAT, sizeof(glm::vec3)), // Vertex normal
                 create_vertex_attribute_description(0, 2, VK_FORMAT_R32G32B32_SFLOAT, sizeof(glm::vec3) * 2), // Vertex tangent
-                create_vertex_attribute_description(0, 3, VK_FORMAT_R32G32_SFLOAT, sizeof(glm::vec3) * 2 + sizeof(glm::vec4)), // Vertex uv
+                create_vertex_attribute_description(0, 3, VK_FORMAT_R32G32_SFLOAT, sizeof(glm::vec3) * 3), // Vertex uv
             };
             
             // Describe the format of the vertex data passed to the vertex shader
@@ -378,7 +378,7 @@ class PBR final : public Sample {
         
         void initialize_skybox_pipeline() {
             VkVertexInputBindingDescription vertex_binding_descriptions[] {
-                create_vertex_binding_description(0, sizeof(Model::Vertex), VK_VERTEX_INPUT_RATE_VERTEX) // One element is vertex position (vec3) + normal (vec3) + tangent (vec3) + uv (vec2)
+                create_vertex_binding_description(0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX) // One element is vertex position (vec3) + normal (vec3) + tangent (vec3) + uv (vec2)
             };
             
             // Vertex attributes describe how to extract individual vertex data from a binding description (done above)
@@ -858,10 +858,17 @@ class PBR final : public Sample {
         void initialize_buffers() {
             model = load_gltf("assets/models/damaged_helmet/DamagedHelmet.gltf");
 //            model = load_obj("assets/models/sphere.obj");
-            skybox = load_obj("assets/models/cube.obj");
+            skybox = load_gltf("assets/models/cube.obj");
             
-            std::size_t vertex_buffer_size = (model.vertices.size() + skybox.vertices.size()) * sizeof(Model::Vertex);
-            std::size_t index_buffer_size = (model.indices.size() + skybox.indices.size()) * sizeof(unsigned);
+            // Hardcoded
+            std::size_t vertex_buffer_size = (model.meshes[0].vertices.size() + skybox.meshes[0].vertices.size()) * sizeof(Vertex);
+            std::size_t index_buffer_size = (model.meshes[0].indices.size() + skybox.meshes[0].indices.size()) * sizeof(unsigned);
+            
+            model.meshes[0].vertex_offset = 0u;
+            model.meshes[0].index_offset = 0u;
+            
+            skybox.meshes[0].vertex_offset = model.meshes[0].vertices.size() * sizeof(Vertex);
+            skybox.meshes[0].index_offset = model.meshes[0].indices.size() * sizeof(unsigned);
             
             VkBuffer staging_buffer { };
             VkDeviceMemory staging_buffer_memory { };
@@ -875,27 +882,21 @@ class PBR final : public Sample {
                 // Vertex data
                 {
                     // Vertex buffer offsets are localized to the vertex buffer
-                    memcpy((void*)((char*)data + offset), model.vertices.data(), model.vertices.size() * sizeof(Model::Vertex));
-                    offset += model.vertices.size() * sizeof(Model::Vertex);
-                    
-                    memcpy((void*)((char*)data + offset), skybox.vertices.data(), skybox.vertices.size() * sizeof(Model::Vertex));
-                    offset += skybox.vertices.size() * sizeof(Model::Vertex);
-                    
-                    model.vertex_offset = 0;
-                    skybox.vertex_offset = model.vertices.size() * sizeof(Model::Vertex);
+                    memcpy((void*)((char*)data + offset), model.meshes[0].vertices.data(), model.meshes[0].vertices.size() * sizeof(Vertex));
+                    offset += model.meshes[0].vertices.size() * sizeof(Vertex);
+
+                    memcpy((void*)((char*)data + offset), skybox.meshes[0].vertices.data(), skybox.meshes[0].vertices.size() * sizeof(Vertex));
+                    offset += skybox.meshes[0].vertices.size() * sizeof(Vertex);
                 }
-                
+
                 // Index data
                 {
                     // Index buffer offsets are localized to the index buffer
-                    memcpy((void*)((char*)data + offset), model.indices.data(), model.indices.size() * sizeof(unsigned));
-                    offset += model.indices.size() * sizeof(unsigned);
-                    
-                    memcpy((void*)((char*)data + offset), skybox.indices.data(), skybox.indices.size() * sizeof(unsigned));
-                    offset += skybox.indices.size() * sizeof(unsigned);
-                    
-                    model.index_offset = 0;
-                    skybox.index_offset = model.indices.size() * sizeof(unsigned);
+                    memcpy((void*)((char*)data + offset), model.meshes[0].indices.data(), model.meshes[0].indices.size() * sizeof(unsigned));
+                    offset += model.meshes[0].indices.size() * sizeof(unsigned);
+
+                    memcpy((void*)((char*)data + offset), skybox.meshes[0].indices.data(), skybox.meshes[0].indices.size() * sizeof(unsigned));
+                    offset += skybox.meshes[0].indices.size() * sizeof(unsigned);
                 }
             vkUnmapMemory(device, staging_buffer_memory);
             
@@ -1049,10 +1050,10 @@ class PBR final : public Sample {
             texture.width = width;
             texture.height = height;
             
-            create_image(physical_device, device, width, height, 1, 1, VK_SAMPLE_COUNT_1_BIT, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 0, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, texture.image, texture.memory);
-            create_image_view(device, texture.image, VK_IMAGE_VIEW_TYPE_2D, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 1, texture.view);
+            create_image(physical_device, device, width, height, 1, 1, VK_SAMPLE_COUNT_1_BIT, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 0, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, texture.image, texture.memory);
+            create_image_view(device, texture.image, VK_IMAGE_VIEW_TYPE_2D, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 1, texture.view);
             texture.sampler = color_sampler;
-            
+                
             VkBuffer staging_buffer { };
             VkDeviceMemory staging_buffer_memory { };
             VkBufferUsageFlags staging_buffer_usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
