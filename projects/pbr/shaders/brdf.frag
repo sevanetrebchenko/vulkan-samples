@@ -98,7 +98,7 @@ vec3 calculate_normal() {
 void main() {
     if (global.debug_view == 1) {
         // Normals in the normal map are defined in the tangent space of the surface
-        vec3 N = calculate_normal();
+        vec3 N = calculate_normal(); // normalize(world_normal);
         vec3 V = normalize(global.camera_position - world_position);
 
         vec3 R = reflect(-V, N);
