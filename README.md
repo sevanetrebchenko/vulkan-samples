@@ -2,9 +2,9 @@
 A collection of visual effects, rendering techniques, and small samples built on top of a bare-bones framework to experiment with the Vulkan rendering API. 
 
 ## Sample List
-| [Physically-Based Rendering](https://github.com/sevanetrebchenko/vulkan-samples/tree/master/projects/pbr) |
-|:---------------------------------------------------------------------------------------------------------:|
-| ![pbr.jpg](https://github.com/sevanetrebchenko/vulkan-samples/blob/master/artifacts/pbr/pbr.jpg) <br> A physically-based rendering pipeline with image-based lighting. |
+|                                       [Physically-Based Rendering](https://github.com/sevanetrebchenko/vulkan-samples/tree/master/projects/pbr)                                       |
+|:-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------:|
+| ![pbr_normal_mapping.jpg](https://github.com/sevanetrebchenko/vulkan-samples/blob/master/artifacts/pbr/pbr_normal_mapping.jpg) <br> A physically-based rendering pipeline with image-based lighting. |
 
 |                                                  [Directional Shadow Mapping](https://github.com/sevanetrebchenko/vulkan-samples/tree/master/projects/shadow_mapping)                                                  |
 |:----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------:|
