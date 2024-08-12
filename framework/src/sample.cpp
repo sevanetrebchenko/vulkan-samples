@@ -1,6 +1,6 @@
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
-#include <stb_image_write.hpp>
+#include <stb_image_write.h>
 #include "sample.hpp"
 #include "helpers.hpp"
 #include "loaders/obj.hpp"
@@ -61,7 +61,8 @@ Sample::Sample(const char* name) : instance(nullptr),
                                    initialized(false),
                                    running(false),
                                    dt(0.0),
-                                   last_frame_time(0.0f) {
+                                   last_frame_time(0.0f),
+                                   frame_time_accumulator(0.0f) {
 }
 
 Sample::~Sample() {
@@ -683,7 +684,7 @@ void Sample::initialize_swapchain() {
     // Retrieve swapchain image views
     // Image views describe how to access the image and which part of the image to access
     for (unsigned i = 0u; i < swapchain_image_count; ++i) {
-        create_image_view(device, swapchain_images[i], VK_IMAGE_VIEW_TYPE_2D, surface_format.format, VK_IMAGE_ASPECT_COLOR_BIT, 1, 1, swapchain_image_views[i]);
+        create_image_view(device, swapchain_images[i], VK_IMAGE_VIEW_TYPE_2D, surface_format.format, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 1, swapchain_image_views[i]);
     }
 }
 
@@ -945,6 +946,7 @@ void Sample::initialize_window() {
     window = glfwCreateWindow(width, height, name, nullptr, nullptr);
     assert(window);
     
+    glfwSetWindowPos(window, 0, 0);
     glfwSetWindowUserPointer(window, this);
     
     // Initialize window callbacks
@@ -1106,7 +1108,7 @@ void Sample::create_depth_buffer() {
                  0,
                  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, // The most optimal memory type for GPU reads is VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT (meant for device read, not accessible by the CPU)
                  depth_buffer, depth_buffer_memory);
-    create_image_view(device, depth_buffer, VK_IMAGE_VIEW_TYPE_2D, image_format, VK_IMAGE_ASPECT_DEPTH_BIT, depth_mip_levels, 1, depth_buffer_view);
+    create_image_view(device, depth_buffer, VK_IMAGE_VIEW_TYPE_2D, image_format, VK_IMAGE_ASPECT_DEPTH_BIT, 0, depth_mip_levels, 1, depth_buffer_view);
 }
 
 void Sample::create_command_pools() {
@@ -1262,7 +1264,7 @@ void Sample::submit_transient_command_buffer(VkCommandBuffer command_buffer) {
     VkFenceCreateInfo fence_create_info { };
     fence_create_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
     fence_create_info.flags = 0;
-    
+
     VkFence fence { };
     if (vkCreateFence(device, &fence_create_info, nullptr, &fence) != VK_SUCCESS) {
         throw std::runtime_error("failed to create fence!");
@@ -1275,12 +1277,12 @@ void Sample::submit_transient_command_buffer(VkCommandBuffer command_buffer) {
     // Easier just to wait for the one time operation to complete
     // An alternative approach here would be to use a fence, which would allow scheduling multiple transfers in parallel and give the GPU more opportunities to optimize
     
-    VkResult r = vkWaitForFences(device, 1, &fence, VK_TRUE, 2'000'000'000);
+    VkResult r = vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX);
     if (r != VK_SUCCESS) {
         throw std::runtime_error("failed to wait on fence!");
     }
     
-    // vkQueueWaitIdle(queue);
+//    vkQueueWaitIdle(queue);
     
     vkDestroyFence(device, fence, nullptr);
     vkFreeCommandBuffers(device, transient_command_pool, 1, &command_buffer);
@@ -1304,7 +1306,7 @@ void Sample::initialize_descriptor_pool(unsigned buffer_count, unsigned sampler_
     // Allocate a descriptor set per frame in flight to prevent writing to uniform buffers of one frame while they are still in use by the rendering operations of the previous frame
     pool_sizes[0].descriptorCount = buffer_count;
     
-    pool_sizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    pool_sizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; // TODO: should this be image samplers and storage samplers? no errors yet....?
     pool_sizes[1].descriptorCount = sampler_count;
     
     VkDescriptorPoolCreateInfo descriptor_pool_create_info { };
@@ -1312,6 +1314,7 @@ void Sample::initialize_descriptor_pool(unsigned buffer_count, unsigned sampler_
     descriptor_pool_create_info.poolSizeCount = 1;
     descriptor_pool_create_info.pPoolSizes = pool_sizes;
     descriptor_pool_create_info.maxSets = buffer_count + sampler_count; // TODO: not sure this is right
+    descriptor_pool_create_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT; // Allow for freeing descriptor sets up at runtime
     
     if (vkCreateDescriptorPool(device, &descriptor_pool_create_info, nullptr, &descriptor_pool) != VK_SUCCESS) {
         throw std::runtime_error("failed to create descriptor pool!");
