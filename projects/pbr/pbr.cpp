@@ -19,6 +19,8 @@ class PBR final : public Sample {
     public:
         PBR() : Sample("Physically-Based Rendering") {
             enabled_physical_device_features.geometryShader = (VkBool32) true;
+            width = 2560;
+            height = 1440;
         }
         
         ~PBR() override {
@@ -59,6 +61,7 @@ class PBR final : public Sample {
         Texture brdf_lut;
         
         VkSampler color_sampler;
+        VkSampler environment_map_sampler;
         
         // Sphere geometry buffers
         VkBuffer vertex_buffer;
@@ -71,6 +74,9 @@ class PBR final : public Sample {
         
         VkDescriptorSetLayout skybox_descriptor_set_layout;
         VkDescriptorSet skybox_descriptor_set;
+        
+        VkDescriptorSetLayout bloom_descriptor_set_layout;
+        VkDescriptorSet bloom_descriptor_set;
         
         VkDescriptorSetLayout object_descriptor_set_layout;
         std::vector<VkDescriptorSet> object_descriptor_sets;
@@ -96,6 +102,8 @@ class PBR final : public Sample {
         int debug_view = PBR_IBL;
         unsigned mipmap_level = 0;
         
+        bool paused = true;
+        
         struct ObjectUniforms {
             glm::mat4 model;
             glm::mat4 normal;
@@ -107,6 +115,10 @@ class PBR final : public Sample {
         VkPipelineLayout skybox_pipeline_layout;
         VkPipeline skybox_pipeline;
         VkRenderPass skybox_render_pass;
+        
+        VkPipelineLayout horizontal_blur_pipeline_layout;
+        VkPipeline horizontal_blur_pipeline;
+        VkRenderPass horizontal_blur_render_pass;
         
         VkPipelineLayout pipeline_layout;
         VkPipeline pipeline;
@@ -137,7 +149,10 @@ class PBR final : public Sample {
             initialize_object_descriptor_sets();
             
             initialize_skybox_pipeline();
+//            initialize_blur_pipelines();
             initialize_pipeline();
+            
+            update_uniform_buffers();
         }
         
         void destroy_resources() override {
@@ -153,7 +168,9 @@ class PBR final : public Sample {
         void update() override {
             // Rotate main model
             Transform& transform = transforms[0];
-            transform.set_rotation(transform.get_rotation() + (float) dt * glm::vec3(0.0f, 0.0f, 10.0f));
+            if (!paused) {
+                transform.set_rotation(transform.get_rotation() + (float) dt * glm::vec3(0.0f, 0.0f, 15.0f));
+            }
             
             update_uniform_buffers();
         }
@@ -521,6 +538,134 @@ class PBR final : public Sample {
             }
         }
         
+        void initialize_blur_pipelines() {
+            // Vertex data is generated directly in the vertex shader, no vertex input state to specify
+            VkPipelineVertexInputStateCreateInfo vertex_input_create_info { };
+            vertex_input_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+            
+            // Input assembly describes the topology of the geometry being rendered
+            VkPipelineInputAssemblyStateCreateInfo input_assembly_state_create_info = create_input_assembly_state(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+            
+            // Bundle shader stages to assign to pipeline
+            VkPipelineShaderStageCreateInfo shader_stages[] = {
+                create_shader_stage(create_shader_module(device, "shaders/blur.vert"), VK_SHADER_STAGE_VERTEX_BIT),
+                create_shader_stage(create_shader_module(device, "shaders/blur.frag"), VK_SHADER_STAGE_FRAGMENT_BIT)
+            };
+            
+            // The viewport describes the region of the framebuffer that the output will be rendered to
+            VkViewport viewport = create_viewport(0.0f, 0.0f, (float) swapchain_extent.width, (float) swapchain_extent.height, 0.0f, 1.0f);
+        
+            // The scissor region defines the portion of the viewport that will be drawn to the screen
+            VkRect2D scissor = create_region(0, 0, swapchain_extent.width, swapchain_extent.height);
+            
+            VkPipelineViewportStateCreateInfo viewport_create_info { };
+            viewport_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+            viewport_create_info.viewportCount = 1;
+            viewport_create_info.pViewports = &viewport;
+            viewport_create_info.scissorCount = 1;
+            viewport_create_info.pScissors = &scissor;
+            
+            // Rasterization properties
+            VkPipelineRasterizationStateCreateInfo rasterizer_create_info { };
+            rasterizer_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+            rasterizer_create_info.depthClampEnable = VK_FALSE; // Fragments beyond the near/far depth planes are clamped instead of discarded
+            rasterizer_create_info.rasterizerDiscardEnable = VK_FALSE; // Discards any / all output fragments to the framebuffer
+        
+            rasterizer_create_info.polygonMode = VK_POLYGON_MODE_FILL;
+            
+            rasterizer_create_info.lineWidth = 1.0f;
+            rasterizer_create_info.cullMode = VK_CULL_MODE_FRONT_BIT;
+            rasterizer_create_info.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+            rasterizer_create_info.depthBiasEnable = VK_FALSE;
+            rasterizer_create_info.depthBiasConstantFactor = 0.0f;
+            rasterizer_create_info.depthBiasClamp = 0.0f;
+            rasterizer_create_info.depthBiasSlopeFactor = 0.0f;
+        
+            VkPipelineMultisampleStateCreateInfo multisampling_create_info { };
+            multisampling_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+            multisampling_create_info.sampleShadingEnable = VK_FALSE;
+            multisampling_create_info.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+            multisampling_create_info.minSampleShading = 1.0f;
+            multisampling_create_info.pSampleMask = nullptr;
+            multisampling_create_info.alphaToCoverageEnable = VK_FALSE;
+            multisampling_create_info.alphaToOneEnable = VK_FALSE;
+        
+            // Depth/stencil buffers
+            VkPipelineDepthStencilStateCreateInfo depth_stencil_create_info { };
+            depth_stencil_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+            depth_stencil_create_info.depthTestEnable = VK_FALSE; // Note: disable depth testing / depth writes
+            depth_stencil_create_info.depthWriteEnable = VK_FALSE;
+            depth_stencil_create_info.depthCompareOp = VK_COMPARE_OP_LESS;
+            
+            // Additive blending
+            VkPipelineColorBlendAttachmentState color_blend_attachment_create_info { };
+            color_blend_attachment_create_info.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+            color_blend_attachment_create_info.blendEnable = VK_TRUE;
+            color_blend_attachment_create_info.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+            color_blend_attachment_create_info.dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
+            color_blend_attachment_create_info.colorBlendOp = VK_BLEND_OP_ADD;
+            color_blend_attachment_create_info.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+            color_blend_attachment_create_info.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+            color_blend_attachment_create_info.alphaBlendOp = VK_BLEND_OP_ADD;
+        
+            VkPipelineColorBlendStateCreateInfo color_blend_create_info { };
+            color_blend_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+            color_blend_create_info.logicOpEnable = VK_FALSE; // Use a bitwise operation to combine the old and new color values (setting this to true disables color mixing (specified above) for all framebuffers)
+            color_blend_create_info.logicOp = VK_LOGIC_OP_COPY;
+            color_blend_create_info.attachmentCount = 1;
+            color_blend_create_info.pAttachments = &color_blend_attachment_create_info;
+            color_blend_create_info.blendConstants[0] = 0.0f;
+            color_blend_create_info.blendConstants[1] = 0.0f;
+            color_blend_create_info.blendConstants[2] = 0.0f;
+            color_blend_create_info.blendConstants[3] = 0.0f;
+            
+            VkPipelineLayoutCreateInfo pipeline_layout_create_info { };
+            pipeline_layout_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+            
+            VkDescriptorSetLayout layouts[1] = { skybox_descriptor_set_layout };
+            pipeline_layout_create_info.setLayoutCount = sizeof(layouts) / sizeof(layouts[0]);
+            pipeline_layout_create_info.pSetLayouts = layouts;
+            
+            VkPushConstantRange push_constant_range { };
+            push_constant_range.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+            push_constant_range.offset = 0u;
+            push_constant_range.size = sizeof(unsigned);
+            
+            pipeline_layout_create_info.pushConstantRangeCount = 1;
+            pipeline_layout_create_info.pPushConstantRanges = &push_constant_range;
+        
+            if (vkCreatePipelineLayout(device, &pipeline_layout_create_info, nullptr, &skybox_pipeline_layout) != VK_SUCCESS) {
+                throw std::runtime_error("failed to create skybox pipeline layout!");
+            }
+        
+            VkGraphicsPipelineCreateInfo pipeline_create_info { };
+            pipeline_create_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+            pipeline_create_info.stageCount = sizeof(shader_stages) / sizeof(shader_stages[0]);
+            pipeline_create_info.pStages = shader_stages;
+            pipeline_create_info.pVertexInputState = &vertex_input_create_info;
+            pipeline_create_info.pInputAssemblyState = &input_assembly_state_create_info;
+            pipeline_create_info.pViewportState = &viewport_create_info;
+            pipeline_create_info.pRasterizationState = &rasterizer_create_info;
+            pipeline_create_info.pMultisampleState = &multisampling_create_info;
+            pipeline_create_info.pDepthStencilState = &depth_stencil_create_info;
+            pipeline_create_info.pColorBlendState = &color_blend_create_info;
+            pipeline_create_info.pDynamicState = nullptr;
+            pipeline_create_info.layout = skybox_pipeline_layout;
+            pipeline_create_info.renderPass = skybox_render_pass;
+            pipeline_create_info.subpass = 0;
+        
+            pipeline_create_info.basePipelineHandle = VK_NULL_HANDLE;
+            pipeline_create_info.basePipelineIndex = -1;
+        
+            if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipeline_create_info, nullptr, &skybox_pipeline) != VK_SUCCESS) {
+                throw std::runtime_error("failed to create skybox pipeline!");
+            }
+
+            for (const VkPipelineShaderStageCreateInfo& stage : shader_stages) {
+                vkDestroyShaderModule(device, stage.module, nullptr);
+            }
+        }
+        
         void destroy_pipelines() {
             vkDestroyPipelineLayout(device, pipeline_layout, nullptr);
             vkDestroyPipeline(device, pipeline, nullptr);
@@ -718,11 +863,12 @@ class PBR final : public Sample {
             
             // Bindings 1 - 8
             VkImageView textures[8] = { albedo.view, ao.view, emissive.view, roughness.view, normals.view, irradiance_map.view, prefiltered_environment_map.view, brdf_lut.view };
+            VkSampler samplers[8] = { color_sampler, color_sampler, color_sampler, environment_map_sampler, environment_map_sampler, environment_map_sampler, environment_map_sampler, environment_map_sampler };
             for (int i = 0; i < sizeof(textures) / sizeof(textures[0]); ++i) {
                 VkDescriptorImageInfo image_info { };
                 image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
                 image_info.imageView = textures[i];
-                image_info.sampler = color_sampler;
+                image_info.sampler = samplers[i];
                 
                 descriptor_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
                 descriptor_write.dstSet = global_descriptor_set;
@@ -783,7 +929,7 @@ class PBR final : public Sample {
             VkDescriptorImageInfo image_info { };
             image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
             image_info.imageView = prefiltered_environment_map.view;
-            image_info.sampler = color_sampler;
+            image_info.sampler = environment_map_sampler;
             
             descriptor_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             descriptor_write.dstSet = skybox_descriptor_set;
@@ -969,9 +1115,8 @@ class PBR final : public Sample {
             VkSamplerCreateInfo color_sampler_create_info { };
             color_sampler_create_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
             
-            // TODO: get this information from gltf loader
-            color_sampler_create_info.magFilter = VK_FILTER_NEAREST;
-            color_sampler_create_info.minFilter = VK_FILTER_NEAREST;
+            color_sampler_create_info.magFilter = VK_FILTER_LINEAR;
+            color_sampler_create_info.minFilter = VK_FILTER_LINEAR;
             color_sampler_create_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
             color_sampler_create_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
             color_sampler_create_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
@@ -996,6 +1141,12 @@ class PBR final : public Sample {
 
             if (vkCreateSampler(device, &color_sampler_create_info, nullptr, &color_sampler) != VK_SUCCESS) {
                 throw std::runtime_error("failed to create color sampler!");
+            }
+            
+            color_sampler_create_info.maxLod = (float) (compute_num_mipmap_levels(environment_map_size, environment_map_size) - 1u);
+            
+            if (vkCreateSampler(device, &color_sampler_create_info, nullptr, &environment_map_sampler) != VK_SUCCESS) {
+                throw std::runtime_error("failed to create environment map sampler!");
             }
         }
 
@@ -1057,8 +1208,7 @@ class PBR final : public Sample {
             
             create_image(physical_device, device, width, height, 1, 1, VK_SAMPLE_COUNT_1_BIT, format, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 0, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, texture.image, texture.memory);
             create_image_view(device, texture.image, VK_IMAGE_VIEW_TYPE_2D, format, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 1, texture.view);
-            texture.sampler = color_sampler;
-                
+            
             VkBuffer staging_buffer { };
             VkDeviceMemory staging_buffer_memory { };
             VkBufferUsageFlags staging_buffer_usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
@@ -1109,7 +1259,6 @@ class PBR final : public Sample {
             
             create_image(physical_device, device, width, height, 1, 1, VK_SAMPLE_COUNT_1_BIT, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 0, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, texture.image, texture.memory);
             create_image_view(device, texture.image, VK_IMAGE_VIEW_TYPE_2D, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 1, texture.view);
-            texture.sampler = color_sampler;
             
             VkBuffer staging_buffer { };
             VkDeviceMemory staging_buffer_memory { };
@@ -1149,7 +1298,7 @@ class PBR final : public Sample {
         void initialize_textures() {
             // SRGB
             load_rgba_texture("assets/models/damaged_helmet/Default_albedo.jpg", albedo, VK_FORMAT_R8G8B8A8_SRGB);
-            load_rgba_texture("assets/models/damaged_helmet/Default_AO.jpg", ao, VK_FORMAT_R8G8B8A8_UNORM);
+            load_rgba_texture("assets/models/damaged_helmet/Default_AO.jpg", ao, VK_FORMAT_R8G8B8A8_SRGB);
             load_rgba_texture("assets/models/damaged_helmet/Default_emissive.jpg", emissive, VK_FORMAT_R8G8B8A8_SRGB);
             load_rgba_texture("assets/models/damaged_helmet/Default_metalRoughness.jpg", roughness, VK_FORMAT_R8G8B8A8_SRGB);
             load_rgba_texture("assets/models/damaged_helmet/Default_normal.jpg", normals, VK_FORMAT_R8G8B8A8_UNORM);
@@ -1166,7 +1315,7 @@ class PBR final : public Sample {
             create_image(physical_device, device,
                          environment_map_size, environment_map_size, mipmap_levels, layers,
                          VK_SAMPLE_COUNT_1_BIT,
-                         VK_FORMAT_R16G16B16A16_SFLOAT,
+                         VK_FORMAT_R32G32B32A32_SFLOAT,
                          VK_IMAGE_TILING_OPTIMAL,
                          VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
                          VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT,
@@ -1175,7 +1324,7 @@ class PBR final : public Sample {
             
             // Image view needs to be created with VK_IMAGE_VIEW_TYPE_CUBE to support cube maps
             // The environment map is created with mipmaps for prefiltering during specular PBR
-            create_image_view(device, environment_map.image, VK_IMAGE_VIEW_TYPE_CUBE, VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_ASPECT_COLOR_BIT, 0, mipmap_levels, layers, environment_map.view);
+            create_image_view(device, environment_map.image, VK_IMAGE_VIEW_TYPE_CUBE, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_ASPECT_COLOR_BIT, 0, mipmap_levels, layers, environment_map.view);
             
             {
                 std::cout << "converting equirectangular environment map to cubemap" << std::endl;
@@ -1222,13 +1371,13 @@ class PBR final : public Sample {
             create_image(physical_device, device,
                          environment_map_size, environment_map_size, 1, layers,
                          VK_SAMPLE_COUNT_1_BIT,
-                         VK_FORMAT_R16G16B16A16_SFLOAT,
+                         VK_FORMAT_R32G32B32A32_SFLOAT,
                          VK_IMAGE_TILING_OPTIMAL,
                          VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
                          VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT,
                          VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
                          irradiance_map.image, irradiance_map.memory);
-            create_image_view(device, irradiance_map.image, VK_IMAGE_VIEW_TYPE_CUBE, VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, layers, irradiance_map.view);
+            create_image_view(device, irradiance_map.image, VK_IMAGE_VIEW_TYPE_CUBE, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, layers, irradiance_map.view);
 
             {
                 std::cout << "computing convoluted irradiance map" << std::endl;
@@ -1496,7 +1645,9 @@ class PBR final : public Sample {
         }
         
         unsigned compute_num_mipmap_levels(unsigned w, unsigned h) {
-            return (unsigned)(std::floor(std::log2(std::max(w, h)))) + 1;
+            // Reducing the number to prevent artifacts at high roughness levels
+            // TODO: investigate why this is happening
+            return 4; // (unsigned)(std::floor(std::log2(std::max(w, h)))) + 1;
         }
         
         void compute_prefiltered_environment_map() {
@@ -1507,7 +1658,7 @@ class PBR final : public Sample {
             create_image(physical_device, device,
                          environment_map_size, environment_map_size, num_mipmap_levels, 6,
                          VK_SAMPLE_COUNT_1_BIT,
-                         VK_FORMAT_R16G16B16A16_SFLOAT,
+                         VK_FORMAT_R32G32B32A32_SFLOAT,
                          VK_IMAGE_TILING_OPTIMAL,
                          VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
                          VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT,
@@ -1517,7 +1668,7 @@ class PBR final : public Sample {
             // Image view covers all mipmap levels
             // This is to be able to sample at different LODs in the specular portion of the PBR shader
             // Can also use VK_REMAINING_MIP_LEVELS instead of hardcoding the number of mipmap levels
-            create_image_view(device, prefiltered_environment_map.image, VK_IMAGE_VIEW_TYPE_CUBE, VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_ASPECT_COLOR_BIT, 0, num_mipmap_levels, 6, prefiltered_environment_map.view);
+            create_image_view(device, prefiltered_environment_map.image, VK_IMAGE_VIEW_TYPE_CUBE, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_ASPECT_COLOR_BIT, 0, num_mipmap_levels, 6, prefiltered_environment_map.view);
             
             unsigned layers = 6u;
             
@@ -1554,7 +1705,7 @@ class PBR final : public Sample {
             VkDescriptorImageInfo environment_map_image_info { };
             environment_map_image_info.imageView = environment_map.view;
             environment_map_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            environment_map_image_info.sampler = color_sampler;
+            environment_map_image_info.sampler = environment_map_sampler;
             
             descriptor_writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             descriptor_writes[0].dstSet = compute_descriptor_set;
@@ -1571,11 +1722,11 @@ class PBR final : public Sample {
             // Starting at 1 (0 is the original image and is handled separately)
             for (unsigned level = 1u; level < num_mipmap_levels; ++level) {
                 // Create an image view for this level
-                create_image_view(device, prefiltered_environment_map.image, VK_IMAGE_VIEW_TYPE_CUBE, VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_ASPECT_COLOR_BIT, level, 1, layers, image_views[level - 1u]);
+                create_image_view(device, prefiltered_environment_map.image, VK_IMAGE_VIEW_TYPE_CUBE, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_ASPECT_COLOR_BIT, level, 1, layers, image_views[level - 1u]);
             
                 image_infos[level - 1].imageView = image_views[level - 1];
                 image_infos[level - 1].imageLayout = VK_IMAGE_LAYOUT_GENERAL; // For storage image reads
-                image_infos[level - 1].sampler = color_sampler;
+                image_infos[level - 1].sampler = environment_map_sampler;
             }
             
             descriptor_writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -1717,13 +1868,13 @@ class PBR final : public Sample {
             create_image(physical_device, device,
                          brdf_lut_size, brdf_lut_size, 1, 1,
                          VK_SAMPLE_COUNT_1_BIT,
-                         VK_FORMAT_R16G16B16A16_SFLOAT,
+                         VK_FORMAT_R32G32B32A32_SFLOAT,
                          VK_IMAGE_TILING_OPTIMAL,
                          VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
                          0,
                          VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
                          brdf_lut.image, brdf_lut.memory);
-            create_image_view(device, brdf_lut.image, VK_IMAGE_VIEW_TYPE_2D, VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 1, brdf_lut.view);
+            create_image_view(device, brdf_lut.image, VK_IMAGE_VIEW_TYPE_2D, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 1, brdf_lut.view);
             
             VkDescriptorSetLayout compute_descriptor_set_layout { };
             VkDescriptorSet compute_descriptor_set { };
@@ -1864,7 +2015,7 @@ class PBR final : public Sample {
         }
         
         void on_key_pressed(int key) override {
-            float zoom_speed = 600.0f;
+            float zoom_speed = 500.0f;
             float rotation_speed = 6000.0f;
             
             if (key == GLFW_KEY_F) {
@@ -1899,6 +2050,10 @@ class PBR final : public Sample {
                     // Avoid unsigned overflow
                     --mipmap_level;
                 }
+            }
+            
+            else if (key == GLFW_KEY_SPACE) {
+                paused = !paused;
             }
             
             // Orbit camera movement

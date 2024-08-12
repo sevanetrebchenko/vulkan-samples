@@ -61,7 +61,8 @@ Sample::Sample(const char* name) : instance(nullptr),
                                    initialized(false),
                                    running(false),
                                    dt(0.0),
-                                   last_frame_time(0.0f) {
+                                   last_frame_time(0.0f),
+                                   frame_time_accumulator(0.0f) {
 }
 
 Sample::~Sample() {
@@ -945,6 +946,7 @@ void Sample::initialize_window() {
     window = glfwCreateWindow(width, height, name, nullptr, nullptr);
     assert(window);
     
+    glfwSetWindowPos(window, 0, 0);
     glfwSetWindowUserPointer(window, this);
     
     // Initialize window callbacks

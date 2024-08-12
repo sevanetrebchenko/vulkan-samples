@@ -17,6 +17,10 @@ struct Mesh {
     std::vector<Vertex> vertices;
     std::vector<unsigned> indices;
     
+    // Bounds
+    glm::vec3 min;
+    glm::vec3 max;
+    
     std::size_t vertex_offset;
     std::size_t index_offset;
 };

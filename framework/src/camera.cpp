@@ -92,13 +92,13 @@ bool Camera::is_dirty() const {
 
 // OrbitCamera implementation
 
-OrbitCamera::OrbitCamera() : target(glm::vec3(0.0f)),
+OrbitCamera::OrbitCamera() : target(glm::vec3(0.0f, -0.1f, 0.0f)),
                              up(glm::vec3(0.0f, 1.0f, 0.0f)),
                              distance(5.0f),
                              azimuth(90.0f),
                              polar(90.0f),
-                             near(0.01f),
-                             far(100.0f)
+                             near(0.1f),
+                             far(10.0f)
                              {
     dirty = true;
 }

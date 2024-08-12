@@ -150,7 +150,7 @@ void main() {
 
         float NdotL = max(dot(N, L), 0.0f);
         if (NdotL > 0.0f) {
-            const bool use_filtered_importance_sampling = true;
+            const bool use_filtered_importance_sampling = false;
 
             if (use_filtered_importance_sampling) {
                 // Use Mipmap Filtered Importance Sampling to improve convergence, by sampling at different mipmap levels
@@ -160,12 +160,12 @@ void main() {
                 // float NdotH = max(dot(N, H), 0.0f);
                 // float D = distribution_ggx(N, H, roughness);
                 // float pdf = (D * NdotH) / (4.0 * NdotH);
-                float pdf = distribution_ggx(N, H, roughness) / 4.0f;
+                float pdf = distribution_ggx(N, H, roughness) / 4.0f + 0.001f;
 
                 // Surface area of the solid angle associated with this sample
-                float sample_surface_area = 1.0f / (float(sample_count) * pdf);
+                float sample_surface_area = 1.0f / (float(sample_count) * pdf + 0.001f);
 
-                float mip_level = max(0.5f * log2(sample_surface_area / texel_surface_area) + 1.0f, 0.0f);
+                float mip_level = roughness > 0.0f ? 0.5f * log2(sample_surface_area / texel_surface_area) + 1.0f : 0.0f;
                 color += textureLod(environment_map, L, mip_level).rgb * NdotL;
             }
             else {
@@ -173,7 +173,7 @@ void main() {
                 color += texture(environment_map, L).rgb * NdotL;
             }
 
-            // Weigh each sample by the cosine term as presented by Epic Games
+            // Weigh each sample by the cosine term, as presented by Epic Games
             weight += NdotL;
         }
     }

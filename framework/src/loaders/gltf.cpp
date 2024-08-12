@@ -25,6 +25,9 @@ Model load_gltf(const char* filename) {
     for (std::size_t m = 0u; m < scene->mNumMeshes; ++m) {
         const aiMesh& assimp_mesh = *scene->mMeshes[m];
         Mesh& mesh = model.meshes[m];
+        
+        mesh.min = glm::vec3(assimp_mesh.mAABB.mMin.x, assimp_mesh.mAABB.mMin.y, assimp_mesh.mAABB.mMin.z);
+        mesh.max = glm::vec3(assimp_mesh.mAABB.mMax.x, assimp_mesh.mAABB.mMax.y, assimp_mesh.mAABB.mMax.z);
 
         for (std::size_t f = 0; f < assimp_mesh.mNumFaces; ++f) {
             const aiFace& face = assimp_mesh.mFaces[f];
@@ -98,24 +101,24 @@ Model load_gltf(const char* filename) {
                 model.materials.emplace_back(material);
             }
         }
-    }
-    
-//    // Center model at (0, 0, 0)
-//    glm::vec3 center = glm::vec3((min + max) / 2.0f);
-//    for (glm::vec3& position : positions) {
-//        position -= center;
-//    }
+        
+        glm::vec3 center = (mesh.min + mesh.max) / 2.0f;
+        
+        glm::vec3 extents = mesh.max - mesh.min;
+        float max_extent = std::max({ extents.x, extents.y, extents.z });
+        float scale = 2.0f / max_extent;
+        
+//        for (Vertex& v : mesh.vertices) {
+//            // Center model at (0, 0, 0)
+//            v.position -= center;
 //
-//    // Scale the mesh to range [-1 1] on all axes
-//    glm::vec3 extents = max - min;
-//    float max_extent = std::max({ extents.x, extents.y, extents.z });
-//    float scale = 2.0f / max_extent;
-//    for (glm::vec3& position : positions) {
-//        position *= scale;
-//    }
+//            // Scale the mesh to range [-1 1] on all axes
+//            v.position *= scale;
+//        }
+    }
 
     // Normalize UV coordinates
-    
+
     for (Mesh& mesh : model.meshes) {
         for (int i = 0; i < 2; ++i) {
             // 0 = x, 1 = y
