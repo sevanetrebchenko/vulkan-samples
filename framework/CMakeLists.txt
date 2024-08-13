@@ -10,6 +10,9 @@ add_library(${PROJECT_NAME} STATIC
     "${PROJECT_SOURCE_DIR}/src/loaders/obj.cpp"
     "${PROJECT_SOURCE_DIR}/src/loaders/gltf.cpp"
     "${PROJECT_SOURCE_DIR}/src/transform.cpp"
+    "${PROJECT_SOURCE_DIR}/src/shader_compiler.cpp"
+    "${PROJECT_SOURCE_DIR}/src/shader.cpp"
+    "${PROJECT_SOURCE_DIR}/src/renderpass.cpp"
 )
 
 # Vulkan
@@ -23,6 +26,8 @@ target_link_libraries(${PROJECT_NAME} PUBLIC glm)
 target_link_libraries(${PROJECT_NAME} PUBLIC shaderc)
 target_link_libraries(${PROJECT_NAME} PUBLIC stb)
 target_link_libraries(${PROJECT_NAME} PUBLIC assimp)
+target_link_libraries(${PROJECT_NAME} PUBLIC spirv-reflect-static)
+target_link_libraries(${PROJECT_NAME} PUBLIC utils)
 
 target_include_directories(${PROJECT_NAME} PUBLIC "${PROJECT_SOURCE_DIR}/include")
 # target_include_directories(${PROJECT_NAME} PRIVATE "${PROJECT_SOURCE_DIR}/src") # Private engine headers are mixed in with project source

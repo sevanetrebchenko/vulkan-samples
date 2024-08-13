@@ -24,6 +24,10 @@ set(SHADERC_SKIP_TESTS ON)
 set(SHADERC_SKIP_EXAMPLES ON)
 add_subdirectory(shaderc)
 
+set(SPIRV_REFLECT_EXECUTABLE OFF)
+set(SPIRV_REFLECT_STATIC_LIB ON)
+add_subdirectory(spirv-reflect)
+
 add_subdirectory(stb)
 
 set(BUILD_SHARED_LIBS OFF) # Build as a static library
@@ -102,3 +106,5 @@ set(ASSIMP_BUILD_ASSJSON_EXPORTER OFF)
 set(ASSIMP_BUILD_STEP_EXPORTER OFF)
 
 add_subdirectory(assimp)
+
+add_subdirectory(utils)
