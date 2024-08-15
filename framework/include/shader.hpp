@@ -69,6 +69,8 @@ namespace vks {
             ShaderCompiler(std::filesystem::path filepath, ShaderStage stage);
             ~ShaderCompiler();
             
+            
+            
             // Compile-time (macro) definition
             void define_macro(const char* name, const char* value);
             
@@ -80,6 +82,7 @@ namespace vks {
             ShaderModule compile();
             
         private:
+            // Configures shared compiler options
             void configure_compile_options();
             
             ShaderModule m_module;

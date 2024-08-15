@@ -1,12 +1,21 @@
 
 #include "shader.hpp"
 #include "renderpass.hpp"
+#include "context.hpp"
 
 int main() {
     using namespace vks;
     
-    unsigned width = 1920, height = 1080;
-    RenderPass::Builder builder { };
+    std::shared_ptr<Context> context = Context::Builder().set_application_name("Test")
+                                                         .set_extent(1920, 1080)
+                                                         .enable_extension("")
+                                                         .enable_features({
+                                                             .geometryShader = true
+                                                         })
+                                                         .build();
+    
+    
+    
     
     ShaderCompiler compiler("shaders/sample.vert");
     compiler.compile();
