@@ -11,7 +11,7 @@
 
 namespace vks {
     
-    class Context : ManagedObject<Context> {
+    class Context : public ManagedObject<Context> {
         public:
             class Builder;
             
@@ -19,23 +19,20 @@ namespace vks {
             Context();
             ~Context();
             
-        private:
-            // Access to: m_instance
-            friend class Window;
+            VkInstance instance;
+            VkPhysicalDevice gpu;
+            VkDevice device;
             
-            // Instance
-            VkInstance m_instance;
+            // nullptr for headless contexts
+            std::shared_ptr<Window> window;
+            
+        private:
             VkDebugUtilsMessengerEXT m_debug_messenger;
             
-            // Physical device
-            VkPhysicalDevice m_gpu;
-            
-            // Logical device
-            VkDevice m_device;
+            VkPhysicalDeviceProperties m_properties;
+            VkPhysicalDeviceFeatures m_features;
             
             const char* m_name;
-            
-            std::shared_ptr<Window> m_window;
     };
     
     class Context::Builder {
@@ -45,7 +42,6 @@ namespace vks {
 
             [[nodiscard]] std::shared_ptr<Context> build();
 
-            // Enabling headless mode
             Builder& enable_headless_mode();
 
             Builder& set_extent(unsigned width, unsigned height);
@@ -56,20 +52,23 @@ namespace vks {
             // Use for both instance and device extensions
             Builder& enable_extension(const char* extension);
 
+            // Logical or
             Builder& enable_features(VkPhysicalDeviceFeatures features);
             
         private:
             void initialize_vulkan_instance();
             
             void initialize_window();
-            void initialize_surface();
             
             void select_physical_device();
+            bool verify_requested_feature_support(const VkPhysicalDeviceFeatures& supported_features) const;
+            
             void initialize_logical_device();
             
             std::shared_ptr<Context> m_handle;
             
             std::vector<const char*> m_extensions;
+            VkPhysicalDeviceFeatures m_requested_features;
             
             bool m_headless;
             

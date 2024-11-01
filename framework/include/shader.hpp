@@ -57,8 +57,6 @@ namespace vks {
             const ShaderModule& get(const char* name);
             
         private:
-            
-            
             // Mapping between name and shader module
             std::unordered_map<const char*, ShaderModule> m_modules;
     };
@@ -68,8 +66,6 @@ namespace vks {
             ShaderCompiler(std::filesystem::path filepath); // Stage is automatically deduced from the shader extension
             ShaderCompiler(std::filesystem::path filepath, ShaderStage stage);
             ~ShaderCompiler();
-            
-            
             
             // Compile-time (macro) definition
             void define_macro(const char* name, const char* value);

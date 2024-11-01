@@ -4,25 +4,77 @@
 #include <cassert>
 
 namespace vks {
-    
-    Window::Builder::Builder(std::shared_ptr<Context> context) : m_handle(std::make_shared<Window>()),
-                                                                 m_context(std::move(context)) {
-    }
-    
-    std::shared_ptr<Window> Window::Builder::build() {
 
-        
-        m_handle->m_window = glfwCreateWindow((int) m_handle->m_width, (int) m_handle->m_height, m_handle->m_name, nullptr, nullptr);
-        assert(m_handle->m_window); // TODO: replace
-        
-        glfwSetWindowUserPointer(m_handle->m_window, m_handle.get()); // Reference the underlying Window pointer
-        
-        // Initialize window surface
-        // Surface needs to be created after creating the vulkan instance (Vulkan surface may affect physical device selection)
-        if (glfwCreateWindowSurface(m_context->instance, m_handle->m_window, nullptr, &m_handle->) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create Vulkan surface.");
+    void initialize_glfw() {
+        // GLFW should only be initialized once
+        static bool initialized = false;
+        if (!initialized) {
+            glfwInit();
+            initialized = true;
         }
     }
-
+    
+    Window::Window() {
+        initialize_glfw();
+        
+        // In OpenGL, the window and rendering context (instance) are coupled together
+        // In Vulkan, the instance is created by the API itself and context creation should be disabled using GLFW_NO_API
+        glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+    }
+    
+    Window::~Window() {
+    }
+    
+    bool Window::active() const {
+        return false;
+    }
+    
+    void Window::close() {
+    
+    }
+    
+    void Window::poll() {
+    
+    }
+    
+    void Window::set_width(unsigned int width) {
+    
+    }
+    
+    void Window::set_height(unsigned int height) {
+    
+    }
+    
+    void Window::set_extent(unsigned int width, unsigned int height) {
+    
+    }
+    
+    unsigned Window::get_width() const {
+        return 0;
+    }
+    
+    unsigned Window::get_height() const {
+        return 0;
+    }
+    
+    void Window::on_window_resize(int width, int height) {
+    
+    }
+    
+    void Window::on_key_press(int key) {
+    
+    }
+    
+    void Window::on_mouse_button_press(int button) {
+    
+    }
+    
+    void Window::on_mouse_move(double x, double y) {
+    
+    }
+    
+    void Window::on_mouse_scroll(double distance) {
+    
+    }
     
 }

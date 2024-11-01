@@ -10,7 +10,7 @@ int main() {
                                                          .set_extent(1920, 1080)
                                                          .enable_extension("")
                                                          .enable_features({
-                                                             .geometryShader = true
+                                                             .geometryShader = true,
                                                          })
                                                          .build();
     

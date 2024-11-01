@@ -12,6 +12,7 @@ namespace vks {
     
     class Window {
         public:
+            // Window is initialized by the Context
             class Builder;
             
             Window();
@@ -30,7 +31,11 @@ namespace vks {
             [[nodiscard]] unsigned get_width() const;
             [[nodiscard]] unsigned get_height() const;
             
+            VkSurfaceKHR surface;
+            
         private:
+            void initialize_surface();
+            
             // Event dispatch functions (hooked up to window callbacks)
             void on_window_resize(int width, int height);
             void on_key_press(int key);
@@ -41,27 +46,8 @@ namespace vks {
             GLFWwindow* m_window;
             const char* m_name;
             
-            VkSurfaceKHR m_surface;
-            
             unsigned m_width;
             unsigned m_height;
-    };
-    
-    class Window::Builder {
-        public:
-            Builder(std::shared_ptr<Context> context);
-            ~Builder();
-            
-            [[nodiscard]] std::shared_ptr<Window> build();
-            
-            Builder& set_width(unsigned width);
-            Builder& set_height(unsigned height);
-            
-            Builder& set_name(const char* name);
-            
-        private:
-            std::shared_ptr<Context> m_context;
-            std::shared_ptr<Window> m_handle;
     };
     
 }
