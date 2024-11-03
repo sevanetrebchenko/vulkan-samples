@@ -3,18 +3,21 @@ project(framework)
 
 # Build as a static library
 add_library(${PROJECT_NAME} STATIC
-    "${PROJECT_SOURCE_DIR}/src/sample.cpp"
-    "${PROJECT_SOURCE_DIR}/src/helpers.cpp"
-    "${PROJECT_SOURCE_DIR}/src/camera.cpp"
-    "${PROJECT_SOURCE_DIR}/src/vulkan_initializers.cpp"
-    "${PROJECT_SOURCE_DIR}/src/loaders/obj.cpp"
-    "${PROJECT_SOURCE_DIR}/src/loaders/gltf.cpp"
-    "${PROJECT_SOURCE_DIR}/src/transform.cpp"
-    "${PROJECT_SOURCE_DIR}/src/renderpass.cpp"
+#    "${PROJECT_SOURCE_DIR}/src/sample.cpp"
+#    "${PROJECT_SOURCE_DIR}/src/helpers.cpp"
+#    "${PROJECT_SOURCE_DIR}/src/camera.cpp"
+#    "${PROJECT_SOURCE_DIR}/src/vulkan_initializers.cpp"
+#    "${PROJECT_SOURCE_DIR}/src/loaders/obj.cpp"
+#    "${PROJECT_SOURCE_DIR}/src/loaders/gltf.cpp"
+#    "${PROJECT_SOURCE_DIR}/src/transform.cpp"
+#    "${PROJECT_SOURCE_DIR}/src/renderpass.cpp"
 
     "${PROJECT_SOURCE_DIR}/src/context.cpp"
     "${PROJECT_SOURCE_DIR}/src/window.cpp"
     "${PROJECT_SOURCE_DIR}/src/shader.cpp"
+    "${PROJECT_SOURCE_DIR}/src/vulkan.cpp"
+    "${PROJECT_SOURCE_DIR}/src/vulkan/shader.cpp"
+    "${PROJECT_SOURCE_DIR}/src/vulkan/pipeline.cpp"
 )
 
 # Vulkan
