@@ -4,7 +4,14 @@
 namespace vks {
     
     PipelineDescription& PipelineDescription::add_shader_stage(const ShaderStageDescription& stage) {
-        shader_stages[num_active_stages++] = stage;
+        for (ShaderStageDescription& current : shader_stages) {
+            if (current.stage == stage.stage) {
+                current = stage;
+                return *this;
+            }
+        }
+        
+        shader_stages.emplace_back(stage);
         return *this;
     }
     

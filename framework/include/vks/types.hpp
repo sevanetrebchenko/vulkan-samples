@@ -2,6 +2,9 @@
 #ifndef TYPES_HPP
 #define TYPES_HPP
 
+#include "utils/string.hpp"
+
+#include <vulkan/vulkan.h>
 #include <cstdint>
 
 namespace vks {
@@ -18,6 +21,16 @@ namespace vks {
     
     typedef float f32;
     typedef double f64;
+    
+}
+
+// Formatters
+namespace utils {
+    
+    // TODO: more sophisticated handling?
+    template <>
+    struct Formatter<VkResult> : public Formatter<typename std::underlying_type<VkResult>::type> {
+    };
     
 }
 

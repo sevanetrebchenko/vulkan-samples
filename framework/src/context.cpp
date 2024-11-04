@@ -2,129 +2,164 @@
 #include "context.hpp"
 #include "window.hpp"
 #include "utils/logging.hpp"
-#include "utils/platform.hpp"
+#include "utils/exceptions.hpp"
 
+#if defined(PLATFORM_WINDOWS)
+    #include <vulkan/vulkan_win32.h>
+#endif
+#include <GLFW/glfw3.h>
 
 namespace vks {
-
-    VKAPI_ATTR VkBool32 VKAPI_CALL vulkan_debug_callback(VkDebugUtilsMessageSeverityFlagBitsEXT severity, VkDebugUtilsMessageTypeFlagsEXT type, const VkDebugUtilsMessengerCallbackDataEXT* callback_data, void* user_data) {
-        switch (severity) {
-            case VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT:
-                break;
-            case VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT:
-                break;
-            case VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT:
-                // Behavior that is not necessarily an error, but very likely a bug
-                break;
-            case VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT:
-                // Behavior that is invalid and may cause crashes
-                break;
-            default:
-                break;
-        }
     
-        switch (type) {
-            case VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT:
-                // General, unrelated to specification or performance
-                break;
-            case VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT:
-                // Violation of the specification, indicates possible mistakes
-                break;
-            case VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT:
-                // Performance, non-optimal use of Vulkan
-                break;
-            default:
-                break;
+    namespace detail {
+        
+        VKAPI_ATTR VkBool32 VKAPI_CALL process_vulkan_message(VkDebugUtilsMessageSeverityFlagBitsEXT severity, VkDebugUtilsMessageTypeFlagsEXT type, const VkDebugUtilsMessengerCallbackDataEXT* callback_data, void* user_data) {
+            switch (severity) {
+                case VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT:
+                    break;
+                case VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT:
+                    break;
+                case VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT:
+                    // Behavior that is not necessarily an error, but very likely a bug
+                    break;
+                case VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT:
+                    // Behavior that is invalid and may cause crashes
+                    break;
+                default:
+                    break;
+            }
+        
+            switch (type) {
+                case VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT:
+                    // General, unrelated to specification or performance
+                    break;
+                case VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT:
+                    // Violation of the specification, indicates possible mistakes
+                    break;
+                case VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT:
+                    // Performance, non-optimal use of Vulkan
+                    break;
+                default:
+                    break;
+            }
+    
+            return VK_FALSE; // Whether the Vulkan call that triggered the validation layer message should be aborted
         }
-
-        return VK_FALSE; // Whether the Vulkan call that triggered the validation layer message should be aborted
+        
     }
     
     // Window is initialized by the Context
     class Window::Builder {
         public:
-            Builder(std::shared_ptr<Context> context) : m_handle(std::make_shared<Window>()),
-                                                        m_context(std::move(context)) {
-            }
-            ~Builder() {
-            }
+            Builder(std::shared_ptr<Context> context);
+            ~Builder();
             
-            [[nodiscard]] std::shared_ptr<Window> build() {
-                unsigned width = m_handle->m_width;
-                unsigned height = m_handle->m_height;
-                GLFWmonitor* primary_monitor = glfwGetPrimaryMonitor();
-                
-                if (m_fullscreen) {
-                    // In order to avoid flickering when creating a full screen window, the window is first created in a lower resolution (640 x 360) and then updated to match the size of the monitor
-                    m_handle->m_window = glfwCreateWindow(640, 360, m_handle->m_name, primary_monitor, nullptr);
-                    
-                    // Retrieve monitor size (in screen coordinates)
-                    const GLFWvidmode* mode = glfwGetVideoMode(primary_monitor);
-                    glfwSetWindowSize(m_handle->m_window, mode->width, mode->height);
-                }
-                else {
-                    m_handle->m_window = glfwCreateWindow(static_cast<int>(width), static_cast<int>(height), m_handle->m_name, primary_monitor, nullptr);
-                }
-                
-                // assert(m_handle->m_window); // TODO: replace
-                
-                glfwSetWindowUserPointer(m_handle->m_window, m_handle.get()); // Reference the underlying Window pointer
-                
-                // Initialize window surface
-                // Surface needs to be created after creating the vulkan instance (Vulkan surface may affect physical device selection)
-//                if (glfwCreateWindowSurface(m_context->instance, m_handle->m_window, nullptr, &m_handle->m_surface) != VK_SUCCESS) {
-//                    // TODO: error
-//                }
-            }
+            std::shared_ptr<Window> build();
             
-            Builder& set_width(unsigned width) {
-                m_handle->m_width = width;
-                return *this;
-            }
+            Builder& set_width(unsigned width);
+            Builder& set_height(unsigned height);
             
-            Builder& set_height(unsigned height) {
-                m_handle->m_height = height;
-                return *this;
-            }
+            Builder& enable_fullscreen();
             
-            Builder& enable_fullscreen() {
-                m_fullscreen = true;
-                return *this;
-            }
-            
-            Builder& set_name(const char* name) {
-                m_handle->m_name = name;
-                return *this;
-            }
+            Builder& set_name(const char* name);
             
         private:
-            std::shared_ptr<Context> m_context;
+            [[nodiscard]] bool initialize_glfw();
+            [[nodiscard]] bool initialize_surface();
+            
             std::shared_ptr<Window> m_handle;
             
+            std::shared_ptr<Context> m_context;
             bool m_fullscreen;
     };
     
     
+    Window::Builder::Builder(std::shared_ptr<Context> context) : m_handle(std::make_shared<Window>()),
+                                                                 m_context(std::move(context)) {
+    }
+    
+    Window::Builder::~Builder() {
+    }
+    
+    [[nodiscard]] std::shared_ptr<Window> Window::Builder::build() {
+        if (!glfwInit()) {
+            utils::logging::error("Failed to initialize GLFW");
+            return nullptr;
+        }
+        
+        // Do not create an OpenGL context
+        glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+        
+        GLFWwindow* window = glfwCreateWindow((int) m_handle->m_width, (int) m_handle->m_height, m_handle->m_name, nullptr, nullptr);
+        if (!window) {
+            utils::logging::error("Failed to create GLFW window");
+            glfwTerminate();
+            return nullptr;
+        }
+        
+        // TODO: configure event callbacks
+        
+        // Initialize surface
+        VkResult result = glfwCreateWindowSurface(m_context->instance, window, nullptr, &m_handle->surface);
+        if (result != VK_SUCCESS) {
+            utils::logging::error("Failed to create Vulkan surface (error code: {})", result);
+            return nullptr;
+        }
+        
+        m_context->window = m_handle;
+        return std::move(m_handle);
+    }
+    
+    Window::Builder& Window::Builder::set_width(unsigned width) {
+        m_handle->m_width = width;
+        return *this;
+    }
+    
+    Window::Builder& Window::Builder::set_height(unsigned height) {
+        m_handle->m_height = height;
+        return *this;
+    }
+    
+    Window::Builder& Window::Builder::enable_fullscreen() {
+        m_fullscreen = true;
+        return *this;
+    }
+    
+    Window::Builder& Window::Builder::set_name(const char* name) {
+        m_handle->m_name = name;
+        return *this;
+    }
+    
+    
     Context::Builder::Builder() : m_handle(std::make_shared<Context>()),
+                                  m_requested_features({}),
                                   m_headless(false),
                                   m_fullscreen(false),
-                                  m_width(1920u),
-                                  m_height(1080u) {
+                                  m_width(1920),
+                                  m_height(1080) {
     }
     
-    Context::Builder::~Builder() {
-    }
+    Context::Builder::~Builder() = default;
     
     std::shared_ptr<Context> Context::Builder::build() {
-        initialize_vulkan_instance();
+        if (!initialize_vulkan_instance()) {
+            return nullptr;
+        }
         
         if (!m_headless) {
             // Headless applications do not require any windowing functionality
-            initialize_window();
+            if (!initialize_window()) {
+                return nullptr;
+            }
         }
         
-        select_physical_device();
+        if (!select_physical_device()) {
+            return nullptr;
+        }
+        
         initialize_logical_device();
+        
+        return m_handle;
     }
     
     Context::Builder& Context::Builder::enable_headless_mode() {
@@ -164,7 +199,7 @@ namespace vks {
         return *this;
     }
     
-    void Context::Builder::initialize_vulkan_instance() {
+    bool Context::Builder::initialize_vulkan_instance() {
         // Initialize Vulkan instance
         VkApplicationInfo application_info {
             .sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
@@ -175,26 +210,88 @@ namespace vks {
             .apiVersion = VK_API_VERSION_1_3
         };
         
+        if (!configure_instance_extensions()) {
+            return false;
+        }
+        
+        VkInstanceCreateInfo instance_create_info {
+            .sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
+            .pNext = nullptr,
+            .flags = 0,
+            .pApplicationInfo = &application_info,
+            .enabledExtensionCount = (unsigned) m_extensions.size(),
+            .ppEnabledExtensionNames = m_extensions.data()
+        };
+        
+        // Query validation layer support
+        unsigned validation_layer_count = 0u;
+        vkEnumerateInstanceLayerProperties(&validation_layer_count, nullptr);
+    
+        std::vector<VkLayerProperties> validation_layers(validation_layer_count);
+        vkEnumerateInstanceLayerProperties(&validation_layer_count, validation_layers.data());
+        
         // 'VK_LAYER_KHRONOS_validation' validation layer contains all validation functionality
         const char* validation_layer = "VK_LAYER_KHRONOS_validation";
+        bool is_validation_supported = false;
         
-        unsigned supported_validation_layer_count = 0u;
-        vkEnumerateInstanceLayerProperties(&supported_validation_layer_count, nullptr);
-    
-        std::vector<VkLayerProperties> supported_validation_layers(supported_validation_layer_count);
-        vkEnumerateInstanceLayerProperties(&supported_validation_layer_count, supported_validation_layers.data());
-        
-        bool validation_supported = false;
-        for (const VkLayerProperties& supported : supported_validation_layers) {
-            if (strcmp(validation_layer, supported.layerName) == 0) {
-                validation_supported = true;
+        for (const VkLayerProperties& current : validation_layers) {
+            if (std::strcmp(validation_layer, current.layerName) == 0) {
+                is_validation_supported = true;
                 break;
             }
         }
-        if (!validation_supported) {
-            // TODO: log message
+        
+        VkResult result;
+        if (is_validation_supported) {
+            // Enable Vulkan validation layers
+            instance_create_info.enabledLayerCount = 1;
+            instance_create_info.ppEnabledLayerNames = &validation_layer;
+            
+            // Enable Vulkan debug messenger
+            VkDebugUtilsMessengerCreateInfoEXT debug_messenger_create_info {
+                .sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
+                .pNext = nullptr,
+                .flags = 0,
+                .messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT,
+                .messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT,
+                .pfnUserCallback = detail::process_vulkan_message,
+                .pUserData = nullptr
+            };
+            
+            // VkDebugUtilsMessengerCreateInfoEXT struct is passed into the pNext chain of VkInstanceCreateInfo in order to be able to debug instance creation / destruction
+            // This debug messenger is attached to the instance and will get cleaned up alongside it
+            instance_create_info.pNext = &debug_messenger_create_info;
+            
+            result = vkCreateInstance(&instance_create_info, nullptr, &m_handle->instance);
+            if (result != VK_SUCCESS) {
+                throw utils::FormattedError("failed to create Vulkan instance (error code: {})", result);
+            }
+            
+            // Create the actual VkDebugUtilsMessengerEXT to debug all other Vulkan API calls
+            // vkCreateDebugUtilsMessenger function is not loaded by default
+            static auto vkCreateDebugUtilsMessenger = (PFN_vkCreateDebugUtilsMessengerEXT) vkGetInstanceProcAddr(m_handle->instance, "vkCreateDebugUtilsMessengerEXT");
+            if (!vkCreateDebugUtilsMessenger) {
+                throw std::runtime_error("failed to load VkDebugUtilsMessengerEXT (is the 'VK_EXT_debug_utils' extension enabled?)");
+            }
+            
+            result = vkCreateDebugUtilsMessenger(m_handle->instance, &debug_messenger_create_info, nullptr, &m_handle->m_debug_messenger);
+            if (result != VK_SUCCESS) {
+                throw utils::FormattedError("failed to create debug messenger (VkDebugUtilsMessengerEXT) (error code: {})", result);
+            }
         }
-
+        else {
+            utils::logging::warning("'VK_LAYER_KHRONOS_validation' validation layer is not supported, API validation is disabled");
+            
+            result = vkCreateInstance(&instance_create_info, nullptr, &m_handle->instance);
+            if (result != VK_SUCCESS) {
+                throw utils::FormattedError("failed to create Vulkan instance (error code: {})", result);
+            }
+        }
+        
+        return true;
+    }
+    
+    bool Context::Builder::configure_instance_extensions() {
         // Enable debugging on debug builds
         #ifndef NDEBUG
             m_extensions.emplace_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
@@ -205,94 +302,70 @@ namespace vks {
             m_extensions.emplace_back(VK_KHR_SURFACE_EXTENSION_NAME);
         }
         
-        unsigned supported_extension_count = 0u;
-        vkEnumerateInstanceExtensionProperties(nullptr, &supported_extension_count, nullptr);
+        // Enable required GLFW extensions
+        unsigned glfw_extension_count = 0;
+        const char** glfw_extensions = glfwGetRequiredInstanceExtensions(&glfw_extension_count);
+
+        for (unsigned i = 0; i < glfw_extension_count; ++i) {
+            m_extensions.emplace_back(glfw_extensions[i]);
+        }
+        
+        unsigned extension_count = 0u;
+        vkEnumerateInstanceExtensionProperties(nullptr, &extension_count, nullptr);
     
-        std::vector<VkExtensionProperties> supported_extensions(supported_extension_count);
-        vkEnumerateInstanceExtensionProperties(nullptr, &supported_extension_count, supported_extensions.data());
+        std::vector<VkExtensionProperties> extensions(extension_count);
+        vkEnumerateInstanceExtensionProperties(nullptr, &extension_count, extensions.data());
+        
+        unsigned unsupported_extension_count = 0;
         
         for (const char* requested : m_extensions) {
-            bool found = false;
-            for (const VkExtensionProperties& supported : supported_extensions) {
+            bool is_extension_supported = false;
+            for (const VkExtensionProperties& supported : extensions) {
                 if (strcmp(requested, supported.extensionName) == 0) {
-                    found = true;
+                    is_extension_supported = true;
                     break;
                 }
             }
-            if (!found) {
-                // Instance creation will fail
-                // TODO: log message
+            if (!is_extension_supported) {
+                utils::logging::error("'{}' instance extension not found", requested);
+                ++unsupported_extension_count;
             }
         }
         
-        VkInstanceCreateInfo instance_create_info {
-            .sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
-            .pNext = nullptr,
-            .flags = 0,
-            .pApplicationInfo = &application_info,
-            .enabledLayerCount = 1u,
-            .ppEnabledLayerNames = &validation_layer,
-            .enabledExtensionCount = static_cast<std::uint32_t>(m_extensions.size()),
-            .ppEnabledExtensionNames = m_extensions.data()
-        };
-        
-        if (validation_supported) {
-            VkDebugUtilsMessengerCreateInfoEXT debug_callback_create_info {
-                .sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
-                .pNext = nullptr,
-                .flags = 0,
-                .messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT,
-                .messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT,
-                .pfnUserCallback = nullptr,
-                .pUserData = nullptr
-            };
-            
-            // In order to debug instance creation and destruction, pass VkDebugUtilsMessengerCreateInfoEXT into the pNext chain of VkInstanceCreateInfo
-            // This debug messenger is attached to the instance and will get cleaned up alongside it
-            instance_create_info.pNext = &debug_callback_create_info;
-            if (vkCreateInstance(&instance_create_info, nullptr, &m_handle->instance) != VK_SUCCESS) {
-                // TODO: error
-            }
-            
-            // Load vkCreateDebugUtilsMessenger function
-            static auto vkCreateDebugUtilsMessenger = (PFN_vkCreateDebugUtilsMessengerEXT) vkGetInstanceProcAddr(m_handle->instance, "vkCreateDebugUtilsMessengerEXT");
-            if (!vkCreateDebugUtilsMessenger) {
-                throw std::runtime_error("failed to load debug messenger create function (is the VK_EXT_debug_utils extension enabled?)");
-            }
-        
-            if (vkCreateDebugUtilsMessenger(m_handle->instance, &debug_callback_create_info, nullptr, &m_handle->m_debug_messenger) != VK_SUCCESS) {
-                // TODO: error
-            }
+        if (unsupported_extension_count) {
+            // Instance creation will fail if any requested extensions are not supported
+            utils::logging::error("Failed to create Vulkan instance - {} requested extension(s) not supported", unsupported_extension_count);
+            return false;
         }
-        else {
-            // Validation layers are not supported, create Vulkan instance without a debug messenger
-            if (vkCreateInstance(&instance_create_info, nullptr, &m_handle->instance) != VK_SUCCESS) {
-                // TODO: error
-            }
-        }
+
+        return true;
     }
     
-    void Context::Builder::initialize_window() {
+    bool Context::Builder::initialize_window() {
         Window::Builder builder(m_handle);
+        
         builder.set_name(m_handle->m_name);
         
         if (m_fullscreen) {
             builder.enable_fullscreen();
         }
         else {
-            builder.set_width(m_width).set_height(m_height);
+            builder.set_width(m_width)
+                   .set_height(m_height);
         }
         
         m_handle->window = builder.build();
+        return m_handle->window != nullptr;
     }
     
-    void Context::Builder::select_physical_device() {
+    bool Context::Builder::select_physical_device() {
         // Enumerate all available physical devices
         unsigned physical_device_count = 0u;
         vkEnumeratePhysicalDevices(m_handle->instance, &physical_device_count, nullptr);
     
         if (physical_device_count == 0) {
-            // TODO: error
+            utils::logging::error("Failed to find a GPU with Vulkan support");
+            return false;
         }
     
         std::vector<VkPhysicalDevice> physical_devices(physical_device_count);
@@ -313,7 +386,6 @@ namespace vks {
             }
             
             // TODO: check supported against requested API version (not applicable right now)
-            
         }
         
         // For now, use the first device by default
@@ -334,9 +406,9 @@ namespace vks {
             throw std::runtime_error("selected physical device does not support any surface formats");
         }
     
-//        std::vector<VkSurfaceFormatKHR> surface_formats(surface_format_count);
-//        vkGetPhysicalDeviceSurfaceFormatsKHR(m_handle->gpu, surface, &surface_format_count, surface_formats.data());
-//
+        std::vector<VkSurfaceFormatKHR> surface_formats(surface_format_count);
+        vkGetPhysicalDeviceSurfaceFormatsKHR(m_handle->gpu, m_handle->window->surface, &surface_format_count, surface_formats.data());
+
 //        surface_format = surface_formats[0]; // Use the first provided format as a default
 //        for (const VkSurfaceFormatKHR& format : surface_formats) {
 //            // sRGB color space (VK_FORMAT_B8G8R8A8_SRGB) results in more accurate perceived colors in the final image, as it is a non-linear format that more accurately matches how humans perceive light

@@ -22,8 +22,7 @@ namespace vks {
         //   Graphics: vertex, tesselation control, tesselation evaluation, geometry, fragment (5)
         //   Compute: compute (1)
         //   Mesh: pipelines: task, mesh, fragment (3)
-        ShaderStageDescription shader_stages[5];
-        u8 num_active_stages;
+        std::vector<ShaderStageDescription> shader_stages;
     };
 
 }
