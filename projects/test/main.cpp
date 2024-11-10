@@ -2,29 +2,34 @@
 #include "shader.hpp"
 #include "renderpass.hpp"
 
-#include "vks/vulkan/context.hpp"
+#include "vks/vulkan/device.hpp"
 
 int main() {
     using namespace vks;
 
-    ShaderStageDescription vertex_shader_description { "shaders/sample.vert" };
-    vertex_shader_description.define_macro("TEST", "1");
+    DeviceDescription device_description { };
+    device_description.set_application_name("My Vulkan Application")
+                      .set_extent(1920, 1080);
+
+    std::shared_ptr<Device> device = Device::instance();
+    device->initialize(device_description);
     
-    PipelineDescription pipeline_description { };
-    pipeline_description.add_shader_stage(vertex_shader_description);
     
-    Context context { };
-    context.create_pipeline(pipeline_description);
     
-//    std::shared_ptr<Context> context = Context::Builder().set_application_name("My Vulkan Application")
-//                                                         .set_extent(1920, 1080)
-//                                                         .build();
+    ShaderStageDescription vertex_shader { };
+    vertex_shader.set_filepath("shaders/sample.vert");
+    vertex_shader.define_macro("TEST", "1");
+
+    VertexInputDescription vertex_input { };
+    vertex_input.add_attribute(0, "vertex_position");
+    vertex_input.add_attribute(0, "vertex_normal");
+    vertex_input.set_binding_input_rate(0, VertexInputRate::Vertex);
+
+    GraphicsPipelineDescription graphics_pipeline { };
+    graphics_pipeline.add_shader_stage(vertex_shader);
+    graphics_pipeline.set_vertex_input(vertex_input);
     
-//    builder.set_extent(0, 0, width, height)
-//           .add_shader_stage("shaders/sample.vert", [](ShaderCompiler& compiler) {
-//           })
-//           .add_shader_stage("asdf")
-//           .build();
+    device->create_graphics_pipeline(graphics_pipeline);
     
     return 0;
 }

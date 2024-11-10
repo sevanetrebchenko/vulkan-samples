@@ -16,9 +16,10 @@ add_library(${PROJECT_NAME} STATIC
     "${PROJECT_SOURCE_DIR}/src/window.cpp"
     "${PROJECT_SOURCE_DIR}/src/shader.cpp"
 
-    "${PROJECT_SOURCE_DIR}/src/vulkan/context.cpp"
+    "${PROJECT_SOURCE_DIR}/src/vulkan/device.cpp"
     "${PROJECT_SOURCE_DIR}/src/vulkan/shader.cpp"
     "${PROJECT_SOURCE_DIR}/src/vulkan/pipeline.cpp"
+    "${PROJECT_SOURCE_DIR}/src/vulkan/utility.cpp"
 )
 
 # Vulkan

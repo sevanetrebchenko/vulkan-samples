@@ -1,38 +1,89 @@
 
+#include <utility>
+
 #include "vks/vulkan/shader.hpp"
 #include "utils/logging.hpp"
 #include "utils/exceptions.hpp"
 
 namespace vks {
-
-    ShaderStageDescription::ShaderStageDescription(std::filesystem::path p) : path(std::move(p)) {
-        // Parse shader stage from filepath extension
-        if (!std::filesystem::exists(path)) {
-            throw std::runtime_error("");
+    
+    std::size_t to_pipeline_index(ShaderStage stage) {
+        switch (stage) {
+            // Graphics pipelines
+            case ShaderStage::Vertex:
+                return 0;
+            case ShaderStage::TesselationControl:
+                return 1;
+            case ShaderStage::TesselationEvaluation:
+                return 2;
+            case ShaderStage::Geometry:
+                return 3;
+            case ShaderStage::Fragment:
+                return 4;
+            // Compute pipelines
+            case ShaderStage::Compute:
+                return 0;
+            // Mesh pipelines
+            case ShaderStage::Mesh:
+                return 0;
+            case ShaderStage::Task:
+                return 1;
+            case ShaderStage::None:
+                break;
         }
+        
+        return -1;
+    }
 
-        // Determine stage from shader extension
+    ShaderStageDescription::ShaderStageDescription() : stage(ShaderStage::None) {
+    }
+    
+    ShaderStageDescription::~ShaderStageDescription() = default;
+    
+    ShaderStageDescription& ShaderStageDescription::set_filepath(std::filesystem::path _path) {
+        path = std::move(_path);
+        
+        // Attempt to determine stage from shader extension
         std::filesystem::path extension = path.extension();
         if (extension == ".vert") {
+            // Vertex
             stage = ShaderStage::Vertex;
         }
+        else if (extension == ".tesc") {
+            // Tesselation control
+            stage = ShaderStage::TesselationControl;
+        }
+        else if (extension == ".tese") {
+            // Tesselation evaluation
+            stage = ShaderStage::TesselationEvaluation;
+        }
+        else if (extension == ".geom") {
+            // Geometry
+            stage = ShaderStage::Geometry;
+        }
         else if (extension == ".frag") {
+            // Fragment
             stage = ShaderStage::Fragment;
         }
         else if (extension == ".comp") {
+            // Compute
             stage = ShaderStage::Compute;
         }
         else {
             // Unknown shader type
-            throw std::runtime_error("");
+            std::string error = utils::format("Failed to determine shader type - unknown shader extension '{}'", extension);
+            utils::logging::error(error);
+            throw std::runtime_error(error);
         }
+        
+        return *this;
     }
     
-    ShaderStageDescription::ShaderStageDescription(std::filesystem::path p, ShaderStage s) : path(std::move(p)),
-                                                                                             stage(s) {
+    ShaderStageDescription& ShaderStageDescription::set_filepath(std::filesystem::path _path, ShaderStage _stage) {
+        path = std::move(_path);
+        stage = _stage;
+        return *this;
     }
-    
-    ShaderStageDescription::~ShaderStageDescription() = default;
 
     ShaderStageDescription& ShaderStageDescription::define_constant(const char* name, bool value) {
         ShaderConstant& constant = get_constant(name);

@@ -11,11 +11,28 @@
 
 namespace vks {
     
-    enum class ShaderStage : u8 {
+    enum class ShaderStage {
+        // Graphics pipeline shader stages
         Vertex = VK_SHADER_STAGE_VERTEX_BIT,
+        TesselationControl = VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT,
+        TesselationEvaluation = VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT,
+        Geometry = VK_SHADER_STAGE_GEOMETRY_BIT,
         Fragment = VK_SHADER_STAGE_FRAGMENT_BIT,
+        
+        // Compute pipelines shader stages
         Compute = VK_SHADER_STAGE_COMPUTE_BIT,
+        
+        // Mesh pipeline shader stages
+        Mesh = VK_SHADER_STAGE_MESH_BIT_EXT,
+        Task = VK_SHADER_STAGE_TASK_BIT_EXT,
+        
+        // Raytracing pipeline shader stages
+        // ...
+        
+        None = VK_SHADER_STAGE_FLAG_BITS_MAX_ENUM,
     };
+    
+    std::size_t to_pipeline_index(ShaderStage stage);
     
     struct ShaderConstant {
         // Vulkan GLSL specialization constants must be one of: bool, int, uint, float, double
@@ -30,12 +47,14 @@ namespace vks {
 
         const char* name;
     };
-    
+
     class ShaderStageDescription {
         public:
-            ShaderStageDescription(std::filesystem::path path);
-            ShaderStageDescription(std::filesystem::path path, ShaderStage stage);
+            ShaderStageDescription();
             ~ShaderStageDescription();
+            
+            ShaderStageDescription& set_filepath(std::filesystem::path path);
+            ShaderStageDescription& set_filepath(std::filesystem::path path, ShaderStage stage);
             
             ShaderStageDescription& define_macro(const char* name, const char* value);
     
