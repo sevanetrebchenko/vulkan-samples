@@ -538,37 +538,6 @@ namespace vks {
         VkFormat format;
     };
     
-    struct VertexAttributes {
-        VertexAttributes(const SpvReflectShaderModule& reflection_data);
-        ~VertexAttributes();
-        
-        bool has_vertex_attribute(const char* name) const;
-        const VertexAttribute& get_vertex_attribute(const char* name) const;
-        
-        std::unordered_map<std::string_view, VertexAttribute> vertex_attributes;
-    };
-    
-    VertexAttributes::VertexAttributes(const SpvReflectShaderModule& reflection_data) {
-        for (unsigned i = 0; i < reflection_data.input_variable_count; ++i) {
-            SpvReflectInterfaceVariable* input_variable = reflection_data.input_variables[i];
-            vertex_attributes[input_variable->name] = VertexAttribute {
-                .location = input_variable->location,
-                .format = (VkFormat) input_variable->format
-            };
-        }
-    }
-    
-    VertexAttributes::~VertexAttributes() = default;
-    
-    bool VertexAttributes::has_vertex_attribute(const char* name) const {
-        return vertex_attributes.find(name) != vertex_attributes.end();
-    }
-    
-    const VertexAttribute& VertexAttributes::get_vertex_attribute(const char* name) const {
-        return vertex_attributes.at(name);
-    }
-    
-    
     std::shared_ptr<GraphicsPipeline> Device::create_graphics_pipeline(const GraphicsPipelineDescription& pipeline_description) {
         // Perform pipeline validation steps
         // The only required shader stage of a graphics pipeline is the vertex shader
