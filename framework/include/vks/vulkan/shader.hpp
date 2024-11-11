@@ -76,4 +76,13 @@ namespace vks {
     
 }
 
+namespace utils {
+    
+    template <>
+    struct Formatter<vks::ShaderStage> : public Formatter<const char*> {
+        [[nodiscard]] std::string format(vks::ShaderStage stage) const;
+    };
+    
+}
+
 #endif // SHADER_HPP

@@ -138,5 +138,40 @@ namespace vks {
         return constant;
     }
     
+}
+
+namespace utils {
+    
+    std::string Formatter<vks::ShaderStage>::format(vks::ShaderStage stage) const {
+        using namespace vks;
+        const char* name = "";
+        
+        if (stage == ShaderStage::Vertex) {
+            name = "vertex";
+        }
+        else if (stage == ShaderStage::TesselationControl) {
+            name = "tesselation control";
+        }
+        else if (stage == ShaderStage::TesselationEvaluation) {
+            name = "tesselation evaluation";
+        }
+        else if (stage == ShaderStage::Geometry) {
+            name = "geometry";
+        }
+        else if (stage == ShaderStage::Fragment) {
+            name = "fragment";
+        }
+        else if (stage == ShaderStage::Compute) {
+            name = "compute";
+        }
+        else if (stage == ShaderStage::Mesh) {
+            name = "mesh";
+        }
+        else if (stage == ShaderStage::Task) {
+            name = "task";
+        }
+        
+        return std::move(Formatter<const char*>::format(name));
+    }
     
 }
