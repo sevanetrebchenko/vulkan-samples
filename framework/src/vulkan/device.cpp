@@ -528,6 +528,10 @@ namespace vks {
                 throw std::runtime_error(error);
             }
         }
+        
+        // Create Vulkan device
+        
+        
     }
 
     void Device::shutdown() {
@@ -538,17 +542,90 @@ namespace vks {
         VkFormat format;
     };
     
+    enum class UniformType {
+        Bool,
+        Integer,
+        Float,
+        Double,
+        
+        Vector,
+        Matrix,
+        
+        Struct,
+        Array
+    };
+    
+    struct Uniform {
+        UniformType type; // Underlying uniform type
+        
+        const char* name;
+        unsigned offset; // Global offset into the uniform buffer, accounting for alignment
+        unsigned size;
+        
+        // Used only for structs
+        std::vector<Uniform> members;
+        
+        // Used only for arrays
+        std::vector<unsigned> capacity; // Number of elements in the array
+        unsigned dimensions; // For multidimensional arrays, eg. float[2][3] has 2 dimensions
+        unsigned stride;
+    };
+    
+    Uniform reflect_member(const SpvReflectBlockVariable& var) {
+        Uniform uniform {
+            .type = UniformType::Integer,
+            .name = var.name,
+            .offset = var.absolute_offset,
+            .size = var.size
+        };
+        
+        unsigned member_count = var.member_count;
+        if (member_count) {
+            // Uniform is a struct type
+            uniform.type = UniformType::Struct;
+            
+            uniform.members.resize(member_count);
+            for (unsigned i = 0; i < member_count; ++i) {
+                uniform.members[i] = reflect_member(var.members[i]);
+            }
+        }
+        else if (var.type_description->traits.array.dims_count) {
+            // Uniform is an array type
+            unsigned dimensions_count = var.type_description->traits.array.dims_count;
+            
+            uniform.dimensions = dimensions_count;
+            uniform.stride = var.type_description->traits.array.stride;
+            
+            uniform.capacity.resize(dimensions_count);
+            for (unsigned i = 0; i < dimensions_count; ++i) {
+                uniform.capacity[i] = var.type_description->traits.array.dims[i];
+            }
+        }
+        
+        return std::move(uniform);
+    }
+    
+    
     std::shared_ptr<GraphicsPipeline> Device::create_graphics_pipeline(const GraphicsPipelineDescription& pipeline_description) {
-        // Perform pipeline validation steps
-        // The only required shader stage of a graphics pipeline is the vertex shader
-        const ShaderStageDescription& vertex_stage_description = pipeline_description.shader_stages[to_pipeline_index(ShaderStage::Vertex)];
-        if (vertex_stage_description.stage == ShaderStage::None) {
-            std::string error = "Failed to create graphics pipeline - vertex shader stage is required";
-            utils::logging::error(error);
-            throw std::runtime_error(error);
+        // Compile all shader stages
+        ShaderModule shader_modules[5] = { };
+        for (unsigned stage = 0; stage < 5; ++stage) {
+            const ShaderStageDescription& shader_stage = pipeline_description.shader_stages[stage];
+            if (shader_stage.stage == ShaderStage::None) {
+                // The only required shader stage of a graphics pipeline is the vertex shader
+                if (stage == 0) {
+                    std::string error = "Failed to create graphics pipeline - vertex shader stage is required";
+                    utils::logging::error(error);
+                    throw std::runtime_error(error);
+                }
+                
+                continue;
+            }
+            
+            shader_modules[stage] = compile_shader(vulkan_device, shader_stage);
         }
 
-        const ShaderModule& vertex_module = compile_shader(vulkan_device, vertex_stage_description);
+        const ShaderModule& vertex_module = shader_modules[to_pipeline_index(ShaderStage::Vertex)];
         
         // Use std::string_view instead of const char* to hash (compare) on the string contents, not just the address of the pointer
         std::unordered_map<std::string_view, VertexAttribute> vertex_attribute_map;
@@ -659,6 +736,119 @@ namespace vks {
             .vertexAttributeDescriptionCount = (unsigned) vertex_attributes.size(),
             .pVertexAttributeDescriptions = &vertex_attributes[0]
         };
+        
+        // TODO: preallocate
+        std::vector<VkDescriptorSetLayoutBinding> descriptor_bindings;
+        
+        SpvReflectResult result;
+        
+        unsigned descriptor_set_count;
+        result = spvReflectEnumerateDescriptorSets(&shader_modules[0].reflection_data, &descriptor_set_count, nullptr);
+        
+        std::vector<SpvReflectDescriptorSet*> descriptor_sets(descriptor_set_count);
+        result = spvReflectEnumerateDescriptorSets(&shader_modules[0].reflection_data, &descriptor_set_count, descriptor_sets.data());
+        
+        struct DescriptorBinding {
+            unsigned binding;
+            VkDescriptorType type;
+            unsigned count;
+            VkShaderStageFlags stages;
+        };
+        
+        struct DescriptorSetLayout {
+            unsigned set;
+            std::vector<DescriptorBinding> bindings;
+        };
+        
+        std::vector<DescriptorSetLayout> descriptor_set_layouts(descriptor_set_count);
+        
+        for (unsigned i = 0; i < descriptor_set_count; ++i) {
+            const SpvReflectDescriptorSet* descriptor_set = descriptor_sets[i];
+            
+            DescriptorSetLayout& descriptor_set_layout = descriptor_set_layouts[i];
+            descriptor_set_layout.set = descriptor_set->set;
+            
+            unsigned binding_count = descriptor_set->binding_count;
+            descriptor_set_layout.bindings.resize(binding_count);
+            
+            for (unsigned j = 0; j < binding_count; ++j) {
+                const SpvReflectDescriptorBinding* binding = descriptor_set->bindings[j];
+                
+                VkDescriptorType type = (VkDescriptorType) binding->descriptor_type;
+                std::vector<Uniform> uniforms;
+                
+                if (type == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER || type == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER) {
+                    // Reflect buffer members as well
+                    unsigned uniform_count = binding->block.member_count;
+                    uniforms.resize(uniform_count);
+                    
+                    for (unsigned k = 0; k < uniform_count; ++k) {
+                        uniforms[k] = reflect_member(binding->block.members[k]);
+                    }
+                }
+                
+                DescriptorBinding& descriptor_binding = descriptor_set_layout.bindings[j];
+                
+                descriptor_binding.binding = binding->binding;
+                descriptor_binding.type = (VkDescriptorType) binding->descriptor_type;
+                descriptor_binding.count = binding->count;
+                descriptor_binding.stages = (VkShaderStageFlags) shader_modules[0].reflection_data.shader_stage;
+            }
+        }
+        
+        
+        
+//        // Extract descriptor set layouts for pipeline layouts
+//        unsigned descriptor_set_count = 0;
+//
+//        std::unordered_set<unsigned> descriptor_set_indices;
+//
+//        for (unsigned i = 0; i < 5; ++i) {
+//            const ShaderStageDescription& shader_stage = pipeline_description.shader_stages[i];
+//            if (shader_stage.stage == ShaderStage::None) {
+//                continue;
+//            }
+//
+//            const ShaderModule& shader_module = shader_modules[i];
+//            for (unsigned j = 0; j < shader_module.reflection_data.descriptor_set_count; ++j) {
+//                const SpvReflectDescriptorSet& descriptor_set = shader_module.reflection_data.descriptor_sets[j];
+//                descriptor_set_indices.set;
+//            }
+//        }
+        
+        VkDescriptorSetLayoutCreateInfo descriptor_set_layout_create_info { };
+        
+        VkPipelineLayoutCreateInfo pipeline_layout_create_info {
+        
+        };
+        
+        VkGraphicsPipelineCreateInfo pipeline_create_info {
+            .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+            .pNext = nullptr,
+            .flags = 0,
+            .stageCount = 0,
+            .pStages = nullptr,
+            .pVertexInputState = &vertex_input_state,
+            .pInputAssemblyState = nullptr,
+            .pTessellationState = nullptr,
+            .pViewportState = nullptr,
+            .pRasterizationState = nullptr,
+            .pMultisampleState = nullptr,
+            .pDepthStencilState = nullptr,
+            .pColorBlendState = nullptr,
+            .pDynamicState = nullptr,
+            .layout = { },
+            .renderPass = { },
+            .subpass = 0,
+            .basePipelineHandle = nullptr,
+            .basePipelineIndex = 0
+        };
+        
+//        VkPipeline pipeline { };
+//        result = vkCreateGraphicsPipelines(vulkan_device, nullptr, 1, &pipeline_create_info, nullptr, &pipeline);
+//        if (result != VK_SUCCESS) {
+//
+//        }
     }
 
 
