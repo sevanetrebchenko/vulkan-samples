@@ -7,24 +7,24 @@ namespace vks {
     
     VertexInputDescription& VertexInputDescription::add_attribute(unsigned _binding, const char* name) {
         bool binding_exists = false;
+        unsigned binding_index = bindings.size();
         
-        for (VertexBinding& binding : bindings) {
+        bool attribute_exists = false;
+        
+        for (unsigned i = 0; i < bindings.size(); ++i) {
+            const VertexBinding& binding = bindings[i];
             if (binding.binding != _binding) {
                 continue;
             }
             
             binding_exists = true;
-            bool attribute_exists = false;
+            binding_index = i;
             
-            for (const char* attribute : binding.attribute_names) {
-                if (strcmp(attribute, name) == 0) {
+            for (const VertexAttribute& attribute : binding.attributes) {
+                if (strcmp(attribute.name, name) == 0) {
                     attribute_exists = true;
                     break;
                 }
-            }
-            if (!attribute_exists) {
-                // Only allow non-duplicate attribute names
-                binding.attribute_names.emplace_back(name);
             }
         }
         
@@ -34,7 +34,14 @@ namespace vks {
             binding.binding = _binding;
             binding.stride = -1; // Placeholder value, will be calculated during pipeline compilation
             binding.rate = VertexInputRate::Vertex; // By default, vertex attributes are updated per vertex
-            binding.attribute_names.emplace_back(name);
+        }
+        
+        if (!attribute_exists) {
+            // Only allow non-duplicate attribute names
+            VertexAttribute& attribute = bindings[binding_index].attributes.emplace_back();
+            attribute.name = name;
+            attribute.location = -1;
+            attribute.format = VK_FORMAT_MAX_ENUM;
         }
         
         return *this;
@@ -84,11 +91,11 @@ namespace vks {
         return *this;
     }
     
-    GraphicsPipelineDescription& GraphicsPipelineDescription::add_shader_stage(const ShaderStageDescription& stage_description) {
+    GraphicsPipelineDescription& GraphicsPipelineDescription::add_shader_stage(ShaderStageDescription stage_description) {
         if (stage_description.stage > ShaderStage::Fragment) {
             throw std::runtime_error("invalid stage");
         }
-        shader_stages[to_pipeline_index(stage_description.stage)] = stage_description;
+        shader_stages[to_pipeline_index(stage_description.stage)] = std::move(stage_description);
         return *this;
     }
     

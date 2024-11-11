@@ -24,14 +24,6 @@ namespace vks {
     
 }
 
-// Formatters
-namespace utils {
-    
-    // TODO: more sophisticated handling?
-    template <>
-    struct Formatter<VkResult> : public Formatter<typename std::underlying_type<VkResult>::type> {
-    };
-    
-}
+
 
 #endif // TYPES_HPP

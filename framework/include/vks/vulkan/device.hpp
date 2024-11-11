@@ -45,7 +45,7 @@ namespace vks {
         void initialize(const DeviceDescription& description);
         void shutdown();
         
-        std::shared_ptr<GraphicsPipeline> create_graphics_pipeline(const GraphicsPipelineDescription& pipeline_description);
+        std::shared_ptr<GraphicsPipeline> create_graphics_pipeline(GraphicsPipelineDescription pipeline_description);
         
         VkInstance vulkan_instance;
         VkPhysicalDevice vulkan_physical_device;

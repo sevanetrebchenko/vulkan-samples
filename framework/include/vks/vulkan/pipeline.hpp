@@ -44,7 +44,7 @@ namespace vks {
     
     struct RasterizationState {
         CullMode cull_mode;
-        WindingOrder front;
+        WindingOrder winding;
         PolygonMode mode;
     };
     
@@ -53,15 +53,20 @@ namespace vks {
         Instance = VK_VERTEX_INPUT_RATE_INSTANCE
     };
     
+    struct VertexAttribute {
+        const char* name;
+        unsigned location;
+        VkFormat format;
+    };
+    
     struct VertexBinding {
         unsigned binding;
         unsigned stride;
-        std::vector<const char*> attribute_names;
+        std::vector<VertexAttribute> attributes;
         VertexInputRate rate;
     };
     
     // TODO: query against maxVertexInputBindings, retrieved from the device
-    // TODO: how can this be made dynamic to support vertex layouts that have more than the attributes listed in the shader?
     struct VertexInputDescription {
         VertexInputDescription& add_attribute(unsigned binding, const char* name);
         VertexInputDescription& set_binding_stride(unsigned binding, unsigned stride);
@@ -74,7 +79,7 @@ namespace vks {
         // input assembly state
         
         // Up to 5 shader stages
-        GraphicsPipelineDescription& add_shader_stage(const ShaderStageDescription& stage_description);
+        GraphicsPipelineDescription& add_shader_stage(ShaderStageDescription stage_description);
         
         GraphicsPipelineDescription& set_primitive_topology(VkPrimitiveTopology primitive_topology);
         GraphicsPipelineDescription& set_rasterization_state(RasterizationState rasterization_state);

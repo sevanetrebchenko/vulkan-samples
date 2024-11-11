@@ -23,6 +23,8 @@ int main() {
     VertexInputDescription vertex_input { };
     vertex_input.add_attribute(0, "vertex_position");
     vertex_input.add_attribute(0, "vertex_normal");
+    vertex_input.add_attribute(0, "vertex_uv");
+    vertex_input.set_binding_stride(0, 64);
     vertex_input.set_binding_input_rate(0, VertexInputRate::Vertex);
 
     GraphicsPipelineDescription graphics_pipeline { };

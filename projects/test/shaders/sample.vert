@@ -7,11 +7,22 @@
 layout (location = 0) in vec3 vertex_position;
 layout (location = 1) in vec3 vertex_normal;
 
-// Global uniforms (uploaded once per frame for all objects)
+struct A {
+    int a;
+};
+
+struct B {
+    A a;
+    int b;
+};
+
 layout (set = 0, binding = 0) uniform GlobalUniforms {
     mat4 view;
     mat4 projection;
-    vec3 camera_position;
+    vec3 camera_position; // Unused
+    int debug_view; // Unused
+    B b;
+    vec4 arr[4][6];
 } globals;
 
 // Per object uniforms

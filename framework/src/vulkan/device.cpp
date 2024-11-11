@@ -1,6 +1,8 @@
 
 #include "vks/vulkan/device.hpp"
+#include "vks/vulkan/descriptor_set.hpp"
 #include "vks/vulkan/utility.hpp"
+#include "vks/detail/shader_compiler.hpp"
 
 #include "utils/logging.hpp"
 #include <GLFW/glfw3.h>
@@ -45,244 +47,6 @@ namespace vks {
 
         return VK_FALSE; // Whether the Vulkan call that triggered the validation layer message should be aborted
     }
-
-    struct ShaderIncluder final : public shaderc::CompileOptions::IncluderInterface {
-        struct Include {
-            std::filesystem::path filepath;
-            std::string contents;
-        };
-
-        ~ShaderIncluder() override;
-
-        shaderc_include_result* GetInclude(const char* file, shaderc_include_type type, const char* source, std::size_t depth) override;
-        void ReleaseInclude(shaderc_include_result* data) override;
-
-        // Contents of included files must remain valid from when GetInclude is invoked to retrieve the include contents to when ReleaseInclude is invoked to release them
-        std::vector<Include> include_data;
-        std::vector<shaderc_include_result> include_results;
-    };
-
-    struct ShaderModule {
-        VkShaderModule handle { };
-        std::filesystem::file_time_type last_modified_time;
-        SpvReflectShaderModule reflection_data { };
-    };
-
-    std::unordered_map<std::filesystem::path, ShaderModule> shader_cache;
-
-    std::string load_shader(const std::filesystem::path& path) {
-        std::ifstream file(path, std::ios::in);
-        if (!file.is_open()) {
-            throw std::runtime_error("");
-        }
-
-        // Get the length of the file
-        file.seekg(0, std::ifstream::end);
-        std::streamsize length = file.tellg();
-        file.seekg(0, std::ifstream::beg);
-
-        // Reading the file in line by line is slower, but avoids <bad token> errors later with preprocessing
-        std::string source;
-        source.reserve(length);
-
-        std::string line;
-        while (std::getline(file, line)) {
-            source += line;
-            source += '\n';
-        }
-
-        return std::move(source);
-    }
-
-    const ShaderModule& compile_shader(VkDevice device, const ShaderStageDescription& stage_description) {
-        // Configure compile options
-        shaderc::CompileOptions options { };
-
-        #ifndef NDEBUG
-            // Optimizing for performance interferes with shader reflection
-            // options.SetOptimizationLevel(shaderc_optimization_level_performance);
-        #else
-            options.SetWarningsAsErrors();
-        #endif
-
-        options.SetTargetEnvironment(shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_3);
-        options.SetIncluder(std::make_unique<ShaderIncluder>());
-
-        // Add preprocessor definitions
-        for (const auto& [name, value] : stage_description.preprocessor_definitions) {
-            options.AddMacroDefinition(name, value);
-        }
-
-        // Using Vulkan GLSL
-        shaderc_shader_kind type;
-        switch (stage_description.stage) {
-            case ShaderStage::Vertex:
-                type = shaderc_glsl_vertex_shader;
-                break;
-            case ShaderStage::TesselationControl:
-                type = shaderc_glsl_tess_control_shader;
-                break;
-            case ShaderStage::TesselationEvaluation:
-                type = shaderc_glsl_tess_evaluation_shader;
-                break;
-            case ShaderStage::Geometry:
-                type = shaderc_glsl_geometry_shader;
-                break;
-            case ShaderStage::Fragment:
-                type = shaderc_glsl_fragment_shader;
-                break;
-            case ShaderStage::Compute:
-                type = shaderc_glsl_compute_shader;
-                break;
-            case ShaderStage::Mesh:
-                type = shaderc_glsl_mesh_shader;
-                break;
-            case ShaderStage::Task:
-                type = shaderc_glsl_task_shader;
-                break;
-        }
-
-        shaderc::Compiler compiler { };
-
-        // Shader modules should only be compiled again if they do not yet exist or if the shader source has been modified since being compiled the first time
-        bool recompile = true;
-
-        std::filesystem::file_time_type last_modified_time = std::filesystem::last_write_time(stage_description.path);
-        auto iter = shader_cache.find(stage_description.path);
-
-        if (iter != shader_cache.end()) {
-            const ShaderModule& cached = iter->second;
-
-            if (cached.last_modified_time == last_modified_time) {
-                // Shader source has not been modified since the original time it was cached and is still valid
-                recompile = false;
-            }
-        }
-
-        if (!recompile) {
-            // Shader module is guaranteed to be current
-            return iter->second;
-        }
-
-        // Register new shader module
-        ShaderModule& module = shader_cache[stage_description.path];
-        module.last_modified_time = last_modified_time;
-
-        std::string source = load_shader(stage_description.path);
-
-        // Replace preprocessor definitions and resolve includes
-        #if defined(PLATFORM_WINDOWS)
-            // Convert std::filesystem::path::c_str() to a const char* (returns const wchar_t* on Windows)
-            std::string path = stage_description.path.string();
-            shaderc::PreprocessedSourceCompilationResult preprocess_result = compiler.PreprocessGlsl(source.c_str(), source.size(), type, path.c_str(), options);
-        #else
-            const char* path = stage_description.path.c_str();
-            shaderc::PreprocessedSourceCompilationResult preprocess_result = compiler.PreprocessGlsl(source.c_str(), source.size(), type, path, options);
-        #endif
-
-        shaderc_compilation_status preprocess_status = preprocess_result.GetCompilationStatus();
-        if (preprocess_status != shaderc_compilation_status_success) {
-            std::string error = utils::format("Shader compilation failed with error code {} - {}", std::underlying_type<shaderc_compilation_status>::type(preprocess_status), preprocess_result.GetErrorMessage());
-            utils::logging::error(error);
-            throw std::runtime_error(error);
-        }
-
-        source = std::string(preprocess_result.begin(), preprocess_result.end());
-
-        // Compile to SPIR-V bytecode
-
-        // Assume shader entry point is 'main'
-        #if defined(PLATFORM_WINDOWS)
-            shaderc::SpvCompilationResult compile_result = compiler.CompileGlslToSpv(source, type, path.c_str(), options);
-        #else
-            shaderc::SpvCompilationResult compile_result = compiler.CompileGlslToSpv(source, type, path, options);
-        #endif
-
-        shaderc_compilation_status compile_status = compile_result.GetCompilationStatus();
-        if (compile_status != shaderc_compilation_status_success) {
-            std::string error = utils::format("Shader compilation failed with error code {} - {}", std::underlying_type<shaderc_compilation_status>::type(compile_status), compile_result.GetErrorMessage());
-            utils::logging::error(error);
-            throw std::runtime_error(error);
-        }
-
-        std::vector<unsigned> spirv { compile_result.cbegin(), compile_result.cend() };
-        std::size_t size = spirv.size() * sizeof(unsigned); // Size in bytes
-
-        // Create shader module
-        VkShaderModuleCreateInfo shader_module_create_info { };
-        shader_module_create_info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-        shader_module_create_info.codeSize = size;
-        shader_module_create_info.pCode = spirv.data();
-
-//            VkResult result = vkCreateShaderModule(device, &shader_module_create_info, nullptr, &module.handle);
-//            if (result != VK_SUCCESS) {
-//                std::string error = utils::format("vkCreateShaderModule failed with error code {}", result);
-//                utils::logging::error(error);
-//                throw std::runtime_error(error);
-//            }
-
-        // Generate reflection data using SPIR-V bytecode
-        spvReflectCreateShaderModule(size, spirv.data(), &module.reflection_data);
-        return module;
-    }
-
-    ShaderIncluder::~ShaderIncluder() = default;
-
-    shaderc_include_result* ShaderIncluder::GetInclude(const char* file, shaderc_include_type type, const char* source, std::size_t depth) {
-        // Determine the global filepath of the included file
-        std::filesystem::path filepath(file);
-        shaderc_include_result& result = include_results.emplace_back();
-
-        if (std::filesystem::exists(filepath)) {
-            // Ensure that a shader is included only once
-            bool found = false;
-
-            for (const Include& include : include_data) {
-                if (include.filepath == filepath) {
-                    found = true;
-                    break;
-                }
-            }
-
-            std::size_t length = strlen(file);
-
-            if (found) {
-                // File has already been included and should not be duplicated
-                result.source_name = file;
-                result.source_name_length = length;
-                result.content = nullptr;
-                result.content_length = 0;
-            }
-            else {
-                // Register new include
-                Include& include = include_data.emplace_back();
-                include.filepath = filepath;
-                include.contents = load_shader(filepath);
-
-                result.source_name = file;
-                result.source_name_length = length;
-                result.content = include.contents.c_str();
-                result.content_length = include.contents.length();
-            }
-        }
-        else {
-            // For a failed inclusion, source_name should be empty
-            result.source_name = nullptr;
-            result.source_name_length = 0;
-
-            // For a failed inclusion, content contains the error message
-            result.content = "";
-            result.content_length = strlen(result.content);
-        }
-
-        return &result;
-    }
-
-    void ShaderIncluder::ReleaseInclude(shaderc_include_result* data) {
-        // Nothing to do here
-    }
-    
-    
 
     DeviceDescription::DeviceDescription() : width(1920),
                                              height(1080),
@@ -537,39 +301,7 @@ namespace vks {
     void Device::shutdown() {
     }
 
-    struct VertexAttribute {
-        unsigned location;
-        VkFormat format;
-    };
-    
-    enum class UniformType {
-        Bool,
-        Integer,
-        Float,
-        Double,
-        
-        Vector,
-        Matrix,
-        
-        Struct,
-        Array
-    };
-    
-    struct Uniform {
-        UniformType type; // Underlying uniform type
-        
-        const char* name;
-        unsigned offset; // Global offset into the uniform buffer, accounting for alignment
-        unsigned size;
-        
-        // Used only for structs
-        std::vector<Uniform> members;
-        
-        // Used only for arrays
-        std::vector<unsigned> capacity; // Number of elements in the array
-        unsigned dimensions; // For multidimensional arrays, eg. float[2][3] has 2 dimensions
-        unsigned stride;
-    };
+
     
     Uniform reflect_member(const SpvReflectBlockVariable& var) {
         Uniform uniform {
@@ -605,56 +337,50 @@ namespace vks {
         return std::move(uniform);
     }
     
-    
-    std::shared_ptr<GraphicsPipeline> Device::create_graphics_pipeline(const GraphicsPipelineDescription& pipeline_description) {
-        // Compile all shader stages
+    std::shared_ptr<GraphicsPipeline> Device::create_graphics_pipeline(GraphicsPipelineDescription pipeline_description) {
+        // A Vulkan graphics pipeline can have up to 5 shader stages
         ShaderModule shader_modules[5] = { };
         for (unsigned stage = 0; stage < 5; ++stage) {
             const ShaderStageDescription& shader_stage = pipeline_description.shader_stages[stage];
             if (shader_stage.stage == ShaderStage::None) {
-                // The only required shader stage of a graphics pipeline is the vertex shader
-                if (stage == 0) {
-                    std::string error = "Failed to create graphics pipeline - vertex shader stage is required";
-                    utils::logging::error(error);
-                    throw std::runtime_error(error);
-                }
-                
                 continue;
             }
             
             shader_modules[stage] = compile_shader(vulkan_device, shader_stage);
         }
 
-        const ShaderModule& vertex_module = shader_modules[to_pipeline_index(ShaderStage::Vertex)];
+        // The vertex shader is the only required stage
+        unsigned vertex_stage_index = to_pipeline_index(ShaderStage::Vertex);
+        bool has_vertex_shader = pipeline_description.shader_stages[vertex_stage_index].stage != ShaderStage::None;
         
-        // Use std::string_view instead of const char* to hash (compare) on the string contents, not just the address of the pointer
-        std::unordered_map<std::string_view, VertexAttribute> vertex_attribute_map;
-        
-        for (unsigned i = 0; i < vertex_module.reflection_data.input_variable_count; ++i) {
-            SpvReflectInterfaceVariable* input_variable = vertex_module.reflection_data.input_variables[i];
-            vertex_attribute_map[input_variable->name] = VertexAttribute {
-                .location = input_variable->location,
-                .format = (VkFormat) input_variable->format
-            };
+        if (!has_vertex_shader) {
+            std::string error = "Failed to create graphics pipeline - vertex shader stage is required";
+            utils::logging::error(error);
+            throw std::runtime_error(error);
         }
         
-        // All vertex attributes specified in the shader source must have a corresponding registration in the vertex input of the pipeline description
-        // The opposite is not required to be true - there can be more vertex attributes specified in the pipeline description than what is used in the shader
-        
-        for (const auto& [name, attribute] : vertex_attribute_map) {
+        const ShaderModule& vertex_shader_module = shader_modules[vertex_stage_index];
+        for (unsigned i = 0; i < vertex_shader_module.spv_module.input_variable_count; ++i) {
+            SpvReflectInterfaceVariable* input_variable = vertex_shader_module.spv_module.input_variables[i];
+            const char* name = input_variable->name;
+            unsigned location = input_variable->location;
+            
             bool found = false;
             
-            for (const VertexBinding& binding : pipeline_description.vertex_input_description.bindings) {
-                for (const char* attribute_name : binding.attribute_names) {
-                    if (name == std::string_view(attribute_name) == 0) {
+            for (VertexBinding& vertex_binding : pipeline_description.vertex_input_description.bindings) {
+                for (VertexAttribute& vertex_attribute : vertex_binding.attributes) {
+                    if (strcmp(vertex_attribute.name, name) == 0) {
+                        vertex_attribute.location = location;
+                        vertex_attribute.format = (VkFormat) input_variable->format;
                         found = true;
-                        break;
                     }
                 }
             }
             
             if (!found) {
-                std::string error = utils::format("Failed to create graphics pipeline - encountered vertex attribute '{}' with no registered binding (location: {})", name, attribute.location);
+                // All vertex attributes specified in the shader source must have a corresponding registration in the vertex input of the pipeline description
+                // The opposite is not required to be true - there can be more vertex attributes specified in the pipeline description than what is used in the shader
+                std::string error = utils::format("Failed to create graphics pipeline - encountered vertex attribute '{}' with no registered binding (location: {})", name, location);
                 utils::logging::error(error);
                 throw std::runtime_error(error);
             }
@@ -667,21 +393,19 @@ namespace vks {
         std::vector<VkVertexInputBindingDescription> vertex_bindings(vertex_binding_count);
 
         for (unsigned i = 0; i < vertex_binding_count; ++i) {
-            unsigned stride = 0;
             const VertexBinding& vertex_binding = pipeline_description.vertex_input_description.bindings[i];
+            unsigned stride = 0;
             
             if (vertex_binding.stride == (unsigned) -1) {
                 // The stride of this binding is not directly specified, calculate it using the attributes referenced in the pipeline description
-                for (const char* attribute_name : vertex_binding.attribute_names) {
-                    auto iter = vertex_attribute_map.find(attribute_name);
-                    
-                    if (iter == vertex_attribute_map.end()) {
-                        std::string error = utils::format("Failed to create graphics pipeline - unable to determine stride of vertex input binding {} because type of attribute '{}' is not known", vertex_binding.binding, attribute_name);
+                for (const VertexAttribute& vertex_attribute : vertex_binding.attributes) {
+                    if (vertex_attribute.location == (unsigned) -1) {
+                        std::string error = utils::format("Failed to create graphics pipeline - unable to determine stride of vertex input binding {} because type of attribute '{}' is not known", vertex_binding.binding, vertex_attribute.name);
                         utils::logging::error(error);
                         throw std::runtime_error(error);
                     }
                     
-                    const VertexAttribute& vertex_attribute = iter->second;
+                    // If the location was set, that means the vertex attribute was successfully reflected
                     stride += get_format_size(vertex_attribute.format);
                 }
             }
@@ -689,7 +413,7 @@ namespace vks {
                 stride = vertex_binding.stride;
             }
             
-            // Register new vertex binding
+            // Register new VkVertexInputBindingDescription
             VkVertexInputBindingDescription& binding_description = vertex_bindings[i];
             binding_description.binding = vertex_binding.binding;
             binding_description.stride = stride;
@@ -698,31 +422,31 @@ namespace vks {
         
         // Create the vertex attribute layout as specified by the shader reflection data as this matches the expected layout of the data in the vertex buffer
         // Note: it is possible to have more vertex attributes in the vertex buffer than what is used by the shader, just as long as the attribute offsets and binding stride is configured correctly
-        std::size_t vertex_attribute_count = vertex_attribute_map.size();
-        
+        std::size_t vertex_attribute_count = 0;
+        for (const VertexBinding& vertex_binding : pipeline_description.vertex_input_description.bindings) {
+            vertex_attribute_count += vertex_binding.attributes.size();
+        }
+
         // Vertex attributes describe how individual vertex attributes (ex. position, normal, uv, tangent) are extracted from the buffer bound at the corresponding binding point (described above)
         std::vector<VkVertexInputAttributeDescription> vertex_attributes(vertex_attribute_count);
-        
+
         unsigned vertex_attribute_index = 0;
         for (const VertexBinding& vertex_binding : pipeline_description.vertex_input_description.bindings) {
             unsigned offset = 0;
-            
-            for (const char* attribute_name : vertex_binding.attribute_names) {
-                auto iter = vertex_attribute_map.find(attribute_name);
-                if (iter == vertex_attribute_map.end()) {
+
+            for (const VertexAttribute& vertex_attribute : vertex_binding.attributes) {
+                if (vertex_attribute.location == (unsigned) -1) {
                     // Vertex attribute is not referenced in the shader source
                     // This is not an error, since for the purposes of pipeline creation we only care about vertex attributes that the shader uses
                     continue;
                 }
                 
-                const VertexAttribute& vertex_attribute = iter->second;
                 VkVertexInputAttributeDescription& vertex_attribute_description = vertex_attributes[vertex_attribute_index++];
-                
                 vertex_attribute_description.location = vertex_attribute.location;
                 vertex_attribute_description.binding = vertex_binding.binding;
                 vertex_attribute_description.format = vertex_attribute.format;
                 vertex_attribute_description.offset = offset;
-                
+
                 offset += get_format_size(vertex_attribute.format);
             }
         }
@@ -736,91 +460,104 @@ namespace vks {
             .vertexAttributeDescriptionCount = (unsigned) vertex_attributes.size(),
             .pVertexAttributeDescriptions = &vertex_attributes[0]
         };
-        
-        // TODO: preallocate
-        std::vector<VkDescriptorSetLayoutBinding> descriptor_bindings;
-        
-        SpvReflectResult result;
-        
-        unsigned descriptor_set_count;
-        result = spvReflectEnumerateDescriptorSets(&shader_modules[0].reflection_data, &descriptor_set_count, nullptr);
-        
-        std::vector<SpvReflectDescriptorSet*> descriptor_sets(descriptor_set_count);
-        result = spvReflectEnumerateDescriptorSets(&shader_modules[0].reflection_data, &descriptor_set_count, descriptor_sets.data());
-        
-        struct DescriptorBinding {
-            unsigned binding;
-            VkDescriptorType type;
-            unsigned count;
+
+        struct DescriptorSet {
+            unsigned index;
+            const SpvReflectDescriptorSet* set;
             VkShaderStageFlags stages;
         };
         
-        struct DescriptorSetLayout {
-            unsigned set;
-            std::vector<DescriptorBinding> bindings;
-        };
+        // Retrieve the reflected descriptor set information
+        std::vector<DescriptorSet> descriptor_sets;
         
-        std::vector<DescriptorSetLayout> descriptor_set_layouts(descriptor_set_count);
-        
-        for (unsigned i = 0; i < descriptor_set_count; ++i) {
-            const SpvReflectDescriptorSet* descriptor_set = descriptor_sets[i];
-            
-            DescriptorSetLayout& descriptor_set_layout = descriptor_set_layouts[i];
-            descriptor_set_layout.set = descriptor_set->set;
-            
-            unsigned binding_count = descriptor_set->binding_count;
-            descriptor_set_layout.bindings.resize(binding_count);
-            
-            for (unsigned j = 0; j < binding_count; ++j) {
-                const SpvReflectDescriptorBinding* binding = descriptor_set->bindings[j];
-                
-                VkDescriptorType type = (VkDescriptorType) binding->descriptor_type;
-                std::vector<Uniform> uniforms;
-                
-                if (type == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER || type == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER) {
-                    // Reflect buffer members as well
-                    unsigned uniform_count = binding->block.member_count;
-                    uniforms.resize(uniform_count);
-                    
-                    for (unsigned k = 0; k < uniform_count; ++k) {
-                        uniforms[k] = reflect_member(binding->block.members[k]);
-                    }
-                }
-                
-                DescriptorBinding& descriptor_binding = descriptor_set_layout.bindings[j];
-                
-                descriptor_binding.binding = binding->binding;
-                descriptor_binding.type = (VkDescriptorType) binding->descriptor_type;
-                descriptor_binding.count = binding->count;
-                descriptor_binding.stages = (VkShaderStageFlags) shader_modules[0].reflection_data.shader_stage;
-            }
-        }
-        
-        
-        
-//        // Extract descriptor set layouts for pipeline layouts
-//        unsigned descriptor_set_count = 0;
-//
-//        std::unordered_set<unsigned> descriptor_set_indices;
-//
-//        for (unsigned i = 0; i < 5; ++i) {
-//            const ShaderStageDescription& shader_stage = pipeline_description.shader_stages[i];
-//            if (shader_stage.stage == ShaderStage::None) {
+//        for (unsigned stage = 0; stage < 5; ++stage) {
+//            const ShaderModule* shader_module = shader_modules[stage];
+//            if (!shader_module) {
 //                continue;
 //            }
 //
-//            const ShaderModule& shader_module = shader_modules[i];
-//            for (unsigned j = 0; j < shader_module.reflection_data.descriptor_set_count; ++j) {
-//                const SpvReflectDescriptorSet& descriptor_set = shader_module.reflection_data.descriptor_sets[j];
-//                descriptor_set_indices.set;
+//            for (unsigned i = 0; i < shader_module->reflection_data.descriptor_set_count; ++i) {
+//                const SpvReflectDescriptorSet& descriptor_set = shader_module->reflection_data.descriptor_sets[i];
+//                unsigned index = descriptor_set.set;
+//
+//                // Only add unique set indices
+//                bool found = false;
+//                for (const DescriptorSet& current : descriptor_sets) {
+//                    if (current.index == index) {
+//                        found = true;
+//                        break;
+//                    }
+//                }
+//
+//                if (!found) {
+//                    DescriptorSet set {
+//                        .index = index,
+//                        .set = &descriptor_set,
+//                        .stages = (VkShaderStageFlags) shader_module->reflection_data.shader_stage
+//                    };
+//                    descriptor_sets.emplace_back(set);
+//                }
 //            }
 //        }
+
+        unsigned descriptor_set_count = descriptor_sets.size();
         
-        VkDescriptorSetLayoutCreateInfo descriptor_set_layout_create_info { };
+        // Generate descriptor set bindings
+        std::vector<VkDescriptorSetLayout> descriptor_set_layouts(descriptor_set_count);
         
-        VkPipelineLayoutCreateInfo pipeline_layout_create_info {
+        for (unsigned i = 0; i < descriptor_set_count; ++i) {
+            const DescriptorSet& descriptor_set = descriptor_sets[i];
+
+            // Create descriptor set layout
+            unsigned descriptor_binding_count = descriptor_set.set->binding_count;
+            std::vector<VkDescriptorSetLayoutBinding> descriptor_bindings(descriptor_binding_count);
+
+            for (unsigned j = 0; j < descriptor_binding_count; ++j) {
+                const SpvReflectDescriptorBinding* descriptor_binding = descriptor_set.set->bindings[j];
+                
+                VkDescriptorType type = (VkDescriptorType) descriptor_binding->descriptor_type;
+                
+                // Create VkDescriptorSetLayoutBinding for descriptor set layout creation
+                descriptor_bindings[j].binding = descriptor_binding->binding;
+                descriptor_bindings[j].descriptorType = type;
+                descriptor_bindings[j].descriptorCount = descriptor_binding->count;
+                descriptor_bindings[j].stageFlags = descriptor_set.stages;
+                
+                // Immutable samplers are bound directly to the descriptor set layout and do not change
+                // Only applicable to descriptor bindings of type SAMPLER or COMBINED_SAMPLER
+                descriptor_bindings[j].pImmutableSamplers = nullptr;
+                
+                // Reflect uniform data
+                std::vector<Uniform> uniforms;
+                
+                if (type == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER || type == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER) {
+                    unsigned uniform_count = descriptor_binding->block.member_count;
+                    uniforms.resize(uniform_count);
+                    
+                    for (unsigned k = 0; k < uniform_count; ++k) {
+                        uniforms[k] = reflect_member(descriptor_binding->block.members[k]);
+                    }
+                }
+            }
+            
+            VkDescriptorSetLayoutCreateInfo descriptor_set_layout_create_info {
+                .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+                .pNext = nullptr,
+                .flags = 0,
+                .bindingCount = descriptor_binding_count,
+                .pBindings = &descriptor_bindings[0]
+            };
+            
+//            VkResult result = vkCreateDescriptorSetLayout(vulkan_device, &descriptor_set_layout_create_info, nullptr, &descriptor_set_layouts[i]);
+//            if (result != VK_SUCCESS) {
+//                // TODO: throw;
+//            }
+        }
         
-        };
+//        VkPipelineLayout pipeline_layout { };
+//        result = vkCreatePipelineLayout(vulkan_device, &pipeline_layout_create_info, nullptr, &pipeline_layout);
+//        if (result != VK_SUCCESS) {
+//        }
         
         VkGraphicsPipelineCreateInfo pipeline_create_info {
             .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
@@ -828,7 +565,7 @@ namespace vks {
             .flags = 0,
             .stageCount = 0,
             .pStages = nullptr,
-            .pVertexInputState = &vertex_input_state,
+//            .pVertexInputState = &vertex_input_state,
             .pInputAssemblyState = nullptr,
             .pTessellationState = nullptr,
             .pViewportState = nullptr,
@@ -847,8 +584,8 @@ namespace vks {
 //        VkPipeline pipeline { };
 //        result = vkCreateGraphicsPipelines(vulkan_device, nullptr, 1, &pipeline_create_info, nullptr, &pipeline);
 //        if (result != VK_SUCCESS) {
-//
 //        }
+        
     }
 
 
