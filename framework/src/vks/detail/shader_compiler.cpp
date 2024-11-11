@@ -1,5 +1,6 @@
 
 #include "vks/detail/shader_compiler.hpp"
+#include "vks/vulkan/utility.hpp"
 #include "vks/renderer.hpp"
 
 #include "utils/filesystem.hpp"
@@ -204,16 +205,16 @@ namespace vks {
         shader_module_create_info.codeSize = size;
         shader_module_create_info.pCode = spirv.data();
 
-//            VkResult result = vkCreateShaderModule(device, &shader_module_create_info, nullptr, &module.handle);
-//            if (result != VK_SUCCESS) {
-//                std::string error = utils::format("vkCreateShaderModule failed with error code {}", result);
-//                utils::logging::error(error);
-//                throw std::runtime_error(error);
-//            }
+        VkResult result = vkCreateShaderModule(device, &shader_module_create_info, nullptr, &module.vk_module);
+        if (result != VK_SUCCESS) {
+            std::string error = utils::format("vkCreateShaderModule failed with error code {}", result);
+            utils::logging::error(error);
+            throw std::runtime_error(error);
+        }
 
         // Generate reflection data using SPIR-V bytecode
         spvReflectCreateShaderModule(size, spirv.data(), &module.spv_module);
-        return std::move(module);
+        return module;
     }
 
 }

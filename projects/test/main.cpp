@@ -15,10 +15,11 @@ int main() {
     device->initialize(device_description);
     
     
-    
     ShaderStageDescription vertex_shader { };
     vertex_shader.set_filepath("shaders/sample.vert");
-    vertex_shader.define_macro("TEST", "1");
+    
+    ShaderStageDescription fragment_shader { };
+    fragment_shader.set_filepath("shaders/sample.frag");
 
     VertexInputDescription vertex_input { };
     vertex_input.add_attribute(0, "vertex_position");
@@ -29,6 +30,7 @@ int main() {
 
     GraphicsPipelineDescription graphics_pipeline { };
     graphics_pipeline.add_shader_stage(vertex_shader);
+    graphics_pipeline.add_shader_stage(fragment_shader);
     graphics_pipeline.set_vertex_input(vertex_input);
     
     device->create_graphics_pipeline(graphics_pipeline);

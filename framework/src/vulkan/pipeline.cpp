@@ -7,7 +7,7 @@ namespace vks {
     
     VertexInputDescription& VertexInputDescription::add_attribute(unsigned _binding, const char* name) {
         bool binding_exists = false;
-        unsigned binding_index = bindings.size();
+        std::size_t binding_index = bindings.size();
         
         bool attribute_exists = false;
         

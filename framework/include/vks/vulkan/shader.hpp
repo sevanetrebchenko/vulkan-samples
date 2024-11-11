@@ -4,6 +4,7 @@
 
 #include "vks/types.hpp"
 
+#include <utils/enum.hpp>
 #include <vulkan/vulkan.h>
 #include <filesystem> // std::filesystem::path
 #include <vector> // std::vector
@@ -31,8 +32,9 @@ namespace vks {
         
         None = VK_SHADER_STAGE_FLAG_BITS_MAX_ENUM,
     };
+    DEFINE_ENUM_BITFIELD_OPERATIONS(ShaderStage);
     
-    std::size_t to_pipeline_index(ShaderStage stage);
+    unsigned to_pipeline_index(ShaderStage stage);
     
     struct ShaderConstant {
         // Vulkan GLSL specialization constants must be one of: bool, int, uint, float, double

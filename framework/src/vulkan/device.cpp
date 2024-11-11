@@ -294,8 +294,101 @@ namespace vks {
         }
         
         // Create Vulkan device
+        // Enumerate all available physical devices
+        unsigned physical_device_count = 0u;
+        vkEnumeratePhysicalDevices(vulkan_instance, &physical_device_count, nullptr);
+    
+        if (physical_device_count == 0) {
+            throw std::runtime_error("failed to find a GPU that supports Vulkan!");
+        }
+    
+        std::vector<VkPhysicalDevice> physical_devices(physical_device_count);
+        vkEnumeratePhysicalDevices(vulkan_instance, &physical_device_count, physical_devices.data());
+    
+        // For now, use the first device by default
+        // TODO: score devices based on queue types, supported features, etc.
+        // TODO: check for requested feature support?
+        vulkan_physical_device = physical_devices[0];
         
+        VkDeviceCreateInfo device_create_info = { };
+        device_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
         
+        // Select enabled device features
+        device_create_info.pEnabledFeatures = nullptr;
+        
+        // Device extensions
+        device_create_info.enabledExtensionCount = 0;
+        device_create_info.ppEnabledExtensionNames = nullptr;
+        
+        // Initialize queue requirements and retrieve queue family indices
+        bool graphics_support_requested = true; // !settings.headless || enabled_queue_types & VK_QUEUE_GRAPHICS_BIT;
+        bool compute_support_requested = false; // enabled_queue_types & VK_QUEUE_COMPUTE_BIT;
+        bool transfer_support_requested = false; // enabled_queue_types & VK_QUEUE_TRANSFER_BIT;
+        bool presentation_support_requested = false; // !settings.headless; // Headless applications do not need presentation support
+        
+        std::vector<VkDeviceQueueCreateInfo> queue_create_infos { };
+        
+        // TODO: more intricate device queue selection
+        // For now, select ONE queue family that supports graphics, presentation (if required), compute (if requested), and transfer (if requested) operations (assuming there exists such a queue)
+        // TODO: multiple queues are not supported
+        unsigned queue_family_count = 0u;
+        vkGetPhysicalDeviceQueueFamilyProperties(vulkan_physical_device, &queue_family_count, nullptr);
+        
+        std::vector<VkQueueFamilyProperties> queue_families(queue_family_count);
+        vkGetPhysicalDeviceQueueFamilyProperties(vulkan_physical_device, &queue_family_count, queue_families.data());
+        
+        unsigned queue_family_index = queue_family_count; // Invalid index
+        
+        for (unsigned i = 0u; i < queue_family_count; ++i) {
+            bool has_graphics_support = queue_families[i].queueFlags & VK_QUEUE_GRAPHICS_BIT;
+            bool has_compute_support = queue_families[i].queueFlags & VK_QUEUE_COMPUTE_BIT;
+            
+            VkBool32 has_presentation_support = false;
+    //        vkGetPhysicalDeviceSurfaceSupportKHR(vulkan_physical_device, i, surface, &has_presentation_support);
+            
+            // Queues that support both graphics and compute operations also implicitly support transfer operations
+            bool has_transfer_support = (has_graphics_support && has_compute_support) || (queue_families[i].queueFlags & VK_QUEUE_TRANSFER_BIT);
+            
+            bool valid = true;
+            if (graphics_support_requested && !has_graphics_support) {
+                valid = false;
+            }
+            if (compute_support_requested && !has_compute_support) {
+                valid = false;
+            }
+            if (presentation_support_requested && !static_cast<bool>(has_presentation_support)) {
+                valid = false;
+            }
+            if (transfer_support_requested && !has_transfer_support) {
+                valid = false;
+            }
+            if (valid) {
+                queue_family_index = i;
+                
+                VkDeviceQueueCreateInfo& queue_create_info = queue_create_infos.emplace_back();
+                queue_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+                queue_create_info.queueFamilyIndex = queue_family_index;
+                queue_create_info.queueCount = 1;
+                
+                // Priority influences scheduling command buffer execution for this queue family
+                // Since this framework only uses one queue, this value does not matter
+                float queuePriority = 1.0f;
+                queue_create_info.pQueuePriorities = &queuePriority;
+                
+                break;
+            }
+        }
+        
+        if (queue_family_index == queue_family_count) {
+            throw std::runtime_error("unable to find queue family that satisfies application requirements");
+        }
+        
+        device_create_info.queueCreateInfoCount = static_cast<unsigned>(queue_create_infos.size());
+        device_create_info.pQueueCreateInfos = queue_create_infos.data();
+        
+        if (vkCreateDevice(vulkan_physical_device, &device_create_info, nullptr, &vulkan_device) != VK_SUCCESS) {
+            throw std::runtime_error("failed to create logical device!");
+        }
     }
 
     void Device::shutdown() {
@@ -351,9 +444,10 @@ namespace vks {
 
         // The vertex shader is the only required stage
         unsigned vertex_stage_index = to_pipeline_index(ShaderStage::Vertex);
-        bool has_vertex_shader = pipeline_description.shader_stages[vertex_stage_index].stage != ShaderStage::None;
         
-        if (!has_vertex_shader) {
+        // Shader stages that are marked as ShaderStage::None are not active in the pipeline
+        bool has_vertex_stage = pipeline_description.shader_stages[vertex_stage_index].stage != ShaderStage::None;
+        if (!has_vertex_stage) {
             std::string error = "Failed to create graphics pipeline - vertex shader stage is required";
             utils::logging::error(error);
             throw std::runtime_error(error);
@@ -460,99 +554,106 @@ namespace vks {
             .vertexAttributeDescriptionCount = (unsigned) vertex_attributes.size(),
             .pVertexAttributeDescriptions = &vertex_attributes[0]
         };
-
-        struct DescriptorSet {
-            unsigned index;
-            const SpvReflectDescriptorSet* set;
-            VkShaderStageFlags stages;
-        };
         
         // Retrieve the reflected descriptor set information
-        std::vector<DescriptorSet> descriptor_sets;
+        std::vector<DescriptorSetLayout> descriptor_set_layouts;
         
-//        for (unsigned stage = 0; stage < 5; ++stage) {
-//            const ShaderModule* shader_module = shader_modules[stage];
-//            if (!shader_module) {
-//                continue;
-//            }
-//
-//            for (unsigned i = 0; i < shader_module->reflection_data.descriptor_set_count; ++i) {
-//                const SpvReflectDescriptorSet& descriptor_set = shader_module->reflection_data.descriptor_sets[i];
-//                unsigned index = descriptor_set.set;
-//
-//                // Only add unique set indices
-//                bool found = false;
-//                for (const DescriptorSet& current : descriptor_sets) {
-//                    if (current.index == index) {
-//                        found = true;
-//                        break;
-//                    }
-//                }
-//
-//                if (!found) {
-//                    DescriptorSet set {
-//                        .index = index,
-//                        .set = &descriptor_set,
-//                        .stages = (VkShaderStageFlags) shader_module->reflection_data.shader_stage
-//                    };
-//                    descriptor_sets.emplace_back(set);
-//                }
-//            }
-//        }
+        for (unsigned stage = 0; stage < 5; ++stage) {
+            const ShaderModule& shader_module = shader_modules[stage];
+            ShaderStage shader_stage = pipeline_description.shader_stages[stage].stage;
+            
+            // Shader stages that are marked as ShaderStage::None are not active in the pipeline
+            if (shader_stage == ShaderStage::None) {
+                continue;
+            }
 
-        unsigned descriptor_set_count = descriptor_sets.size();
-        
-        // Generate descriptor set bindings
-        std::vector<VkDescriptorSetLayout> descriptor_set_layouts(descriptor_set_count);
-        
-        for (unsigned i = 0; i < descriptor_set_count; ++i) {
-            const DescriptorSet& descriptor_set = descriptor_sets[i];
+            for (unsigned i = 0; i < shader_module.spv_module.descriptor_set_count; ++i) {
+                const SpvReflectDescriptorSet& descriptor_set = shader_module.spv_module.descriptor_sets[i];
+                unsigned index = descriptor_set.set;
 
-            // Create descriptor set layout
-            unsigned descriptor_binding_count = descriptor_set.set->binding_count;
-            std::vector<VkDescriptorSetLayoutBinding> descriptor_bindings(descriptor_binding_count);
-
-            for (unsigned j = 0; j < descriptor_binding_count; ++j) {
-                const SpvReflectDescriptorBinding* descriptor_binding = descriptor_set.set->bindings[j];
+                bool found = false;
+                std::size_t descriptor_set_index = descriptor_set_layouts.size();
                 
-                VkDescriptorType type = (VkDescriptorType) descriptor_binding->descriptor_type;
-                
-                // Create VkDescriptorSetLayoutBinding for descriptor set layout creation
-                descriptor_bindings[j].binding = descriptor_binding->binding;
-                descriptor_bindings[j].descriptorType = type;
-                descriptor_bindings[j].descriptorCount = descriptor_binding->count;
-                descriptor_bindings[j].stageFlags = descriptor_set.stages;
-                
-                // Immutable samplers are bound directly to the descriptor set layout and do not change
-                // Only applicable to descriptor bindings of type SAMPLER or COMBINED_SAMPLER
-                descriptor_bindings[j].pImmutableSamplers = nullptr;
-                
-                // Reflect uniform data
-                std::vector<Uniform> uniforms;
-                
-                if (type == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER || type == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER) {
-                    unsigned uniform_count = descriptor_binding->block.member_count;
-                    uniforms.resize(uniform_count);
-                    
-                    for (unsigned k = 0; k < uniform_count; ++k) {
-                        uniforms[k] = reflect_member(descriptor_binding->block.members[k]);
+                for (unsigned j = 0; j < descriptor_set_index; ++j) {
+                    if (descriptor_set_layouts[j].index == index) {
+                        descriptor_set_index = j;
+                        found = true;
+                        break;
                     }
                 }
+                
+                if (!found) {
+                    // Create new descriptor set layout
+                    DescriptorSetLayout& descriptor_set_layout = descriptor_set_layouts.emplace_back();
+                    descriptor_set_layout.index = index;
+                }
+                
+                DescriptorSetLayout& descriptor_set_layout = descriptor_set_layouts[descriptor_set_index];
+                
+                // Register new descriptor set layout
+                // TODO: query for shared existing layout here
+                
+                unsigned descriptor_binding_count = descriptor_set.binding_count;
+                
+                for (unsigned j = 0; j < descriptor_binding_count; ++j) {
+                    const SpvReflectDescriptorBinding* descriptor_binding = descriptor_set.bindings[j];
+                    
+                    unsigned binding = descriptor_binding->binding;
+                    ResourceType type = (ResourceType) descriptor_binding->descriptor_type;
+                    unsigned count = descriptor_binding->count;
+
+                    // If a given resource is already present in the descriptor set layout, it is shared between shader stages
+                    found = false;
+                    for (Resource& resource : descriptor_set_layout.resources) {
+                        if (resource.binding == binding && resource.type == type && resource.count == count) {
+                            // Mark resource as shared between shader stages
+                            resource.stages |= shader_stage;
+                            
+                            found = true;
+                            break;
+                        }
+                    }
+                    
+                    if (!found) {
+                        // Register new resource
+                        Resource& resource = descriptor_set_layout.resources.emplace_back();
+                        resource.binding = binding;
+                        resource.type = type;
+                        resource.count = count;
+                        resource.stages = shader_stage;
+                    }
+                    
+                    // Reflect uniform data
+//                    std::vector<Uniform> uniforms;
+//                    if (type == ResourceType::UniformBuffer) {
+//                        unsigned uniform_count = descriptor_binding->block.member_count;
+//                        uniforms.resize(uniform_count);
+//
+//                        for (unsigned k = 0; k < uniform_count; ++k) {
+//                            uniforms[k] = reflect_member(descriptor_binding->block.members[k]);
+//                        }
+//                    }
+                }
             }
-            
-            VkDescriptorSetLayoutCreateInfo descriptor_set_layout_create_info {
-                .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-                .pNext = nullptr,
-                .flags = 0,
-                .bindingCount = descriptor_binding_count,
-                .pBindings = &descriptor_bindings[0]
-            };
+        }
+//
+//        // Immutable samplers are bound directly to the descriptor set layout and do not change
+//        // Only applicable to descriptor bindings of type SAMPLER or COMBINED_SAMPLER
+//        descriptor_set_layout.resources[j].pImmutableSamplers = nullptr;
+
+//            VkDescriptorSetLayoutCreateInfo descriptor_set_layout_create_info {
+//                .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+//                .pNext = nullptr,
+//                .flags = 0,
+//                .bindingCount = descriptor_binding_count,
+//                .pBindings = &descriptor_bindings[0]
+//            };
             
 //            VkResult result = vkCreateDescriptorSetLayout(vulkan_device, &descriptor_set_layout_create_info, nullptr, &descriptor_set_layouts[i]);
 //            if (result != VK_SUCCESS) {
 //                // TODO: throw;
 //            }
-        }
+//        }
         
 //        VkPipelineLayout pipeline_layout { };
 //        result = vkCreatePipelineLayout(vulkan_device, &pipeline_layout_create_info, nullptr, &pipeline_layout);

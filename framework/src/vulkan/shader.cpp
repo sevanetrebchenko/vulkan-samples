@@ -7,7 +7,7 @@
 
 namespace vks {
     
-    std::size_t to_pipeline_index(ShaderStage stage) {
+    unsigned to_pipeline_index(ShaderStage stage) {
         switch (stage) {
             // Graphics pipelines
             case ShaderStage::Vertex:

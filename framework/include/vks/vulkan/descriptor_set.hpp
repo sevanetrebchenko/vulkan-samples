@@ -4,13 +4,14 @@
 
 #include "vks/vulkan/shader.hpp"
 
+#include "utils/enum.hpp"
 #include <vulkan/vulkan.h>
 
 namespace vks {
 
     enum class ResourceType {
-        UniformBuffer,
-        Sampler
+        UniformBuffer = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+        StorageBuffer = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
     };
     
     // Represents a single shader resource (uniform buffer, sampler, etc.)
