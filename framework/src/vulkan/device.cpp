@@ -430,29 +430,90 @@ namespace vks {
     std::shared_ptr<GraphicsPipeline> Device::create_graphics_pipeline(GraphicsPipelineDescription pipeline_description) {
         VkResult result;
         
-        // A Vulkan graphics pipeline can have up to 5 shader stages
-        ShaderModule shader_modules[5] = { };
-        for (unsigned stage = 0; stage < 5; ++stage) {
-            const ShaderStageDescription& shader_stage = pipeline_description.shader_stages[stage];
-            if (shader_stage.stage == ShaderStage::None) {
-                continue;
-            }
-            
-            shader_modules[stage] = compile_shader(vulkan_device, shader_stage);
-        }
-
-        // The vertex shader is the only required stage
-        unsigned vertex_stage_index = to_pipeline_index(ShaderStage::Vertex);
+        ShaderStage active_shader_stages = ShaderStage::None;
+        unsigned shader_stage_count = 0;
         
-        // Shader stages that are marked as ShaderStage::None are not active in the pipeline
-        bool has_vertex_stage = pipeline_description.shader_stages[vertex_stage_index].stage != ShaderStage::None;
-        if (!has_vertex_stage) {
+        for (const ShaderStageDescription& shader_stage : pipeline_description.shader_stages) {
+            active_shader_stages |= shader_stage.stage;
+            shader_stage_count += (bool) shader_stage.stage;
+        }
+        
+        // Remove ShaderStage::None from active shader stage bitset
+        active_shader_stages &= ShaderStage::Vertex | ShaderStage::TesselationControl | ShaderStage::TesselationEvaluation | ShaderStage::Geometry | ShaderStage::Fragment;
+        
+        // The vertex shader is the only required stage
+        if (!test(active_shader_stages, ShaderStage::Vertex)) {
             std::string error = "Failed to create graphics pipeline - vertex shader stage is required";
             utils::logging::error(error);
             throw std::runtime_error(error);
         }
         
-        const ShaderModule& vertex_shader_module = shader_modules[vertex_stage_index];
+        // A Vulkan graphics pipeline can have up to 5 shader stages
+        std::vector<ShaderModule> shader_modules;
+        shader_modules.reserve(shader_stage_count);
+        
+        std::vector<VkPipelineShaderStageCreateInfo> shader_stages;
+        shader_stages.reserve(shader_stage_count);
+        
+        // Specialization constants are referenced by VkPipelineShaderStageCreateInfo and need to remain valid until the pipeline is created
+        std::vector<VkSpecializationMapEntry> specialization_constants;
+        
+        for (const ShaderStageDescription& shader_stage : pipeline_description.shader_stages) {
+            if (shader_stage.stage == ShaderStage::None) {
+                // Shader stage was not specified in the pipeline description and is considered inactive
+                continue;
+            }
+            
+            ShaderModule& shader_module = shader_modules.emplace_back(compile_shader(vulkan_device, shader_stage));
+
+            VkPipelineShaderStageCreateInfo& shader_stage_create_info = shader_stages.emplace_back();
+            shader_stage_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+            shader_stage_create_info.pNext = nullptr;
+            shader_stage_create_info.flags = 0;
+            shader_stage_create_info.stage = (VkShaderStageFlagBits) shader_stage.stage;
+            shader_stage_create_info.module = shader_module.vk_module;
+            shader_stage_create_info.pName = shader_module.spv_module.entry_point_name;
+            
+            // Generate shader specialization constant state from stage description
+            // Specialization constants have default values defined in the shader code, so we only need to create VkSpecializationMapEntry for specialization constants specified in the pipeline description
+            // Note that this does not necessarily reference all specialization constants in the shader
+            std::size_t specialization_constant_count = shader_stage.constants.size();
+            
+            unsigned offset = 0;
+            
+            for (unsigned i = 0; i < specialization_constant_count; ++i) {
+                const ShaderConstant& shader_constant = shader_stage.constants[i];
+                
+                for (unsigned j = 0; j < shader_module.spv_module.spec_constant_count; ++j) {
+                    const SpvReflectSpecializationConstant& specialization_constant = shader_module.spv_module.spec_constants[j];
+                    if (strcmp(shader_constant.name, specialization_constant.name) == 0) {
+                        // Specialization constant is referenced in the shader code, update value
+                        VkSpecializationMapEntry& specialization = specialization_constants.emplace_back();
+                        specialization.constantID = specialization_constant.constant_id;
+                        specialization.offset = offset + offsetof(ShaderConstant, value);
+                        specialization.size = shader_constant.size;
+                        break;
+                    }
+                }
+                
+                // Shader specialization constants provided through the pipeline description may not exist in the shader itself (this is not an error)
+                // Ensure that the offset remains consistent with the data present in the 'constants' array
+                offset += sizeof(ShaderConstant);
+            }
+            
+            VkSpecializationInfo specialization_info { };
+            specialization_info.mapEntryCount = specialization_constant_count;
+            specialization_info.pMapEntries = specialization_constants.data();
+            
+            // All specialization constants are stored in the constants buffer
+            // Individual constants are configured by offset + size
+            specialization_info.dataSize = shader_stage.constants.size() * sizeof(ShaderConstant); // Size in bytes
+            specialization_info.pData = shader_stage.constants.data();
+            
+            shader_stage_create_info.pSpecializationInfo = &specialization_info;
+        }
+        
+        const ShaderModule& vertex_shader_module = shader_modules[0]; // shader_modules[to_pipeline_index(ShaderStage::Vertex)];
         for (unsigned i = 0; i < vertex_shader_module.spv_module.input_variable_count; ++i) {
             SpvReflectInterfaceVariable* input_variable = vertex_shader_module.spv_module.input_variables[i];
             const char* name = input_variable->name;
@@ -507,10 +568,9 @@ namespace vks {
             }
             
             // Register new VkVertexInputBindingDescription
-            VkVertexInputBindingDescription& binding_description = vertex_bindings[i];
-            binding_description.binding = vertex_binding.binding;
-            binding_description.stride = stride;
-            binding_description.inputRate = (VkVertexInputRate) vertex_binding.rate;
+            vertex_bindings[i].binding = vertex_binding.binding;
+            vertex_bindings[i].stride = stride;
+            vertex_bindings[i].inputRate = (VkVertexInputRate) vertex_binding.rate;
         }
         
         // Create the vertex attribute layout as specified by the shader reflection data as this matches the expected layout of the data in the vertex buffer
@@ -674,7 +734,6 @@ namespace vks {
         
         VkPipelineLayoutCreateInfo pipeline_layout_create_info { };
         pipeline_layout_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-        
         pipeline_layout_create_info.setLayoutCount = (unsigned) descriptor_set_layout_count;
         pipeline_layout_create_info.pSetLayouts = _descriptor_set_layouts.data();
         pipeline_layout_create_info.pushConstantRangeCount = 0;
@@ -692,8 +751,8 @@ namespace vks {
             .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
             .pNext = nullptr,
             .flags = 0,
-//            .stageCount = (unsigned) shader_stages.size(),
-//            .pStages = shader_stages.data(),
+            .stageCount = (unsigned) shader_stages.size(),
+            .pStages = shader_stages.data(),
             .pVertexInputState = &vertex_input_state,
             .pInputAssemblyState = nullptr,
             .pTessellationState = nullptr,
