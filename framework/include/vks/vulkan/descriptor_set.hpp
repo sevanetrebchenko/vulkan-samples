@@ -9,15 +9,15 @@
 
 namespace vks {
 
-    enum class ResourceType {
+    enum class DescriptorType {
         UniformBuffer = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
         StorageBuffer = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
     };
     
     // Represents a single shader resource (uniform buffer, sampler, etc.)
-    struct Resource {
+    struct Descriptor {
         unsigned binding;
-        ResourceType type;
+        DescriptorType type;
         unsigned count;
         ShaderStage stages; // Stages in which this resource is used
     };
@@ -26,25 +26,10 @@ namespace vks {
     // Separate from descriptor set instances (multiple descriptor sets can use the same layout)
     struct DescriptorSetLayout {
         unsigned index;
-        std::vector<Resource> resources;
-    };
-    
-    enum class UniformType {
-        Bool,
-        Integer,
-        Float,
-        Double,
-        
-        Vector,
-        Matrix,
-        
-        Struct,
-        Array
+        std::vector<Descriptor> descriptors;
     };
     
     struct Uniform {
-        UniformType type; // Underlying uniform type
-        
         const char* name;
         unsigned offset; // Global offset into the uniform buffer, accounting for alignment
         unsigned size;
@@ -59,10 +44,20 @@ namespace vks {
     };
     
     struct DescriptorSetDescription {
-    
+        DescriptorSetDescription& set_layout(DescriptorSetLayout layout);
+        DescriptorSetDescription& enable_dynamic_descriptors(bool enable);
+        
     };
     
     struct DescriptorSet {
+        
+        template <typename T>
+        void set_uniform(const char* name, const T& data);
+        
+        std::shared_ptr<DescriptorSetLayout> layout;
+        std::vector<Uniform> uniforms;
+        
+        // TODO: texture samplers
     };
     
 }

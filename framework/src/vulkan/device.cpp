@@ -398,7 +398,6 @@ namespace vks {
     
     Uniform reflect_member(const SpvReflectBlockVariable& var) {
         Uniform uniform {
-            .type = UniformType::Integer,
             .name = var.name,
             .offset = var.absolute_offset,
             .size = var.size
@@ -407,8 +406,6 @@ namespace vks {
         unsigned member_count = var.member_count;
         if (member_count) {
             // Uniform is a struct type
-            uniform.type = UniformType::Struct;
-            
             uniform.members.resize(member_count);
             for (unsigned i = 0; i < member_count; ++i) {
                 uniform.members[i] = reflect_member(var.members[i]);
@@ -431,6 +428,8 @@ namespace vks {
     }
     
     std::shared_ptr<GraphicsPipeline> Device::create_graphics_pipeline(GraphicsPipelineDescription pipeline_description) {
+        VkResult result;
+        
         // A Vulkan graphics pipeline can have up to 5 shader stages
         ShaderModule shader_modules[5] = { };
         for (unsigned stage = 0; stage < 5; ++stage) {
@@ -550,9 +549,9 @@ namespace vks {
             .pNext = nullptr,
             .flags = 0,
             .vertexBindingDescriptionCount = (unsigned) vertex_bindings.size(),
-            .pVertexBindingDescriptions = &vertex_bindings[0],
+            .pVertexBindingDescriptions = vertex_bindings.data(),
             .vertexAttributeDescriptionCount = (unsigned) vertex_attributes.size(),
-            .pVertexAttributeDescriptions = &vertex_attributes[0]
+            .pVertexAttributeDescriptions = vertex_attributes.data()
         };
         
         // Retrieve the reflected descriptor set information
@@ -599,15 +598,15 @@ namespace vks {
                     const SpvReflectDescriptorBinding* descriptor_binding = descriptor_set.bindings[j];
                     
                     unsigned binding = descriptor_binding->binding;
-                    ResourceType type = (ResourceType) descriptor_binding->descriptor_type;
+                    DescriptorType type = (DescriptorType) descriptor_binding->descriptor_type;
                     unsigned count = descriptor_binding->count;
 
                     // If a given resource is already present in the descriptor set layout, it is shared between shader stages
                     found = false;
-                    for (Resource& resource : descriptor_set_layout.resources) {
-                        if (resource.binding == binding && resource.type == type && resource.count == count) {
+                    for (Descriptor& descriptor : descriptor_set_layout.descriptors) {
+                        if (descriptor.binding == binding && descriptor.type == type && descriptor.count == count) {
                             // Mark resource as shared between shader stages
-                            resource.stages |= shader_stage;
+                            descriptor.stages |= shader_stage;
                             
                             found = true;
                             break;
@@ -616,7 +615,7 @@ namespace vks {
                     
                     if (!found) {
                         // Register new resource
-                        Resource& resource = descriptor_set_layout.resources.emplace_back();
+                        Descriptor& resource = descriptor_set_layout.descriptors.emplace_back();
                         resource.binding = binding;
                         resource.type = type;
                         resource.count = count;
@@ -636,37 +635,66 @@ namespace vks {
                 }
             }
         }
-//
-//        // Immutable samplers are bound directly to the descriptor set layout and do not change
-//        // Only applicable to descriptor bindings of type SAMPLER or COMBINED_SAMPLER
-//        descriptor_set_layout.resources[j].pImmutableSamplers = nullptr;
-
-//            VkDescriptorSetLayoutCreateInfo descriptor_set_layout_create_info {
-//                .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-//                .pNext = nullptr,
-//                .flags = 0,
-//                .bindingCount = descriptor_binding_count,
-//                .pBindings = &descriptor_bindings[0]
-//            };
-            
-//            VkResult result = vkCreateDescriptorSetLayout(vulkan_device, &descriptor_set_layout_create_info, nullptr, &descriptor_set_layouts[i]);
-//            if (result != VK_SUCCESS) {
-//                // TODO: throw;
-//            }
-//        }
         
-//        VkPipelineLayout pipeline_layout { };
-//        result = vkCreatePipelineLayout(vulkan_device, &pipeline_layout_create_info, nullptr, &pipeline_layout);
-//        if (result != VK_SUCCESS) {
-//        }
+        std::size_t descriptor_set_layout_count = descriptor_set_layouts.size();
+        std::vector<VkDescriptorSetLayout> _descriptor_set_layouts(descriptor_set_layout_count);
+        
+        for (unsigned i = 0; i < descriptor_set_layout_count; ++i) {
+            const DescriptorSetLayout& descriptor_set_layout = descriptor_set_layouts[i];
+            
+            std::size_t binding_count = descriptor_set_layout.descriptors.size();
+            std::vector<VkDescriptorSetLayoutBinding> bindings(binding_count);
+            
+            for (unsigned j = 0; j < binding_count; ++j) {
+                bindings[j].binding = descriptor_set_layout.descriptors[j].binding;
+                bindings[j].descriptorType = (VkDescriptorType) descriptor_set_layout.descriptors[j].type;
+                bindings[j].descriptorCount = descriptor_set_layout.descriptors[j].count;
+                bindings[j].stageFlags = (VkShaderStageFlags) descriptor_set_layout.descriptors[j].stages;
+                
+                // Immutable samplers are bound directly to the descriptor set layout and do not change
+                // Only applicable to descriptor bindings of type SAMPLER or COMBINED_SAMPLER
+                bindings[i].pImmutableSamplers = nullptr;
+            }
+            
+            VkDescriptorSetLayoutCreateInfo descriptor_set_layout_create_info {
+                .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+                .pNext = nullptr,
+                .flags = 0,
+                .bindingCount = (unsigned) binding_count,
+                .pBindings = &bindings[0]
+            };
+            
+            result = vkCreateDescriptorSetLayout(vulkan_device, &descriptor_set_layout_create_info, nullptr, &_descriptor_set_layouts[i]);
+            if (result != VK_SUCCESS) {
+                std::string error = utils::format("failed to create descriptor set layout");
+                utils::logging::error(error);
+                throw std::runtime_error(error);
+            }
+        }
+        
+        VkPipelineLayoutCreateInfo pipeline_layout_create_info { };
+        pipeline_layout_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+        
+        pipeline_layout_create_info.setLayoutCount = (unsigned) descriptor_set_layout_count;
+        pipeline_layout_create_info.pSetLayouts = _descriptor_set_layouts.data();
+        pipeline_layout_create_info.pushConstantRangeCount = 0;
+        pipeline_layout_create_info.pPushConstantRanges = nullptr;
+    
+        VkPipelineLayout pipeline_layout { };
+        result = vkCreatePipelineLayout(vulkan_device, &pipeline_layout_create_info, nullptr, &pipeline_layout);
+        if (result != VK_SUCCESS) {
+            std::string error = utils::format("failed to create pipeline layout");
+            utils::logging::error(error);
+            throw std::runtime_error(error);
+        }
         
         VkGraphicsPipelineCreateInfo pipeline_create_info {
             .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
             .pNext = nullptr,
             .flags = 0,
-            .stageCount = 0,
-            .pStages = nullptr,
-//            .pVertexInputState = &vertex_input_state,
+//            .stageCount = (unsigned) shader_stages.size(),
+//            .pStages = shader_stages.data(),
+            .pVertexInputState = &vertex_input_state,
             .pInputAssemblyState = nullptr,
             .pTessellationState = nullptr,
             .pViewportState = nullptr,
@@ -675,7 +703,7 @@ namespace vks {
             .pDepthStencilState = nullptr,
             .pColorBlendState = nullptr,
             .pDynamicState = nullptr,
-            .layout = { },
+            .layout = pipeline_layout,
             .renderPass = { },
             .subpass = 0,
             .basePipelineHandle = nullptr,

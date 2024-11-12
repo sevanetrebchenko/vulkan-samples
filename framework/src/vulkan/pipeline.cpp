@@ -95,7 +95,7 @@ namespace vks {
         if (stage_description.stage > ShaderStage::Fragment) {
             throw std::runtime_error("invalid stage");
         }
-        shader_stages[to_pipeline_index(stage_description.stage)] = std::move(stage_description);
+        shader_stages[to_pipeline_index(stage_description.stage)] = stage_description;
         return *this;
     }
     

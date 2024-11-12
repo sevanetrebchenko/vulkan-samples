@@ -3,6 +3,7 @@
 #define DEVICE_HPP
 
 #include "vks/vulkan/pipeline.hpp"
+#include "vks/vulkan/descriptor_set.hpp"
 
 #include <vulkan/vulkan.h>
 

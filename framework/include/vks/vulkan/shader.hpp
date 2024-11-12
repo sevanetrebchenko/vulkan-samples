@@ -30,7 +30,7 @@ namespace vks {
         // Raytracing pipeline shader stages
         // ...
         
-        None = VK_SHADER_STAGE_FLAG_BITS_MAX_ENUM,
+        None = 0,
     };
     DEFINE_ENUM_BITFIELD_OPERATIONS(ShaderStage);
     
