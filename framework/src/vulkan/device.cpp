@@ -492,6 +492,8 @@ namespace vks {
         
         // Specialization constants are referenced by VkPipelineShaderStageCreateInfo and need to remain valid until the pipeline is created
         std::vector<VkSpecializationMapEntry> specialization_constants(active_specialization_constant_count);
+        std::vector<VkSpecializationInfo> specialization_infos(shader_stage_count);
+        
         unsigned specialization_constant_index = 0;
         
         for (unsigned i = 0; i < shader_stage_count; ++i) {
@@ -510,20 +512,20 @@ namespace vks {
             unsigned start = specialization_constant_index;
             
             // Generate shader specialization constant state from stage description
-            // Specialization constants have default values defined in the shader code, so we only need to create VkSpecializationMapEntry for specialization constants specified in the pipeline description
-            // Note that this does not necessarily reference all specialization constants in the shader (unreferenced specialization constants will be compiled with their default value, specified in the shader)
-            unsigned offset = 0;
+            unsigned buffer_offset = 0;
             
-            for (unsigned j = 0; j < shader_stage.constants.size(); ++j) {
-                const ShaderConstant& shader_constant = shader_stage.constants[j];
-                
-                for (unsigned k = 0; k < shader_module.spv_module.spec_constant_count; ++k) {
-                    const SpvReflectSpecializationConstant& specialization_constant = shader_module.spv_module.spec_constants[k];
+            for (const ShaderConstant& shader_constant : shader_stage.constants) {
+                for (unsigned j = 0; j < shader_module.spv_module.spec_constant_count; ++j) {
+                    const SpvReflectSpecializationConstant& specialization_constant = shader_module.spv_module.spec_constants[j];
                     if (strcmp(shader_constant.name, specialization_constant.name) == 0) {
-                        // Specialization constant is referenced in the shader code, update value
+                        // Found active specialization constant
                         VkSpecializationMapEntry& specialization = specialization_constants[specialization_constant_index++];
                         specialization.constantID = specialization_constant.constant_id;
-                        specialization.offset = offset + offsetof(ShaderConstant, value);
+                        
+                        // 'offset' is the byte offset of the specialization constant value in the data buffer referenced by VkSpecializationInfo::pData
+                        specialization.offset = buffer_offset + offsetof(ShaderConstant, value);
+                        
+                        // Only read the number of bytes required to represent the shader constant value
                         specialization.size = shader_constant.size;
                         break;
                     }
@@ -531,19 +533,19 @@ namespace vks {
                 
                 // Shader specialization constants provided through the pipeline description may not exist in the shader itself
                 // Ensure that the offset remains consistent with the data present in the 'constants' array
-                offset += sizeof(ShaderConstant);
+                buffer_offset += sizeof(ShaderConstant);
             }
             
             unsigned count = specialization_constant_index - start;
             if (count) {
-                VkSpecializationInfo specialization_info { };
+                VkSpecializationInfo& specialization_info = specialization_infos[i];
                 specialization_info.mapEntryCount = count;
                 specialization_info.pMapEntries = &specialization_constants[0] + start;
                 
                 // All specialization constants are stored in the constants buffer
                 // Individual constants are configured by offset + size
-                specialization_info.dataSize = count * sizeof(ShaderConstant); // Size in bytes
-                specialization_info.pData = specialization_constants.data() + start; // Offset to the start of the block for the current shader module
+                specialization_info.dataSize = shader_stage.constants.size() * sizeof(ShaderConstant); // Size in bytes
+                specialization_info.pData = shader_stage.constants.data(); // Offset to the start of the block for the current shader module
                 
                 shader_stage_create_info.pSpecializationInfo = &specialization_info;
             }
