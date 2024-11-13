@@ -427,68 +427,101 @@ namespace vks {
         return std::move(uniform);
     }
     
-    std::shared_ptr<GraphicsPipeline> Device::create_graphics_pipeline(GraphicsPipelineDescription pipeline_description) {
-        VkResult result;
-        
-        ShaderStage active_shader_stages = ShaderStage::None;
-        unsigned shader_stage_count = 0;
-        
-        for (const ShaderStageDescription& shader_stage : pipeline_description.shader_stages) {
-            active_shader_stages |= shader_stage.stage;
-            shader_stage_count += (bool) shader_stage.stage;
+    bool has_shader_stage(const std::vector<ShaderStageDescription>& shader_stages, ShaderStage stage) {
+        for (const ShaderStageDescription& shader_stage : shader_stages) {
+            if (shader_stage.stage == stage) {
+                return true;
+            }
         }
         
-        // Remove ShaderStage::None from active shader stage bitset
-        active_shader_stages &= ShaderStage::Vertex | ShaderStage::TesselationControl | ShaderStage::TesselationEvaluation | ShaderStage::Geometry | ShaderStage::Fragment;
-        
-        // The vertex shader is the only required stage
-        if (!test(active_shader_stages, ShaderStage::Vertex)) {
+        return false;
+    }
+
+    unsigned get_shader_stage_index(const std::vector<ShaderStageDescription>& shader_stages, ShaderStage stage) {
+        std::size_t shader_stage_count = shader_stages.size();
+        for (unsigned i = 0; i < shader_stage_count; ++i) {
+            if (shader_stages[i].stage == stage) {
+                return i;
+            }
+        }
+        return shader_stage_count;
+    }
+    
+    std::shared_ptr<GraphicsPipeline> Device::create_graphics_pipeline(GraphicsPipelineDescription pipeline_description) {
+        VkResult result;
+
+        // The vertex shader is the only required stage for a valid graphics pipeline
+        if (!has_shader_stage(pipeline_description.shader_stages, ShaderStage::Vertex)) {
             std::string error = "Failed to create graphics pipeline - vertex shader stage is required";
             utils::logging::error(error);
             throw std::runtime_error(error);
         }
         
-        // A Vulkan graphics pipeline can have up to 5 shader stages
+        std::size_t shader_stage_count = pipeline_description.shader_stages.size();
+        
+        // Compile shader stages and generate reflection data
         std::vector<ShaderModule> shader_modules;
         shader_modules.reserve(shader_stage_count);
         
-        std::vector<VkPipelineShaderStageCreateInfo> shader_stages;
-        shader_stages.reserve(shader_stage_count);
+        for (const ShaderStageDescription& shader_stage : pipeline_description.shader_stages) {
+            shader_modules.emplace_back(compile_shader(vulkan_device, shader_stage));
+        }
+        
+        std::vector<VkPipelineShaderStageCreateInfo> shader_stages(shader_stage_count);
+        
+        // An active specialization constant is one that is both present in the shader and in the pipeline description
+        // Each active specialization constant needs a corresponding VkSpecializationMapEntry
+        unsigned active_specialization_constant_count = 0;
+        
+        // Determine the total number of active specialization constants across all shader stages
+        for (unsigned i = 0; i < shader_stage_count; ++i) {
+            const ShaderModule& shader_module = shader_modules[i];
+            const ShaderStageDescription& shader_stage = pipeline_description.shader_stages[i];
+            
+            for (const ShaderConstant& shader_constant : shader_stage.constants) {
+                for (unsigned j = 0; j < shader_module.spv_module.spec_constant_count; ++j) {
+                    const SpvReflectSpecializationConstant& specialization_constant = shader_module.spv_module.spec_constants[j];
+                    if (strcmp(shader_constant.name, specialization_constant.name) == 0) {
+                        // Found active specialization constant
+                        ++active_specialization_constant_count;
+                        break;
+                    }
+                }
+            }
+        }
         
         // Specialization constants are referenced by VkPipelineShaderStageCreateInfo and need to remain valid until the pipeline is created
-        std::vector<VkSpecializationMapEntry> specialization_constants;
+        std::vector<VkSpecializationMapEntry> specialization_constants(active_specialization_constant_count);
+        unsigned specialization_constant_index = 0;
         
-        for (const ShaderStageDescription& shader_stage : pipeline_description.shader_stages) {
-            if (shader_stage.stage == ShaderStage::None) {
-                // Shader stage was not specified in the pipeline description and is considered inactive
-                continue;
-            }
-            
-            ShaderModule& shader_module = shader_modules.emplace_back(compile_shader(vulkan_device, shader_stage));
+        for (unsigned i = 0; i < shader_stage_count; ++i) {
+            const ShaderStageDescription& shader_stage = pipeline_description.shader_stages[i];
+            const ShaderModule& shader_module = shader_modules[i];
 
-            VkPipelineShaderStageCreateInfo& shader_stage_create_info = shader_stages.emplace_back();
+            VkPipelineShaderStageCreateInfo& shader_stage_create_info = shader_stages[i];
             shader_stage_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
             shader_stage_create_info.pNext = nullptr;
             shader_stage_create_info.flags = 0;
             shader_stage_create_info.stage = (VkShaderStageFlagBits) shader_stage.stage;
             shader_stage_create_info.module = shader_module.vk_module;
             shader_stage_create_info.pName = shader_module.spv_module.entry_point_name;
+            shader_stage_create_info.pSpecializationInfo = nullptr;
+            
+            unsigned start = specialization_constant_index;
             
             // Generate shader specialization constant state from stage description
             // Specialization constants have default values defined in the shader code, so we only need to create VkSpecializationMapEntry for specialization constants specified in the pipeline description
-            // Note that this does not necessarily reference all specialization constants in the shader
-            std::size_t specialization_constant_count = shader_stage.constants.size();
-            
+            // Note that this does not necessarily reference all specialization constants in the shader (unreferenced specialization constants will be compiled with their default value, specified in the shader)
             unsigned offset = 0;
             
-            for (unsigned i = 0; i < specialization_constant_count; ++i) {
-                const ShaderConstant& shader_constant = shader_stage.constants[i];
+            for (unsigned j = 0; j < shader_stage.constants.size(); ++j) {
+                const ShaderConstant& shader_constant = shader_stage.constants[j];
                 
-                for (unsigned j = 0; j < shader_module.spv_module.spec_constant_count; ++j) {
-                    const SpvReflectSpecializationConstant& specialization_constant = shader_module.spv_module.spec_constants[j];
+                for (unsigned k = 0; k < shader_module.spv_module.spec_constant_count; ++k) {
+                    const SpvReflectSpecializationConstant& specialization_constant = shader_module.spv_module.spec_constants[k];
                     if (strcmp(shader_constant.name, specialization_constant.name) == 0) {
                         // Specialization constant is referenced in the shader code, update value
-                        VkSpecializationMapEntry& specialization = specialization_constants.emplace_back();
+                        VkSpecializationMapEntry& specialization = specialization_constants[specialization_constant_index++];
                         specialization.constantID = specialization_constant.constant_id;
                         specialization.offset = offset + offsetof(ShaderConstant, value);
                         specialization.size = shader_constant.size;
@@ -496,24 +529,29 @@ namespace vks {
                     }
                 }
                 
-                // Shader specialization constants provided through the pipeline description may not exist in the shader itself (this is not an error)
+                // Shader specialization constants provided through the pipeline description may not exist in the shader itself
                 // Ensure that the offset remains consistent with the data present in the 'constants' array
                 offset += sizeof(ShaderConstant);
             }
             
-            VkSpecializationInfo specialization_info { };
-            specialization_info.mapEntryCount = specialization_constant_count;
-            specialization_info.pMapEntries = specialization_constants.data();
-            
-            // All specialization constants are stored in the constants buffer
-            // Individual constants are configured by offset + size
-            specialization_info.dataSize = shader_stage.constants.size() * sizeof(ShaderConstant); // Size in bytes
-            specialization_info.pData = shader_stage.constants.data();
-            
-            shader_stage_create_info.pSpecializationInfo = &specialization_info;
+            unsigned count = specialization_constant_index - start;
+            if (count) {
+                VkSpecializationInfo specialization_info { };
+                specialization_info.mapEntryCount = count;
+                specialization_info.pMapEntries = &specialization_constants[0] + start;
+                
+                // All specialization constants are stored in the constants buffer
+                // Individual constants are configured by offset + size
+                specialization_info.dataSize = count * sizeof(ShaderConstant); // Size in bytes
+                specialization_info.pData = specialization_constants.data() + start; // Offset to the start of the block for the current shader module
+                
+                shader_stage_create_info.pSpecializationInfo = &specialization_info;
+            }
         }
         
-        const ShaderModule& vertex_shader_module = shader_modules[0]; // shader_modules[to_pipeline_index(ShaderStage::Vertex)];
+        // Index is guaranteed to exist
+        const ShaderModule& vertex_shader_module = shader_modules[get_shader_stage_index(pipeline_description.shader_stages, ShaderStage::Vertex)];
+        
         for (unsigned i = 0; i < vertex_shader_module.spv_module.input_variable_count; ++i) {
             SpvReflectInterfaceVariable* input_variable = vertex_shader_module.spv_module.input_variables[i];
             const char* name = input_variable->name;

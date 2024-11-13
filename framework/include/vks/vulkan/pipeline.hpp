@@ -86,8 +86,8 @@ namespace vks {
         GraphicsPipelineDescription& set_vertex_input(VertexInputDescription vertex_input_description);
         GraphicsPipelineDescription& set_viewport_state(ViewportState viewport_state);
         
-        // Shader stages, in order: vertex, tesselation control, tesselation evaluation, geometry, fragment
-        ShaderStageDescription shader_stages[5];
+        // Supported shader stages: vertex, tesselation control, tesselation evaluation, geometry, fragment
+        std::vector<ShaderStageDescription> shader_stages;
         VkPrimitiveTopology primitive_topology;
         
         VertexInputDescription vertex_input_description;
