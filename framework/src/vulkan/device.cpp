@@ -551,7 +551,7 @@ namespace vks {
             }
         }
         
-        // Index is guaranteed to exist
+        // Vertex shader stage index is guaranteed to exist (verified above)
         const ShaderModule& vertex_shader_module = shader_modules[get_shader_stage_index(pipeline_description.shader_stages, ShaderStage::Vertex)];
         
         for (unsigned i = 0; i < vertex_shader_module.spv_module.input_variable_count; ++i) {
@@ -657,25 +657,20 @@ namespace vks {
         // Retrieve the reflected descriptor set information
         std::vector<DescriptorSetLayout> descriptor_set_layouts;
         
-        for (unsigned stage = 0; stage < 5; ++stage) {
-            const ShaderModule& shader_module = shader_modules[stage];
-            ShaderStage shader_stage = pipeline_description.shader_stages[stage].stage;
+        for (unsigned i = 0; i < shader_stage_count; ++i) {
+            const ShaderModule& shader_module = shader_modules[i];
+            ShaderStage shader_stage = pipeline_description.shader_stages[i].stage;
             
-            // Shader stages that are marked as ShaderStage::None are not active in the pipeline
-            if (shader_stage == ShaderStage::None) {
-                continue;
-            }
-
-            for (unsigned i = 0; i < shader_module.spv_module.descriptor_set_count; ++i) {
-                const SpvReflectDescriptorSet& descriptor_set = shader_module.spv_module.descriptor_sets[i];
+            for (unsigned j = 0; j < shader_module.spv_module.descriptor_set_count; ++j) {
+                const SpvReflectDescriptorSet& descriptor_set = shader_module.spv_module.descriptor_sets[j];
                 unsigned index = descriptor_set.set;
 
                 bool found = false;
                 std::size_t descriptor_set_index = descriptor_set_layouts.size();
                 
-                for (unsigned j = 0; j < descriptor_set_index; ++j) {
-                    if (descriptor_set_layouts[j].index == index) {
-                        descriptor_set_index = j;
+                for (unsigned k = 0; k < descriptor_set_index; ++k) {
+                    if (descriptor_set_layouts[k].index == index) {
+                        descriptor_set_index = k;
                         found = true;
                         break;
                     }
@@ -694,8 +689,8 @@ namespace vks {
                 
                 unsigned descriptor_binding_count = descriptor_set.binding_count;
                 
-                for (unsigned j = 0; j < descriptor_binding_count; ++j) {
-                    const SpvReflectDescriptorBinding* descriptor_binding = descriptor_set.bindings[j];
+                for (unsigned k = 0; k < descriptor_binding_count; ++k) {
+                    const SpvReflectDescriptorBinding* descriptor_binding = descriptor_set.bindings[k];
                     
                     unsigned binding = descriptor_binding->binding;
                     DescriptorType type = (DescriptorType) descriptor_binding->descriptor_type;
@@ -770,6 +765,20 @@ namespace vks {
                 utils::logging::error(error);
                 throw std::runtime_error(error);
             }
+        }
+        
+        // Reflect pipeline push constants
+        
+        // TODO: push constants can be shared between stages
+        unsigned push_constant_count = 0;
+        for (unsigned i = 0; i < shader_stage_count; ++i) {
+            const ShaderModule& shader_module = shader_modules[i];
+        }
+        
+        std::vector<VkPushConstantRange> push_constants;
+        
+        for (unsigned i = 0; i < shader_stage_count; ++i) {
+            const ShaderModule& shader_module = shader_modules[i];
         }
         
         VkPipelineLayoutCreateInfo pipeline_layout_create_info { };

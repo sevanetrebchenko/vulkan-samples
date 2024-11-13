@@ -14,13 +14,14 @@ int main() {
     std::shared_ptr<Device> device = Device::instance();
     device->initialize(device_description);
     
-    
     ShaderStageDescription vertex_shader { };
     vertex_shader.set_filepath("shaders/sample.vert");
+    vertex_shader.define_constant("ASDF", 64);
     
     ShaderStageDescription fragment_shader { };
     fragment_shader.set_filepath("shaders/sample.frag");
-
+    fragment_shader.define_constant("LIGHT_COUNT", 16);
+    
     VertexInputDescription vertex_input { };
     vertex_input.add_attribute(0, "vertex_position");
     vertex_input.add_attribute(0, "vertex_normal");
