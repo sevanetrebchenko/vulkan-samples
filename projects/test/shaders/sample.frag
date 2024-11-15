@@ -20,6 +20,11 @@ layout (set = 1, binding = 1) uniform MaterialUniforms {
     vec3 specular;
 } material;
 
+layout(push_constant, std430) uniform PushConstants {
+    vec3 asdf;
+    float d;
+} pcs;
+
 layout (location = 0) out vec4 out_color;
 
 void main() {

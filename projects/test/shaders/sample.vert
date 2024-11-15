@@ -4,6 +4,8 @@
 #include "shaders/globals.glsl"
 #include "shaders/globals.glsl"
 
+layout (constant_id = 1) const float ASDF = 32;
+
 layout (location = 0) in vec3 vertex_position;
 layout (location = 1) in vec3 vertex_normal;
 
@@ -15,6 +17,11 @@ struct B {
     A a;
     int b;
 };
+
+layout(push_constant, std430) uniform PushConstants {
+    vec3 asdf;
+    float opacity;
+} pcs;
 
 layout (set = 0, binding = 0) uniform GlobalUniforms {
     mat4 view;

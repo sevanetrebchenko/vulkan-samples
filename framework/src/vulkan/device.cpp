@@ -552,7 +552,8 @@ namespace vks {
         }
         
         // Vertex shader stage index is guaranteed to exist (verified above)
-        const ShaderModule& vertex_shader_module = shader_modules[get_shader_stage_index(pipeline_description.shader_stages, ShaderStage::Vertex)];
+        unsigned vertex_shader_stage_index = get_shader_stage_index(pipeline_description.shader_stages, ShaderStage::Vertex);
+        const ShaderModule& vertex_shader_module = shader_modules[vertex_shader_stage_index];
         
         for (unsigned i = 0; i < vertex_shader_module.spv_module.input_variable_count; ++i) {
             SpvReflectInterfaceVariable* input_variable = vertex_shader_module.spv_module.input_variables[i];
@@ -731,6 +732,7 @@ namespace vks {
             }
         }
         
+        // TODO: fill gaps with empty descriptor set layouts
         std::size_t descriptor_set_layout_count = descriptor_set_layouts.size();
         std::vector<VkDescriptorSetLayout> _descriptor_set_layouts(descriptor_set_layout_count);
         
@@ -767,26 +769,93 @@ namespace vks {
             }
         }
         
-        // Reflect pipeline push constants
+//        std::vector<PushConstantRange> push_constant_ranges;
+//        push_constant_ranges.reserve(shader_stage_count);
+//
+//        for (const ShaderStageDescription& shader_stage : pipeline_description.shader_stages) {
+//            if (shader_stage.push_constant_range.size) {
+//                // Stage has a push constant range
+//                push_constant_ranges.emplace_back(shader_stage.push_constant_range);
+//            }
+//        }
         
-        // TODO: push constants can be shared between stages
-        unsigned push_constant_count = 0;
+        // Determine the total size of the push constant buffer, taking into account that push constant ranges can overlap between stages
+//        unsigned push_constant_buffer_size = 0;
+//
+//        // Sort push constant ranges by starting offset
+//        std::sort(push_constant_ranges.begin(), push_constant_ranges.end(), [](const PushConstantRange& first, const PushConstantRange& second) -> bool {
+//            return first.offset < second.offset;
+//        });
+//
+//        for (const PushConstantRange& push_constant_range : push_constant_ranges) {
+//
+//        }
+//
+//        if (!push_constant_ranges.empty()) {
+//            push_constant_buffer_size += push_constant_ranges[0].offset;
+//        }
+//
+//        // Vertex stage
+//        const ShaderStageDescription& vertex_stage = pipeline_description.shader_stages[vertex_shader_stage_index];
+//        if (vertex_stage.push_constant_range.size) {
+//            push_constant_buffer_size += vertex_stage.push_constant_range.offset;
+//            push_constant_buffer_size += vertex_stage.push_constant_range.size;
+//        }
+
+        // By default, push constants are unique per shader stage, ordered by the stages in a graphics pipeline: vertex (1), tesselation control, tesselation evaluation, geometry, fragment (5)
+        // However, push constants that share the same name across shader stages are shared
+
+        std::vector<PushConstant> push_constants;
+        unsigned stage_offset = 0;
+        
         for (unsigned i = 0; i < shader_stage_count; ++i) {
+            const ShaderStageDescription& shader_stage = pipeline_description.shader_stages[i];
             const ShaderModule& shader_module = shader_modules[i];
+            
+            bool has_push_constant_block = shader_module.spv_module.push_constant_block_count > 0;
+            
+            if (has_push_constant_block) {
+                for (unsigned j = 0; j < shader_module.spv_module.push_constant_block_count; ++j) {
+                    const SpvReflectBlockVariable& push_constant_block = shader_module.spv_module.push_constant_blocks[j];
+                    unsigned member_count = push_constant_block.member_count;
+                    
+                    for (unsigned k = 0; k < member_count; ++k) {
+                        const SpvReflectBlockVariable& member = push_constant_block.members[k];
+                        
+                        bool found = false;
+                        
+                        for (PushConstant& push_constant : push_constants) {
+                            if (strcmp(member.name, push_constant.name) == 0) {
+                                // Members of a push constant block that are the same across stages of the same pipeline refer to the same memory
+                                push_constant.stages |= shader_stage.stage;
+                                found = true;
+                                break;
+                            }
+                        }
+                        
+                        if (!found) {
+                            // Register new push constant
+                            PushConstant& push_constant = push_constants.emplace_back();
+                            push_constant.name = member.name;
+                            push_constant.size = member.size;
+                            push_constant.offset = stage_offset + member.offset; // Offset may be explicitly specified using layout (offset = xx)
+                            push_constant.stages = shader_stage.stage;
+                        }
+                    }
+                }
+                
+                stage_offset += push_constants.back().offset;
+            }
         }
         
-        std::vector<VkPushConstantRange> push_constants;
-        
-        for (unsigned i = 0; i < shader_stage_count; ++i) {
-            const ShaderModule& shader_module = shader_modules[i];
-        }
+        std::vector<VkPushConstantRange> push_constant_ranges;
         
         VkPipelineLayoutCreateInfo pipeline_layout_create_info { };
         pipeline_layout_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
         pipeline_layout_create_info.setLayoutCount = (unsigned) descriptor_set_layout_count;
         pipeline_layout_create_info.pSetLayouts = _descriptor_set_layouts.data();
-        pipeline_layout_create_info.pushConstantRangeCount = 0;
-        pipeline_layout_create_info.pPushConstantRanges = nullptr;
+        pipeline_layout_create_info.pushConstantRangeCount = (unsigned) push_constant_ranges.size();
+        pipeline_layout_create_info.pPushConstantRanges = push_constant_ranges.data();
     
         VkPipelineLayout pipeline_layout { };
         result = vkCreatePipelineLayout(vulkan_device, &pipeline_layout_create_info, nullptr, &pipeline_layout);

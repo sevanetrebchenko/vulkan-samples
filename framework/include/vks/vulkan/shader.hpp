@@ -71,7 +71,7 @@ namespace vks {
             
             std::vector<ShaderConstant> constants;
             std::unordered_map<const char*, const char*> preprocessor_definitions;
-        
+            
         private:
             [[nodiscard]] ShaderConstant& get_constant(const char* name);
     };

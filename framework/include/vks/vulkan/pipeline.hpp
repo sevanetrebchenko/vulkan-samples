@@ -96,11 +96,19 @@ namespace vks {
         ViewportState vs;
     };
     
-    struct GraphicsPipeline {
+    struct PushConstant {
+        const char* name;
+        unsigned size;
+        unsigned offset;
+        ShaderStage stages;
+    };
     
+    struct GraphicsPipeline {
         using Buffer = void*;
         
         void bind(Buffer buffer, unsigned binding);
+        
+        std::vector<PushConstant> push_constants;
     };
 
     struct ComputePipeline {
