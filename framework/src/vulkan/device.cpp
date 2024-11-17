@@ -812,6 +812,9 @@ namespace vks {
             const ShaderStageDescription& shader_stage = pipeline_description.shader_stages[i];
             const ShaderModule& shader_module = shader_modules[i];
             
+            // Members that are shared between stages should not contribute to the offset of subsequent members
+            unsigned shared_offset = 0;
+            
             bool has_push_constant_block = shader_module.spv_module.push_constant_block_count > 0;
             
             if (has_push_constant_block) {
@@ -826,8 +829,17 @@ namespace vks {
                         
                         for (PushConstant& push_constant : push_constants) {
                             if (strcmp(member.name, push_constant.name) == 0) {
+                                if (member.size != push_constant.size) {
+                                    // TODO: better type verification, not just by size
+                                    utils::logging::fatal("Failed to create graphics pipeline - redefinition of push constant '{}' as a different type in the {} shader (previously defined in the {} shader)", member.name, shader_stage.stage, push_constant.stages);
+                                }
+    
                                 // Members of a push constant block that are the same across stages of the same pipeline refer to the same memory
                                 push_constant.stages |= shader_stage.stage;
+                                
+                                // Ensure that shifted push constants still follow all GLSL alignment rules
+                                shared_offset += push_constant.size + push_constant.padding;
+                                
                                 found = true;
                                 break;
                             }
@@ -838,17 +850,27 @@ namespace vks {
                             PushConstant& push_constant = push_constants.emplace_back();
                             push_constant.name = member.name;
                             push_constant.size = member.size;
-                            push_constant.offset = stage_offset + member.offset; // Offset may be explicitly specified using layout (offset = xx)
+                            push_constant.padding = member.padded_size - member.size;
+                            push_constant.offset = stage_offset + member.offset - shared_offset;
                             push_constant.stages = shader_stage.stage;
                         }
                     }
                 }
                 
-                stage_offset += push_constants.back().offset;
+                PushConstant& last = push_constants.back();
+                stage_offset += last.offset + last.size + last.padding;
             }
         }
         
-        std::vector<VkPushConstantRange> push_constant_ranges;
+        std::size_t push_constant_count = push_constants.size();
+        std::vector<VkPushConstantRange> push_constant_ranges(push_constant_count);
+        
+        for (unsigned i = 0; i < push_constant_count; ++i) {
+            PushConstant& push_constant = push_constants[i];
+            push_constant_ranges[i].size = push_constant.size;
+            push_constant_ranges[i].offset = push_constant.offset;
+            push_constant_ranges[i].stageFlags = (VkShaderStageFlags) push_constant.stages;
+        }
         
         VkPipelineLayoutCreateInfo pipeline_layout_create_info { };
         pipeline_layout_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
@@ -860,9 +882,7 @@ namespace vks {
         VkPipelineLayout pipeline_layout { };
         result = vkCreatePipelineLayout(vulkan_device, &pipeline_layout_create_info, nullptr, &pipeline_layout);
         if (result != VK_SUCCESS) {
-            std::string error = utils::format("failed to create pipeline layout");
-            utils::logging::error(error);
-            throw std::runtime_error(error);
+            utils::logging::fatal("Failed to create graphics pipeline - pipeline layout creation (vkCreatePipelineLayout) failed (error code: {})", result);
         }
         
         VkGraphicsPipelineCreateInfo pipeline_create_info {
