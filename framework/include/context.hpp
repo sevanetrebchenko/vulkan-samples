@@ -5,21 +5,36 @@
 #include "core.hpp"
 #include "window.hpp"
 #include "renderpass.hpp"
+#include "vks/vulkan/pipeline.hpp"
+
 #include <vulkan/vulkan.h>
+
 #include <memory> // std::shared_ptr
 #include <vector> // std::vector
 
 namespace vks {
     
+    class Test;
+    
     class Context : public ManagedObject<Context> {
         public:
             class Builder;
             
-            // Context instances should be created using Context::Builder
-            Context();
-            ~Context();
+            static std::shared_ptr<Context> instance() {
+                static std::shared_ptr<Context> inst = std::shared_ptr<Context>(); // nullptr
+                
+                if (inst) {
+                
+                }
+                
+            }
             
-            VkInstance instance;
+            // Context instances should be created using Context::Builder
+            ~Context() {}
+            
+//            Pipeline::Builder create_pipeline();
+            
+//            VkInstance instance;
             VkPhysicalDevice gpu;
             VkDevice device;
             
@@ -27,6 +42,8 @@ namespace vks {
             std::shared_ptr<Window> window;
             
         private:
+            Context();
+            
             VkDebugUtilsMessengerEXT m_debug_messenger;
             
             VkPhysicalDeviceProperties m_properties;
@@ -52,15 +69,15 @@ namespace vks {
             // Use for both instance and device extensions
             Builder& enable_extension(const char* extension);
 
-            // Logical or
             Builder& enable_features(VkPhysicalDeviceFeatures features);
             
         private:
-            void initialize_vulkan_instance();
+            [[nodiscard]] bool initialize_vulkan_instance();
+            [[nodiscard]] bool configure_instance_extensions();
             
-            void initialize_window();
+            [[nodiscard]] bool initialize_window();
             
-            void select_physical_device();
+            [[nodiscard]] bool select_physical_device();
             bool verify_requested_feature_support(const VkPhysicalDeviceFeatures& supported_features) const;
             
             void initialize_logical_device();

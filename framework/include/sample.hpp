@@ -6,9 +6,7 @@
 #include "model.hpp"
 #include "transform.hpp"
 
-#define GLFW_INCLUDE_VULKAN
-#include <GLFW/glfw3.h>
-#include <glm/glm.hpp>
+#include <vulkan/vulkan.h>
 
 #include <vector> // std::vector
 #include <array> // std::array
@@ -80,7 +78,7 @@ class Sample {
         int width;
         int height;
         
-        GLFWwindow* window;
+//        GLFWwindow* window;
         const char* name;
         
         VkInstance instance;

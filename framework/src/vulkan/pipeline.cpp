@@ -33,7 +33,7 @@ namespace vks {
             VertexBinding& binding = bindings.emplace_back();
             binding.binding = _binding;
             binding.stride = -1; // Placeholder value, will be calculated during pipeline compilation
-            binding.rate = VertexInputRate::Vertex; // By default, vertex attributes are updated per vertex
+            binding.rate = VK_VERTEX_INPUT_RATE_VERTEX; // By default, vertex attributes are updated per vertex
         }
         
         if (!attribute_exists) {
@@ -63,13 +63,13 @@ namespace vks {
             VertexBinding& binding = bindings.emplace_back();
             binding.binding = _binding;
             binding.stride = _stride;
-            binding.rate = VertexInputRate::Vertex; // By default, vertex attributes are updated per vertex
+            binding.rate = VK_VERTEX_INPUT_RATE_VERTEX; // By default, vertex attributes are updated per vertex
         }
         
         return *this;
     }
     
-    VertexInputDescription& VertexInputDescription::set_binding_input_rate(unsigned _binding, VertexInputRate rate) {
+    VertexInputDescription& VertexInputDescription::set_binding_input_rate(unsigned _binding, VkVertexInputRate rate) {
         bool binding_exists = false;
         for (VertexBinding& binding : bindings) {
             if (binding.binding != _binding) {
@@ -92,9 +92,9 @@ namespace vks {
     }
     
     GraphicsPipelineDescription& GraphicsPipelineDescription::add_shader_stage(ShaderStageDescription stage_description) {
-        if (stage_description.stage > ShaderStage::Fragment) {
-            throw std::runtime_error("invalid stage");
-        }
+//        if (stage_description.stage > ShaderStage::Fragment) {
+//            throw std::runtime_error("invalid stage");
+//        }
         
         bool found = false;
         

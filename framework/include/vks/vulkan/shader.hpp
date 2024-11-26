@@ -12,29 +12,29 @@
 
 namespace vks {
     
-    enum class ShaderStage {
-        // Graphics pipeline shader stages
-        Vertex = VK_SHADER_STAGE_VERTEX_BIT,
-        TesselationControl = VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT,
-        TesselationEvaluation = VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT,
-        Geometry = VK_SHADER_STAGE_GEOMETRY_BIT,
-        Fragment = VK_SHADER_STAGE_FRAGMENT_BIT,
-        
-        // Compute pipelines shader stages
-        Compute = VK_SHADER_STAGE_COMPUTE_BIT,
-        
-        // Mesh pipeline shader stages
-        Mesh = VK_SHADER_STAGE_MESH_BIT_EXT,
-        Task = VK_SHADER_STAGE_TASK_BIT_EXT,
-        
-        // Raytracing pipeline shader stages
-        // ...
-        
-        None = 0,
-    };
-    DEFINE_ENUM_BITFIELD_OPERATIONS(ShaderStage);
+//    enum class ShaderStage {
+//        // Graphics pipeline shader stages
+//        Vertex = VK_SHADER_STAGE_VERTEX_BIT,
+//        TesselationControl = VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT,
+//        TesselationEvaluation = VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT,
+//        Geometry = VK_SHADER_STAGE_GEOMETRY_BIT,
+//        Fragment = VK_SHADER_STAGE_FRAGMENT_BIT,
+//
+//        // Compute pipelines shader stages
+//        Compute = VK_SHADER_STAGE_COMPUTE_BIT,
+//
+//        // Mesh pipeline shader stages
+//        Mesh = VK_SHADER_STAGE_MESH_BIT_EXT,
+//        Task = VK_SHADER_STAGE_TASK_BIT_EXT,
+//
+//        // Raytracing pipeline shader stages
+//        // ...
+//
+//        None = 0,
+//    };
+//    DEFINE_ENUM_BITFIELD_OPERATIONS(ShaderStage);
     
-    unsigned to_pipeline_index(ShaderStage stage);
+    unsigned to_pipeline_index(VkShaderStageFlags stage);
     
     struct ShaderConstant {
         // Vulkan GLSL specialization constants must be one of: bool, int, uint, float, double
@@ -56,7 +56,7 @@ namespace vks {
             ~ShaderStageDescription();
             
             ShaderStageDescription& set_filepath(std::filesystem::path path);
-            ShaderStageDescription& set_filepath(std::filesystem::path path, ShaderStage stage);
+            ShaderStageDescription& set_filepath(std::filesystem::path path, VkShaderStageFlags stage);
             
             ShaderStageDescription& define_macro(const char* name, const char* value);
     
@@ -67,7 +67,7 @@ namespace vks {
             ShaderStageDescription& define_constant(const char* name, double value);
             
             std::filesystem::path path;
-            ShaderStage stage;
+            VkShaderStageFlags stage;
             
             std::vector<ShaderConstant> constants;
             std::unordered_map<const char*, const char*> preprocessor_definitions;
@@ -81,8 +81,8 @@ namespace vks {
 namespace utils {
     
     template <>
-    struct Formatter<vks::ShaderStage> : public Formatter<const char*> {
-        [[nodiscard]] std::string format(vks::ShaderStage stage) const;
+    struct Formatter<VkShaderStageFlagBits> : public Formatter<const char*> {
+        [[nodiscard]] std::string format(VkShaderStageFlagBits stage) const;
     };
     
 }

@@ -12,7 +12,7 @@ namespace vks {
         bool found = false;
         for (ShaderModule::SpecializationConstant& constant : m_module.constants) {
             if (strcmp(constant.name, name) == 0) {
-                constant.value = value; // Update value if constant already exists
+                constant.value.f = value; // Update value if constant already exists
                 constant.size = sizeof(Type);
                 found = true;
             }
@@ -20,9 +20,9 @@ namespace vks {
         
         if (!found) {
             ShaderModule::SpecializationConstant& constant = m_module.constants.emplace_back();
-            constant.name = name;
-            constant.value = value;
-            constant.size = sizeof(Type);
+//            constant.name = name;
+//            constant.value = value;
+//            constant.size = sizeof(Type);
         }
     }
     

@@ -23,34 +23,11 @@ namespace vks {
         
         VkViewport viewport;
     };
-
-    enum class CullMode {
-        None = VK_CULL_MODE_NONE,
-        Front = VK_CULL_MODE_FRONT_BIT,
-        Back = VK_CULL_MODE_BACK_BIT,
-        Both = VK_CULL_MODE_FRONT_AND_BACK
-    };
-    
-    enum class WindingOrder {
-        Clockwise = VK_FRONT_FACE_COUNTER_CLOCKWISE,
-        CounterClockwise = VK_FRONT_FACE_CLOCKWISE
-    };
-    
-    enum class PolygonMode {
-        Point = VK_POLYGON_MODE_POINT,
-        Line = VK_POLYGON_MODE_LINE,
-        Fill = VK_POLYGON_MODE_FILL
-    };
     
     struct RasterizationState {
-        CullMode cull_mode;
-        WindingOrder winding;
-        PolygonMode mode;
-    };
-    
-    enum class VertexInputRate {
-        Vertex = VK_VERTEX_INPUT_RATE_VERTEX,
-        Instance = VK_VERTEX_INPUT_RATE_INSTANCE
+        VkCullModeFlags cull_mode;
+        VkFrontFace winding;
+        VkPolygonMode mode;
     };
     
     struct VertexAttribute {
@@ -63,14 +40,14 @@ namespace vks {
         unsigned binding;
         unsigned stride;
         std::vector<VertexAttribute> attributes;
-        VertexInputRate rate;
+        VkVertexInputRate rate;
     };
     
     // TODO: query against maxVertexInputBindings, retrieved from the device
     struct VertexInputDescription {
         VertexInputDescription& add_attribute(unsigned binding, const char* name);
         VertexInputDescription& set_binding_stride(unsigned binding, unsigned stride);
-        VertexInputDescription& set_binding_input_rate(unsigned binding, VertexInputRate rate);
+        VertexInputDescription& set_binding_input_rate(unsigned binding, VkVertexInputRate rate);
         
         std::vector<VertexBinding> bindings;
     };
@@ -100,7 +77,8 @@ namespace vks {
         const char* name;
         unsigned size;
         unsigned offset;
-        ShaderStage stages;
+        unsigned padding;
+        VkShaderStageFlags stages;
     };
     
     struct GraphicsPipeline {

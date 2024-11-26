@@ -7,35 +7,33 @@
 
 namespace vks {
     
-    unsigned to_pipeline_index(ShaderStage stage) {
+    unsigned to_pipeline_index(VkShaderStageFlags stage) {
         switch (stage) {
             // Graphics pipelines
-            case ShaderStage::Vertex:
+            case VK_SHADER_STAGE_VERTEX_BIT:
                 return 0;
-            case ShaderStage::TesselationControl:
+            case VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT:
                 return 1;
-            case ShaderStage::TesselationEvaluation:
+            case VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT:
                 return 2;
-            case ShaderStage::Geometry:
+            case VK_SHADER_STAGE_GEOMETRY_BIT:
                 return 3;
-            case ShaderStage::Fragment:
+            case VK_SHADER_STAGE_FRAGMENT_BIT:
                 return 4;
             // Compute pipelines
-            case ShaderStage::Compute:
+            case VK_SHADER_STAGE_COMPUTE_BIT:
                 return 0;
-            // Mesh pipelines
-            case ShaderStage::Mesh:
-                return 0;
-            case ShaderStage::Task:
-                return 1;
-            case ShaderStage::None:
-                break;
+//            // Mesh pipelines
+//            case ShaderStage::Mesh:
+//                return 0;
+//            case ShaderStage::Task:
+//                return 1;
+            default:
+                return -1;
         }
-        
-        return -1;
     }
 
-    ShaderStageDescription::ShaderStageDescription() : stage(ShaderStage::None) {
+    ShaderStageDescription::ShaderStageDescription() : stage(VK_SHADER_STAGE_FLAG_BITS_MAX_ENUM) {
     }
     
     ShaderStageDescription::~ShaderStageDescription() = default;
@@ -47,27 +45,27 @@ namespace vks {
         std::filesystem::path extension = path.extension();
         if (extension == ".vert") {
             // Vertex
-            stage = ShaderStage::Vertex;
+            stage = VK_SHADER_STAGE_VERTEX_BIT;
         }
         else if (extension == ".tesc") {
             // Tesselation control
-            stage = ShaderStage::TesselationControl;
+            stage = VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT;
         }
         else if (extension == ".tese") {
             // Tesselation evaluation
-            stage = ShaderStage::TesselationEvaluation;
+            stage = VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT;
         }
         else if (extension == ".geom") {
             // Geometry
-            stage = ShaderStage::Geometry;
+            stage = VK_SHADER_STAGE_GEOMETRY_BIT;
         }
         else if (extension == ".frag") {
             // Fragment
-            stage = ShaderStage::Fragment;
+            stage = VK_SHADER_STAGE_FRAGMENT_BIT;
         }
         else if (extension == ".comp") {
             // Compute
-            stage = ShaderStage::Compute;
+            stage = VK_SHADER_STAGE_COMPUTE_BIT;
         }
         else {
             // Unknown shader type
@@ -79,7 +77,7 @@ namespace vks {
         return *this;
     }
     
-    ShaderStageDescription& ShaderStageDescription::set_filepath(std::filesystem::path _path, ShaderStage _stage) {
+    ShaderStageDescription& ShaderStageDescription::set_filepath(std::filesystem::path _path, VkShaderStageFlags _stage) {
         path = std::move(_path);
         stage = _stage;
         return *this;
@@ -142,34 +140,34 @@ namespace vks {
 
 namespace utils {
     
-    std::string Formatter<vks::ShaderStage>::format(vks::ShaderStage stage) const {
+    std::string Formatter<VkShaderStageFlagBits>::format(VkShaderStageFlagBits stage) const {
         using namespace vks;
         const char* name = "";
         
-        if (stage == ShaderStage::Vertex) {
+        if (stage == VK_SHADER_STAGE_VERTEX_BIT) {
             name = "vertex";
         }
-        else if (stage == ShaderStage::TesselationControl) {
+        else if (stage == VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT) {
             name = "tesselation control";
         }
-        else if (stage == ShaderStage::TesselationEvaluation) {
+        else if (stage == VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT) {
             name = "tesselation evaluation";
         }
-        else if (stage == ShaderStage::Geometry) {
+        else if (stage == VK_SHADER_STAGE_GEOMETRY_BIT) {
             name = "geometry";
         }
-        else if (stage == ShaderStage::Fragment) {
+        else if (stage == VK_SHADER_STAGE_FRAGMENT_BIT) {
             name = "fragment";
         }
-        else if (stage == ShaderStage::Compute) {
+        else if (stage == VK_SHADER_STAGE_COMPUTE_BIT) {
             name = "compute";
         }
-        else if (stage == ShaderStage::Mesh) {
-            name = "mesh";
-        }
-        else if (stage == ShaderStage::Task) {
-            name = "task";
-        }
+//        else if (stage == ShaderStage::Mesh) {
+//            name = "mesh";
+//        }
+//        else if (stage == ShaderStage::Task) {
+//            name = "task";
+//        }
         
         return std::move(Formatter<const char*>::format(name));
     }

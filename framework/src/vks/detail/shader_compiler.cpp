@@ -111,30 +111,30 @@ namespace vks {
         // Using Vulkan GLSL
         shaderc_shader_kind type;
         switch (stage_description.stage) {
-            case ShaderStage::Vertex:
+            case VK_SHADER_STAGE_VERTEX_BIT:
                 type = shaderc_glsl_vertex_shader;
                 break;
-            case ShaderStage::TesselationControl:
+            case VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT:
                 type = shaderc_glsl_tess_control_shader;
                 break;
-            case ShaderStage::TesselationEvaluation:
+            case VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT:
                 type = shaderc_glsl_tess_evaluation_shader;
                 break;
-            case ShaderStage::Geometry:
+            case VK_SHADER_STAGE_GEOMETRY_BIT:
                 type = shaderc_glsl_geometry_shader;
                 break;
-            case ShaderStage::Fragment:
+            case VK_SHADER_STAGE_FRAGMENT_BIT:
                 type = shaderc_glsl_fragment_shader;
                 break;
-            case ShaderStage::Compute:
+            case VK_SHADER_STAGE_COMPUTE_BIT:
                 type = shaderc_glsl_compute_shader;
                 break;
-            case ShaderStage::Mesh:
-                type = shaderc_glsl_mesh_shader;
-                break;
-            case ShaderStage::Task:
-                type = shaderc_glsl_task_shader;
-                break;
+//            case ShaderStage::Mesh:
+//                type = shaderc_glsl_mesh_shader;
+//                break;
+//            case ShaderStage::Task:
+//                type = shaderc_glsl_task_shader;
+//                break;
         }
 
 //        // Shader modules should only be compiled again if they do not yet exist or if the shader source has been modified since being compiled the first time

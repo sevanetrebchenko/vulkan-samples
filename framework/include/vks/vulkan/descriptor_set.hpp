@@ -8,18 +8,13 @@
 #include <vulkan/vulkan.h>
 
 namespace vks {
-
-    enum class DescriptorType {
-        UniformBuffer = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-        StorageBuffer = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-    };
     
     // Represents a single shader resource (uniform buffer, sampler, etc.)
     struct Descriptor {
         unsigned binding;
-        DescriptorType type;
+        VkDescriptorType type;
         unsigned count;
-        ShaderStage stages; // Stages in which this resource is used
+        VkShaderStageFlags stages; // Stages in which this resource is used
     };
     
     // Complete layout of a descriptor set

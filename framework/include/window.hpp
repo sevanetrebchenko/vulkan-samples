@@ -2,10 +2,32 @@
 #ifndef WINDOW_HPP
 #define WINDOW_HPP
 
-#include <glfw/glfw3.h>
+#include "utils/platform.hpp"
+
+#include <vulkan/vulkan.h>
+#include <GLFW/glfw3.h>
 #include <memory> // std::shared_ptr
 
 namespace vks {
+    
+    struct WindowDescription {
+        WindowDescription();
+        ~WindowDescription();
+        
+        WindowDescription& set_width(unsigned width);
+        WindowDescription& set_height(unsigned height);
+        WindowDescription& set_extent(unsigned width, unsigned height);
+
+        WindowDescription& set_name(const char* name);
+        
+        unsigned width;
+        unsigned height;
+        const char* name;
+    };
+    
+
+    
+    
     
     // Forward declarations
     class Context;
@@ -42,8 +64,8 @@ namespace vks {
             void on_mouse_button_press(int button);
             void on_mouse_move(double x, double y);
             void on_mouse_scroll(double distance);
-            
-            GLFWwindow* m_window;
+
+            GLFWwindow* m_handle;
             const char* m_name;
             
             unsigned m_width;

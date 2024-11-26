@@ -27,7 +27,7 @@ int main() {
     vertex_input.add_attribute(0, "vertex_normal");
     vertex_input.add_attribute(0, "vertex_uv");
     vertex_input.set_binding_stride(0, 64);
-    vertex_input.set_binding_input_rate(0, VertexInputRate::Vertex);
+    vertex_input.set_binding_input_rate(0, VK_VERTEX_INPUT_RATE_VERTEX);
 
     GraphicsPipelineDescription graphics_pipeline { };
     graphics_pipeline.add_shader_stage(vertex_shader);

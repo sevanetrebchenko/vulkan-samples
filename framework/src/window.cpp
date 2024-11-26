@@ -4,22 +4,8 @@
 #include <cassert>
 
 namespace vks {
-
-    void initialize_glfw() {
-        // GLFW should only be initialized once
-        static bool initialized = false;
-        if (!initialized) {
-            glfwInit();
-            initialized = true;
-        }
-    }
     
     Window::Window() {
-        initialize_glfw();
-        
-        // In OpenGL, the window and rendering context (instance) are coupled together
-        // In Vulkan, the instance is created by the API itself and context creation should be disabled using GLFW_NO_API
-        glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     }
     
     Window::~Window() {

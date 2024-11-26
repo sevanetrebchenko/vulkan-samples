@@ -427,7 +427,7 @@ namespace vks {
         return std::move(uniform);
     }
     
-    bool has_shader_stage(const std::vector<ShaderStageDescription>& shader_stages, ShaderStage stage) {
+    bool has_shader_stage(const std::vector<ShaderStageDescription>& shader_stages, VkShaderStageFlagBits stage) {
         for (const ShaderStageDescription& shader_stage : shader_stages) {
             if (shader_stage.stage == stage) {
                 return true;
@@ -437,7 +437,7 @@ namespace vks {
         return false;
     }
 
-    unsigned get_shader_stage_index(const std::vector<ShaderStageDescription>& shader_stages, ShaderStage stage) {
+    std::size_t get_shader_stage_index(const std::vector<ShaderStageDescription>& shader_stages, VkShaderStageFlagBits stage) {
         std::size_t shader_stage_count = shader_stages.size();
         for (unsigned i = 0; i < shader_stage_count; ++i) {
             if (shader_stages[i].stage == stage) {
@@ -451,7 +451,7 @@ namespace vks {
         VkResult result;
 
         // The vertex shader is the only required stage for a valid graphics pipeline
-        if (!has_shader_stage(pipeline_description.shader_stages, ShaderStage::Vertex)) {
+        if (!has_shader_stage(pipeline_description.shader_stages, VK_SHADER_STAGE_VERTEX_BIT)) {
             std::string error = "Failed to create graphics pipeline - vertex shader stage is required";
             utils::logging::error(error);
             throw std::runtime_error(error);
@@ -552,7 +552,7 @@ namespace vks {
         }
         
         // Vertex shader stage index is guaranteed to exist (verified above)
-        unsigned vertex_shader_stage_index = get_shader_stage_index(pipeline_description.shader_stages, ShaderStage::Vertex);
+        unsigned vertex_shader_stage_index = get_shader_stage_index(pipeline_description.shader_stages, VK_SHADER_STAGE_VERTEX_BIT);
         const ShaderModule& vertex_shader_module = shader_modules[vertex_shader_stage_index];
         
         for (unsigned i = 0; i < vertex_shader_module.spv_module.input_variable_count; ++i) {
@@ -660,7 +660,7 @@ namespace vks {
         
         for (unsigned i = 0; i < shader_stage_count; ++i) {
             const ShaderModule& shader_module = shader_modules[i];
-            ShaderStage shader_stage = pipeline_description.shader_stages[i].stage;
+            VkShaderStageFlags shader_stage = pipeline_description.shader_stages[i].stage;
             
             for (unsigned j = 0; j < shader_module.spv_module.descriptor_set_count; ++j) {
                 const SpvReflectDescriptorSet& descriptor_set = shader_module.spv_module.descriptor_sets[j];
@@ -694,7 +694,7 @@ namespace vks {
                     const SpvReflectDescriptorBinding* descriptor_binding = descriptor_set.bindings[k];
                     
                     unsigned binding = descriptor_binding->binding;
-                    DescriptorType type = (DescriptorType) descriptor_binding->descriptor_type;
+                    VkDescriptorType type = (VkDescriptorType) descriptor_binding->descriptor_type;
                     unsigned count = descriptor_binding->count;
 
                     // If a given resource is already present in the descriptor set layout, it is shared between shader stages
