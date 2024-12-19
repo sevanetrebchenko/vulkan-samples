@@ -108,3 +108,7 @@ set(ASSIMP_BUILD_STEP_EXPORTER OFF)
 add_subdirectory(assimp)
 
 add_subdirectory(utils)
+
+set(VMA_BUILD_SAMPLES OFF)
+set(VMA_BUILD_DOCUMENTATION OFF)
+add_subdirectory(vulkan-memory-allocator)

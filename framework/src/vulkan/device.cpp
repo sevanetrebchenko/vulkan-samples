@@ -8,6 +8,8 @@
 #include <GLFW/glfw3.h>
 #include <shaderc/shaderc.hpp>
 #include <spirv_reflect.h>
+#define VMA_IMPLEMENTATION
+#include <vk_mem_alloc.h>
 
 #include <fstream> // std::ifstream
 
@@ -135,6 +137,11 @@ namespace vks {
     }
 
     void Device::initialize(const DeviceDescription& device_description) {
+        // Initialize Vulkan allocator
+        VmaAllocatorCreateInfo allocator_create_info {
+            .
+        };
+        
         // Query for validation layer support
 
         unsigned validation_layer_count;

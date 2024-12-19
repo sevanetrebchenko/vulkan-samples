@@ -7,7 +7,7 @@
 namespace vks {
     
     struct Renderer {
-        Device device;
+        std::shared_ptr<Device> device;
     };
     
 }

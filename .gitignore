@@ -1,4 +1,2 @@
 cmake-*
 .idea
-**/lib/*
-!**/lib/CMakeLists.txt

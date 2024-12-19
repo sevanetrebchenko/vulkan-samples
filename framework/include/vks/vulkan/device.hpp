@@ -6,6 +6,7 @@
 #include "vks/vulkan/descriptor_set.hpp"
 
 #include <vulkan/vulkan.h>
+#include <vk_mem_alloc.h>
 
 #include <vector> // std::vector
 #include <memory> // std::shared_ptr
@@ -48,6 +49,8 @@ namespace vks {
         
         std::shared_ptr<GraphicsPipeline> create_graphics_pipeline(GraphicsPipelineDescription pipeline_description);
         
+        VmaAllocator vk_allocator;
+        
         VkInstance vulkan_instance;
         VkPhysicalDevice vulkan_physical_device;
         VkPhysicalDeviceProperties vulkan_physical_device_properties;
@@ -58,6 +61,7 @@ namespace vks {
         
         unsigned width;
         unsigned height;
+        
     };
     
 }
