@@ -125,23 +125,18 @@ namespace vks {
 
     // Device implementation
 
-    std::shared_ptr<Device> Device::instance() {
+    std::shared_ptr<Device> Device::get_instance() {
         static std::shared_ptr<Device> device = std::make_shared<Device>();
         return device;
     }
 
-    Device::Device() : vulkan_instance(VK_NULL_HANDLE) {
+    Device::Device() : instance(VK_NULL_HANDLE) {
     }
 
     Device::~Device() {
     }
 
     void Device::initialize(const DeviceDescription& device_description) {
-        // Initialize Vulkan allocator
-        VmaAllocatorCreateInfo allocator_create_info {
-            .
-        };
-        
         // Query for validation layer support
 
         unsigned validation_layer_count;
@@ -227,7 +222,7 @@ namespace vks {
         VkApplicationInfo application_info {
             .sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
             .pNext = nullptr,
-            .pApplicationName = "device_description.name",
+            .pApplicationName = device_description.name,
             .applicationVersion = VK_MAKE_API_VERSION(0, 1, 0, 0),
             .pEngineName = "vks",
             .engineVersion = VK_MAKE_API_VERSION(0, 1, 0, 0),
@@ -266,7 +261,7 @@ namespace vks {
             // This debug messenger is attached to the instance and will get cleaned up alongside it
             instance_create_info.pNext = &debug_messenger_create_info;
 
-            result = vkCreateInstance(&instance_create_info, nullptr, &vulkan_instance);
+            result = vkCreateInstance(&instance_create_info, nullptr, &instance);
             if (result != VK_SUCCESS) {
                 std::string error = utils::format("Failed to create Vulkan instance (error code: {})", result);
                 utils::logging::error(error);
@@ -275,14 +270,14 @@ namespace vks {
 
             // Create the actual VkDebugUtilsMessengerEXT to debug all other Vulkan API calls
             // vkCreateDebugUtilsMessenger function is not loaded by default
-            static PFN_vkCreateDebugUtilsMessengerEXT vkCreateDebugUtilsMessenger = (PFN_vkCreateDebugUtilsMessengerEXT) vkGetInstanceProcAddr(vulkan_instance, "vkCreateDebugUtilsMessengerEXT");
+            static PFN_vkCreateDebugUtilsMessengerEXT vkCreateDebugUtilsMessenger = (PFN_vkCreateDebugUtilsMessengerEXT) vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT");
             if (!vkCreateDebugUtilsMessenger) {
                 std::string error = "Failed to load VkDebugUtilsMessengerEXT (is the 'VK_EXT_debug_utils' instance extension enabled?)";
                 utils::logging::error(error);
                 throw std::runtime_error(error);
             }
 
-            result = vkCreateDebugUtilsMessenger(vulkan_instance, &debug_messenger_create_info, nullptr, &vulkan_debug_messenger);
+            result = vkCreateDebugUtilsMessenger(instance, &debug_messenger_create_info, nullptr, &messenger);
             if (result != VK_SUCCESS) {
                 std::string error = utils::format("Failed to create debug messenger (VkDebugUtilsMessengerEXT) (error code: {})", result);
                 utils::logging::error(error);
@@ -292,7 +287,7 @@ namespace vks {
         else {
              utils::logging::warning("'VK_LAYER_KHRONOS_validation' validation layer is not supported, API validation is disabled");
 
-            result = vkCreateInstance(&instance_create_info, nullptr, &vulkan_instance);
+            result = vkCreateInstance(&instance_create_info, nullptr, &instance);
             if (result != VK_SUCCESS) {
                 std::string error = utils::format("Failed to create Vulkan instance (error code: {})", result);
                 utils::logging::error(error);
@@ -303,19 +298,19 @@ namespace vks {
         // Create Vulkan device
         // Enumerate all available physical devices
         unsigned physical_device_count = 0u;
-        vkEnumeratePhysicalDevices(vulkan_instance, &physical_device_count, nullptr);
+        vkEnumeratePhysicalDevices(instance, &physical_device_count, nullptr);
     
         if (physical_device_count == 0) {
             throw std::runtime_error("failed to find a GPU that supports Vulkan!");
         }
     
         std::vector<VkPhysicalDevice> physical_devices(physical_device_count);
-        vkEnumeratePhysicalDevices(vulkan_instance, &physical_device_count, physical_devices.data());
+        vkEnumeratePhysicalDevices(instance, &physical_device_count, physical_devices.data());
     
         // For now, use the first device by default
         // TODO: score devices based on queue types, supported features, etc.
         // TODO: check for requested feature support?
-        vulkan_physical_device = physical_devices[0];
+        gpu = physical_devices[0];
         
         VkDeviceCreateInfo device_create_info = { };
         device_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
@@ -339,10 +334,10 @@ namespace vks {
         // For now, select ONE queue family that supports graphics, presentation (if required), compute (if requested), and transfer (if requested) operations (assuming there exists such a queue)
         // TODO: multiple queues are not supported
         unsigned queue_family_count = 0u;
-        vkGetPhysicalDeviceQueueFamilyProperties(vulkan_physical_device, &queue_family_count, nullptr);
+        vkGetPhysicalDeviceQueueFamilyProperties(gpu, &queue_family_count, nullptr);
         
         std::vector<VkQueueFamilyProperties> queue_families(queue_family_count);
-        vkGetPhysicalDeviceQueueFamilyProperties(vulkan_physical_device, &queue_family_count, queue_families.data());
+        vkGetPhysicalDeviceQueueFamilyProperties(gpu, &queue_family_count, queue_families.data());
         
         unsigned queue_family_index = queue_family_count; // Invalid index
         
@@ -393,7 +388,7 @@ namespace vks {
         device_create_info.queueCreateInfoCount = static_cast<unsigned>(queue_create_infos.size());
         device_create_info.pQueueCreateInfos = queue_create_infos.data();
         
-        if (vkCreateDevice(vulkan_physical_device, &device_create_info, nullptr, &vulkan_device) != VK_SUCCESS) {
+        if (vkCreateDevice(gpu, &device_create_info, nullptr, &device) != VK_SUCCESS) {
             throw std::runtime_error("failed to create logical device!");
         }
     }
@@ -459,9 +454,7 @@ namespace vks {
 
         // The vertex shader is the only required stage for a valid graphics pipeline
         if (!has_shader_stage(pipeline_description.shader_stages, VK_SHADER_STAGE_VERTEX_BIT)) {
-            std::string error = "Failed to create graphics pipeline - vertex shader stage is required";
-            utils::logging::error(error);
-            throw std::runtime_error(error);
+            utils::logging::fatal("Failed to create graphics pipeline - vertex shader stage is required");
         }
         
         std::size_t shader_stage_count = pipeline_description.shader_stages.size();
@@ -471,7 +464,7 @@ namespace vks {
         shader_modules.reserve(shader_stage_count);
         
         for (const ShaderStageDescription& shader_stage : pipeline_description.shader_stages) {
-            shader_modules.emplace_back(compile_shader(vulkan_device, shader_stage));
+            shader_modules.emplace_back(compile_shader(device, shader_stage));
         }
         
         std::vector<VkPipelineShaderStageCreateInfo> shader_stages(shader_stage_count);
@@ -768,7 +761,7 @@ namespace vks {
                 .pBindings = &bindings[0]
             };
             
-            result = vkCreateDescriptorSetLayout(vulkan_device, &descriptor_set_layout_create_info, nullptr, &_descriptor_set_layouts[i]);
+            result = vkCreateDescriptorSetLayout(device, &descriptor_set_layout_create_info, nullptr, &_descriptor_set_layouts[i]);
             if (result != VK_SUCCESS) {
                 std::string error = utils::format("failed to create descriptor set layout");
                 utils::logging::error(error);
@@ -887,7 +880,7 @@ namespace vks {
         pipeline_layout_create_info.pPushConstantRanges = push_constant_ranges.data();
     
         VkPipelineLayout pipeline_layout { };
-        result = vkCreatePipelineLayout(vulkan_device, &pipeline_layout_create_info, nullptr, &pipeline_layout);
+        result = vkCreatePipelineLayout(device, &pipeline_layout_create_info, nullptr, &pipeline_layout);
         if (result != VK_SUCCESS) {
             utils::logging::fatal("Failed to create graphics pipeline - pipeline layout creation (vkCreatePipelineLayout) failed (error code: {})", result);
         }

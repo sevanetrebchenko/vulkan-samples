@@ -32,14 +32,33 @@ namespace vks {
     
     struct VertexAttribute {
         const char* name;
+        
+        // Location attribute, specified by layout (location = n)
         unsigned location;
+        
+        // format - the format of the data type of the attribute
+        //   - float: VK_FORMAT_R32_SFLOAT
+        //   - double: VK_FORMAT_R64_SFLOAT
+        //   - vec2: VK_FORMAT_R32G32_SFLOAT
+        //   - vec3: VK_FORMAT_R32G32B32_SFLOAT
+        //   - vec4: VK_FORMAT_R32G32B32A32_SFLOAT
+        //   - ivec2: VK_FORMAT_R32G32_SINT
+        //   - uvec4: VK_FORMAT_R32G32B32A32_UINT
         VkFormat format;
     };
     
     struct VertexBinding {
+        // binding - binding point of the buffer used to read data from
         unsigned binding;
+        
+        // stride - number of bytes between consecutive elements in the buffer
         unsigned stride;
+        
         std::vector<VertexAttribute> attributes;
+        
+        // inputRate - specifies whether this data is updated per vertex or per instance (for instanced rendering)
+        //   - VK_VERTEX_INPUT_RATE_VERTEX - updated per vertex
+        //   - VK_VERTEX_INPUT_RATE_INSTANCE - updated per instance
         VkVertexInputRate rate;
     };
     

@@ -2,6 +2,7 @@
 #include "vks/detail/shader_compiler.hpp"
 #include "vks/vulkan/utility.hpp"
 #include "vks/renderer.hpp"
+#include "hash.hpp"
 
 #include "utils/filesystem.hpp"
 #include "utils/platform.hpp"
@@ -88,6 +89,15 @@ namespace vks {
     void ShaderPreprocessor::ReleaseInclude(shaderc_include_result* data) {
         // Nothing to do here
     }
+    
+    struct ShaderCompiler {
+        ShaderCompiler();
+        ~ShaderCompiler();
+
+        
+
+        std::unordered_map<ShaderStageDescription, ShaderModule> modules;
+    };
     
     ShaderModule compile_shader(VkDevice device, const ShaderStageDescription& stage_description) {
         // Configure compile options

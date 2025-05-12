@@ -11,7 +11,7 @@ int main() {
     device_description.set_application_name("My Vulkan Application")
                       .set_extent(1920, 1080);
 
-    std::shared_ptr<Device> device = Device::instance();
+    std::shared_ptr<Device> device = Device::get_instance();
     device->initialize(device_description);
     
     ShaderStageDescription vertex_shader { };
@@ -30,9 +30,9 @@ int main() {
     vertex_input.set_binding_input_rate(0, VK_VERTEX_INPUT_RATE_VERTEX);
 
     GraphicsPipelineDescription graphics_pipeline { };
-    graphics_pipeline.add_shader_stage(vertex_shader);
-    graphics_pipeline.add_shader_stage(fragment_shader);
-    graphics_pipeline.set_vertex_input(vertex_input);
+    graphics_pipeline.add_shader_stage(vertex_shader)
+                     .add_shader_stage(fragment_shader)
+                     .set_vertex_input(vertex_input);
     
     device->create_graphics_pipeline(graphics_pipeline);
     

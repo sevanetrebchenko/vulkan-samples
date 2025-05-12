@@ -55,6 +55,15 @@ namespace vks {
             ShaderStageDescription();
             ~ShaderStageDescription();
             
+            // Shader stage is automatically picked up from the file extension
+            // .vert - vertex
+            // .frag - fragment
+            // .geom - geometry
+            // .comp - compute
+            // .tesc - tesselation compute
+            // .tese - tesselation evaluation
+            // .mesh - mesh
+            // .task - task
             ShaderStageDescription& set_filepath(std::filesystem::path path);
             ShaderStageDescription& set_filepath(std::filesystem::path path, VkShaderStageFlags stage);
             

@@ -17,6 +17,8 @@ namespace vks {
     struct ShaderModule {
         VkShaderModule vk_module;
         SpvReflectShaderModule spv_module;
+        
+        std::filesystem::file_time_type last_modified_time;
     };
     
     ShaderModule compile_shader(VkDevice device, const ShaderStageDescription& stage_description);

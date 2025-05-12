@@ -22,25 +22,24 @@ namespace vks {
         DeviceDescription& set_extent(unsigned width, unsigned height);
         
         // TODO: find a way to unify extension interface
-        DeviceDescription& enable_instance_extension(const char* name);
-        DeviceDescription& enable_device_extension(const char* name);
+        DeviceDescription& enable_extension(const char* name);
         DeviceDescription& enable_features(VkPhysicalDeviceFeatures features);
         
         DeviceDescription& set_application_name(const char* name);
         
+        VkPhysicalDeviceFeatures enabled_features;
+        
         unsigned width;
         unsigned height;
         const char* name;
-        VkPhysicalDeviceFeatures enabled_features;
         
-        std::vector<const char*> instance_extensions;
-        std::vector<const char*> device_extensions;
+        std::vector<const char*> extensions;
     };
     
     struct Device {
-        static std::shared_ptr<Device> instance();
+        static std::shared_ptr<Device> get_instance();
         
-        // Device should be accessed through Device::instance()
+        // Device should be accessed through Device::get_instance()
         Device();
         ~Device();
         
@@ -49,19 +48,20 @@ namespace vks {
         
         std::shared_ptr<GraphicsPipeline> create_graphics_pipeline(GraphicsPipelineDescription pipeline_description);
         
-        VmaAllocator vk_allocator;
+        VmaAllocator allocator;
         
-        VkInstance vulkan_instance;
-        VkPhysicalDevice vulkan_physical_device;
-        VkPhysicalDeviceProperties vulkan_physical_device_properties;
-        VkPhysicalDeviceFeatures vulkan_physical_device_features;
-        VkDevice vulkan_device;
+        VkInstance instance;
         
-        VkDebugUtilsMessengerEXT vulkan_debug_messenger;
+        VkPhysicalDevice gpu;
+        VkPhysicalDeviceProperties gpu_properties;
+        VkPhysicalDeviceFeatures gpu_features;
+        
+        VkDevice device;
+        
+        VkDebugUtilsMessengerEXT messenger;
         
         unsigned width;
         unsigned height;
-        
     };
     
 }

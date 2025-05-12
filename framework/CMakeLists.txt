@@ -37,7 +37,6 @@ target_link_libraries(${PROJECT_NAME} PUBLIC stb)
 target_link_libraries(${PROJECT_NAME} PUBLIC assimp)
 target_link_libraries(${PROJECT_NAME} PUBLIC spirv-reflect-static)
 target_link_libraries(${PROJECT_NAME} PUBLIC utils)
-target_link_libraries(${PROJECT_NAME} PUBLIC GPUOpen::VulkanMemoryAllocator)
 
 target_include_directories(${PROJECT_NAME} PUBLIC "${PROJECT_SOURCE_DIR}/include")
 # target_include_directories(${PROJECT_NAME} PRIVATE "${PROJECT_SOURCE_DIR}/src") # Private engine headers are mixed in with project source
