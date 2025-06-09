@@ -3,6 +3,7 @@
 #define PIPELINE_HPP
 
 #include "vks/vulkan/shader.hpp"
+#include "vks/vulkan/descriptor_set.hpp"
 #include "vks/types.hpp"
 
 #include <filesystem> // std::filesystem::path
@@ -105,7 +106,12 @@ namespace vks {
         
         void bind(Buffer buffer, unsigned binding);
         
+        [[nodiscard]] std::shared_ptr<DescriptorSet> get_descriptor_set(unsigned int set) const;
+        
+        GraphicsPipelineDescription description;
         std::vector<PushConstant> push_constants;
+        
+        std::vector<DescriptorSet> descriptor_sets;
     };
 
     struct ComputePipeline {

@@ -398,8 +398,8 @@ namespace vks {
 
 
     
-    Uniform reflect_member(const SpvReflectBlockVariable& var) {
-        Uniform uniform {
+    Resource reflect_member(const SpvReflectBlockVariable& var) {
+        Resource uniform {
             .name = var.name,
             .offset = var.absolute_offset,
             .size = var.size
@@ -479,8 +479,8 @@ namespace vks {
             const ShaderStageDescription& shader_stage = pipeline_description.shader_stages[i];
             
             for (const ShaderConstant& shader_constant : shader_stage.constants) {
-                for (unsigned j = 0; j < shader_module.spv_module.spec_constant_count; ++j) {
-                    const SpvReflectSpecializationConstant& specialization_constant = shader_module.spv_module.spec_constants[j];
+                for (unsigned j = 0; j < shader_module.reflection_data.spec_constant_count; ++j) {
+                    const SpvReflectSpecializationConstant& specialization_constant = shader_module.reflection_data.spec_constants[j];
                     if (strcmp(shader_constant.name, specialization_constant.name) == 0) {
                         // Found active specialization constant
                         ++active_specialization_constant_count;
@@ -506,7 +506,7 @@ namespace vks {
             shader_stage_create_info.flags = 0;
             shader_stage_create_info.stage = (VkShaderStageFlagBits) shader_stage.stage;
             shader_stage_create_info.module = shader_module.vk_module;
-            shader_stage_create_info.pName = shader_module.spv_module.entry_point_name;
+            shader_stage_create_info.pName = shader_module.reflection_data.entry_point_name;
             shader_stage_create_info.pSpecializationInfo = nullptr;
             
             unsigned start = specialization_constant_index;
@@ -515,8 +515,8 @@ namespace vks {
             unsigned buffer_offset = 0;
             
             for (const ShaderConstant& shader_constant : shader_stage.constants) {
-                for (unsigned j = 0; j < shader_module.spv_module.spec_constant_count; ++j) {
-                    const SpvReflectSpecializationConstant& specialization_constant = shader_module.spv_module.spec_constants[j];
+                for (unsigned j = 0; j < shader_module.reflection_data.spec_constant_count; ++j) {
+                    const SpvReflectSpecializationConstant& specialization_constant = shader_module.reflection_data.spec_constants[j];
                     if (strcmp(shader_constant.name, specialization_constant.name) == 0) {
                         // Found active specialization constant
                         VkSpecializationMapEntry& specialization = specialization_constants[specialization_constant_index++];
@@ -555,8 +555,8 @@ namespace vks {
         unsigned vertex_shader_stage_index = get_shader_stage_index(pipeline_description.shader_stages, VK_SHADER_STAGE_VERTEX_BIT);
         const ShaderModule& vertex_shader_module = shader_modules[vertex_shader_stage_index];
         
-        for (unsigned i = 0; i < vertex_shader_module.spv_module.input_variable_count; ++i) {
-            SpvReflectInterfaceVariable* input_variable = vertex_shader_module.spv_module.input_variables[i];
+        for (unsigned i = 0; i < vertex_shader_module.reflection_data.input_variable_count; ++i) {
+            SpvReflectInterfaceVariable* input_variable = vertex_shader_module.reflection_data.input_variables[i];
             const char* name = input_variable->name;
             unsigned location = input_variable->location;
             
@@ -655,81 +655,92 @@ namespace vks {
             .pVertexAttributeDescriptions = vertex_attributes.data()
         };
         
-        // Retrieve the reflected descriptor set information
-        std::vector<DescriptorSetLayout> descriptor_set_layouts;
+        // Generate pipeline descriptor set layouts
+        std::vector<DescriptorSetDescription> descriptor_sets;
         
-        for (unsigned i = 0; i < shader_stage_count; ++i) {
+        for (std::size_t i = 0; i < shader_stage_count; ++i) {
             const ShaderModule& shader_module = shader_modules[i];
             VkShaderStageFlags shader_stage = pipeline_description.shader_stages[i].stage;
             
-            for (unsigned j = 0; j < shader_module.spv_module.descriptor_set_count; ++j) {
-                const SpvReflectDescriptorSet& descriptor_set = shader_module.spv_module.descriptor_sets[j];
-                unsigned index = descriptor_set.set;
-
-                bool found = false;
-                std::size_t descriptor_set_index = descriptor_set_layouts.size();
+            for (std::size_t j = 0; j < shader_module.reflection_data.descriptor_set_count; ++j) {
+                const SpvReflectDescriptorSet& descriptor_set_info = shader_module.reflection_data.descriptor_sets[j];
                 
-                for (unsigned k = 0; k < descriptor_set_index; ++k) {
-                    if (descriptor_set_layouts[k].index == index) {
+                // A descriptor set consists of a set and a binding, which operate at different levels of granularity, where a set is a collection of resource bindings grouped together
+                std::size_t descriptor_set_count = descriptor_sets.size();
+                std::size_t descriptor_set_index = descriptor_set_count;
+                
+                for (std::size_t k = 0; k < descriptor_set_count; ++k) {
+                    if (descriptor_sets[k].set == descriptor_set_info.set) {
                         descriptor_set_index = k;
-                        found = true;
                         break;
                     }
                 }
-                
-                if (!found) {
-                    // Create new descriptor set layout
-                    DescriptorSetLayout& descriptor_set_layout = descriptor_set_layouts.emplace_back();
-                    descriptor_set_layout.index = index;
+
+                if (descriptor_set_index == descriptor_set_count) {
+                    // Descriptor set with this set index has not been encountered before
+                    descriptor_sets.emplace_back(descriptor_set_info.set);
                 }
                 
-                DescriptorSetLayout& descriptor_set_layout = descriptor_set_layouts[descriptor_set_index];
+                DescriptorSetDescription& descriptor_set_description = descriptor_sets[descriptor_set_index];
                 
-                // Register new descriptor set layout
-                // TODO: query for shared existing layout here
-                
-                unsigned descriptor_binding_count = descriptor_set.binding_count;
-                
-                for (unsigned k = 0; k < descriptor_binding_count; ++k) {
-                    const SpvReflectDescriptorBinding* descriptor_binding = descriptor_set.bindings[k];
+                // Enumerate descriptor bindings
+                // A binding is a single slot within a descriptor set, identified by a binding index (binding = 1) which points to a specific kind of resource
+                // The binding index can be shared across multiple shader stages or restricted to a single one (depending on the stage flags)
+                for (std::size_t k = 0; k < descriptor_set_info.binding_count; ++k) {
+                    const SpvReflectDescriptorBinding* descriptor_info = descriptor_set_info.bindings[k];
+                    VkDescriptorType type = static_cast<VkDescriptorType>(descriptor_info->descriptor_type); // Explicit 1:1 mapping
                     
-                    unsigned binding = descriptor_binding->binding;
-                    VkDescriptorType type = (VkDescriptorType) descriptor_binding->descriptor_type;
-                    unsigned count = descriptor_binding->count;
-
-                    // If a given resource is already present in the descriptor set layout, it is shared between shader stages
-                    found = false;
-                    for (Descriptor& descriptor : descriptor_set_layout.descriptors) {
-                        if (descriptor.binding == binding && descriptor.type == type && descriptor.count == count) {
-                            // Mark resource as shared between shader stages
-                            descriptor.stages |= shader_stage;
-                            
-                            found = true;
+                    descriptor_set_description.add_descriptor(descriptor_info->binding,
+                                                              type,
+                                                              descriptor_info->count,
+                                                              shader_stage);
+                    
+                    // Parse descriptor into uniforms
+                    switch (type) {
+                        case VK_DESCRIPTOR_TYPE_SAMPLER: {
+                            // Standalone sampler
+                            break;
+                        }
+  
+                        case VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE: {
+                            // Standalone sampled image
+                            break;
+                        }
+                        
+                        case VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER: {
+                            // Image + sampler combined
+                            break;
+                        }
+                        
+                        case VK_DESCRIPTOR_TYPE_STORAGE_IMAGE: {
+                            // Read/write image
+                            break;
+                        }
+                        
+                        case VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER: {
+                            // Read/write 1D array
+                            break;
+                        }
+                        
+                        case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER:
+                        case VK_DESCRIPTOR_TYPE_STORAGE_BUFFER: {
+                            const SpvReflectBlockVariable& block = descriptor_info->block;
+                            reflect_member(block);
+                            break;
+                        }
+                        
+                        case VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT: {
+                            // Subpass input attachment
                             break;
                         }
                     }
-                    
-                    if (!found) {
-                        // Register new resource
-                        Descriptor& resource = descriptor_set_layout.descriptors.emplace_back();
-                        resource.binding = binding;
-                        resource.type = type;
-                        resource.count = count;
-                        resource.stages = shader_stage;
-                    }
-                    
-                    // Reflect uniform data
-//                    std::vector<Uniform> uniforms;
-//                    if (type == ResourceType::UniformBuffer) {
-//                        unsigned uniform_count = descriptor_binding->block.member_count;
-//                        uniforms.resize(uniform_count);
-//
-//                        for (unsigned k = 0; k < uniform_count; ++k) {
-//                            uniforms[k] = reflect_member(descriptor_binding->block.members[k]);
-//                        }
-//                    }
                 }
+                
             }
+        }
+        
+        for (const DescriptorSetDescription& descriptor_set_description : descriptor_set_descriptions) {
+            create_descriptor_set(descriptor_set_description);
         }
         
         // TODO: fill gaps with empty descriptor set layouts
@@ -815,11 +826,11 @@ namespace vks {
             // Members that are shared between stages should not contribute to the offset of subsequent members
             unsigned shared_offset = 0;
             
-            bool has_push_constant_block = shader_module.spv_module.push_constant_block_count > 0;
+            bool has_push_constant_block = shader_module.reflection_data.push_constant_block_count > 0;
             
             if (has_push_constant_block) {
-                for (unsigned j = 0; j < shader_module.spv_module.push_constant_block_count; ++j) {
-                    const SpvReflectBlockVariable& push_constant_block = shader_module.spv_module.push_constant_blocks[j];
+                for (unsigned j = 0; j < shader_module.reflection_data.push_constant_block_count; ++j) {
+                    const SpvReflectBlockVariable& push_constant_block = shader_module.reflection_data.push_constant_blocks[j];
                     unsigned member_count = push_constant_block.member_count;
                     
                     for (unsigned k = 0; k < member_count; ++k) {

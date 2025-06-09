@@ -36,32 +36,37 @@ namespace vks {
         std::vector<const char*> extensions;
     };
     
-    struct Device {
-        static std::shared_ptr<Device> get_instance();
+    class Device {
+        public:
+            static std::shared_ptr<Device> get_instance();
+            
+            // Device should be accessed through Device::get_instance()
+            Device();
+            ~Device();
         
-        // Device should be accessed through Device::get_instance()
-        Device();
-        ~Device();
+            void initialize(const DeviceDescription& description);
+            void shutdown();
         
-        void initialize(const DeviceDescription& description);
-        void shutdown();
+            std::shared_ptr<GraphicsPipeline> create_graphics_pipeline(GraphicsPipelineDescription pipeline_description);
         
-        std::shared_ptr<GraphicsPipeline> create_graphics_pipeline(GraphicsPipelineDescription pipeline_description);
+            
+            VkInstance instance;
         
-        VmaAllocator allocator;
+            VkPhysicalDevice gpu;
+            VkPhysicalDeviceProperties gpu_properties;
+            VkPhysicalDeviceFeatures gpu_features;
         
-        VkInstance instance;
+            VkDevice device;
         
-        VkPhysicalDevice gpu;
-        VkPhysicalDeviceProperties gpu_properties;
-        VkPhysicalDeviceFeatures gpu_features;
+            VkDebugUtilsMessengerEXT messenger;
         
-        VkDevice device;
-        
-        VkDebugUtilsMessengerEXT messenger;
-        
-        unsigned width;
-        unsigned height;
+            unsigned width;
+            unsigned height;
+            
+        private:
+            std::shared_ptr<DescriptorSet> create_descriptor_set(DescriptorSetDescription description);
+            
+            // Descriptor set cache
     };
     
 }

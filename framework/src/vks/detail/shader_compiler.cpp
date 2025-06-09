@@ -94,8 +94,11 @@ namespace vks {
         ShaderCompiler();
         ~ShaderCompiler();
 
-        
+        // Recompiles all
+        void compile(const ShaderStageDescription& stage_description);
 
+        
+        
         std::unordered_map<ShaderStageDescription, ShaderModule> modules;
     };
     
@@ -223,7 +226,7 @@ namespace vks {
         }
 
         // Generate reflection data using SPIR-V bytecode
-        spvReflectCreateShaderModule(size, spirv.data(), &module.spv_module);
+        spvReflectCreateShaderModule(size, spirv.data(), &module.reflection_data);
         return module;
     }
 
