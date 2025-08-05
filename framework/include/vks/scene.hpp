@@ -1,10 +1,10 @@
 
-#ifndef DEVICE_HPP
-#define DEVICE_HPP
+#ifndef SCENE_HPP
+#define SCENE_HPP
 
 namespace vks {
     
-    class Device {
+    class Scene {
         public:
         
         private:
@@ -13,4 +13,4 @@ namespace vks {
     
 }
 
-#endif // DEVICE_HPP
+#endif // SCENE_HPP

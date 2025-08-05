@@ -1,0 +1,5 @@
+
+#ifndef TEXTURE_CACHE_HPP
+#define TEXTURE_CACHE_HPP
+
+#endif // TEXTURE_CACHE_HPP

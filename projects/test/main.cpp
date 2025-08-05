@@ -1,40 +1,64 @@
 
-#include "shader.hpp"
-#include "renderpass.hpp"
+#include "vks/vulkan/pipeline_cache.hpp"
+#include "vks/vulkan/render_graph.hpp"
+#include "vks/sample.hpp"
 
-#include "vks/vulkan/device.hpp"
+using namespace vks;
+
+class Test final : public Sample {
+    public:
+        Test() : Sample("test") {
+        }
+        
+        ~Test() override {
+        }
+        
+        SampleRequirements get_requirements() override {
+            SampleRequirements requirements { };
+            return requirements;
+        }
+        
+        void load() override {
+        }
+        
+        void update(float dt) override {
+        
+        }
+        
+        void render_frame(RenderContext& context) override {
+        }
+        
+        void unload() override {
+        }
+        
+    private:
+    
+};
+
 
 int main() {
+
     using namespace vks;
 
-    DeviceDescription device_description { };
-    device_description.set_application_name("My Vulkan Application")
-                      .set_extent(1920, 1080);
-
-    std::shared_ptr<Device> device = Device::get_instance();
-    device->initialize(device_description);
+    Test test { };
+    test.initialize();
     
-    ShaderStageDescription vertex_shader { };
-    vertex_shader.set_filepath("shaders/sample.vert");
-    vertex_shader.define_constant("ASDF", 64);
+//    PipelineCache pc { };
+//
+//    pc.register_pipeline_template("gbuffer")
+//      .configure_shader_stage("shaders/sample.vert", [](ShaderStageDescription& description) {
+//          description.define_constant("LIGHT_COUNT", 64);
+//      })
+//      .configure_vertex_input([](VertexInput& input) {
+//          input.add_binding(0)
+//                   .add_attribute("position")
+//                   .add_attribute("normal")
+//                   .add_attribute("uv");
+//      })
+//   ;
     
-    ShaderStageDescription fragment_shader { };
-    fragment_shader.set_filepath("shaders/sample.frag");
-    fragment_shader.define_constant("LIGHT_COUNT", 16);
+//    RenderGraph rg { };
     
-    VertexInputDescription vertex_input { };
-    vertex_input.add_attribute(0, "vertex_position");
-    vertex_input.add_attribute(0, "vertex_normal");
-    vertex_input.add_attribute(0, "vertex_uv");
-    vertex_input.set_binding_stride(0, 64);
-    vertex_input.set_binding_input_rate(0, VK_VERTEX_INPUT_RATE_VERTEX);
-
-    GraphicsPipelineDescription graphics_pipeline { };
-    graphics_pipeline.add_shader_stage(vertex_shader)
-                     .add_shader_stage(fragment_shader)
-                     .set_vertex_input(vertex_input);
-    
-    device->create_graphics_pipeline(graphics_pipeline);
     
     return 0;
 }

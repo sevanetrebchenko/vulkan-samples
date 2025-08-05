@@ -1,40 +1,17 @@
 
-#ifndef SHADER_HPP
-#define SHADER_HPP
+#ifndef SHADER_COMPILER_HPP
+#define SHADER_COMPILER_HPP
 
-#include "vks/types.hpp"
-
-#include <utils/enum.hpp>
 #include <vulkan/vulkan.h>
-#include <filesystem> // std::filesystem::path
-#include <vector> // std::vector
+#include <spirv_reflect.h>
+#include <cstdint> // std::uint8_t
+#include <filesystem> // std::filesystem::path, std::filesystem::file_time_type
 #include <unordered_map> // std::unordered_map
+#include <utility> // std::hash
+#include <deque> // std::deque
+#include <shared_mutex> // std::shared_mutex
 
 namespace vks {
-    
-//    enum class ShaderStage {
-//        // Graphics pipeline shader stages
-//        Vertex = VK_SHADER_STAGE_VERTEX_BIT,
-//        TesselationControl = VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT,
-//        TesselationEvaluation = VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT,
-//        Geometry = VK_SHADER_STAGE_GEOMETRY_BIT,
-//        Fragment = VK_SHADER_STAGE_FRAGMENT_BIT,
-//
-//        // Compute pipelines shader stages
-//        Compute = VK_SHADER_STAGE_COMPUTE_BIT,
-//
-//        // Mesh pipeline shader stages
-//        Mesh = VK_SHADER_STAGE_MESH_BIT_EXT,
-//        Task = VK_SHADER_STAGE_TASK_BIT_EXT,
-//
-//        // Raytracing pipeline shader stages
-//        // ...
-//
-//        None = 0,
-//    };
-//    DEFINE_ENUM_BITFIELD_OPERATIONS(ShaderStage);
-    
-    unsigned to_pipeline_index(VkShaderStageFlags stage);
     
     struct ShaderConstant {
         // Vulkan GLSL specialization constants must be one of: bool, int, uint, float, double
@@ -45,55 +22,67 @@ namespace vks {
             float f;
             double d;
         } value;
-        u8 size;
+        std::uint8_t size;
 
-        const char* name;
+        std::string name;
     };
-
-    class ShaderStageDescription {
+    
+    struct ShaderStageDescription {
+        ShaderStageDescription(std::filesystem::path filepath);
+        
+        [[nodiscard]] bool operator==(const ShaderStageDescription& other) const;
+        
+        // Vulkan GLSL specialization constants
+        // Must be one of: bool, integer, unsigned integer, float, double
+        template <typename T, typename ...Ts>
+        ShaderStageDescription& define_constants(const std::pair<std::string, T>& constant, const Ts&...);
+        ShaderStageDescription& define_constant(const std::string& name, bool value);
+        ShaderStageDescription& define_constant(const std::string& name, int value);
+        ShaderStageDescription& define_constant(const std::string& name, unsigned value);
+        ShaderStageDescription& define_constant(const std::string& name, float value);
+        ShaderStageDescription& define_constant(const std::string& name, double value);
+        
+        // Preprocessor definitions
+        template <typename ...Ts>
+        ShaderStageDescription& define_macros(const std::pair<std::string, std::string>& macro, const Ts&...);
+        ShaderStageDescription& define_macro(const std::string& name, const std::string& value);
+        
+        VkShaderStageFlags stage;
+        std::filesystem::path path;
+        std::vector<ShaderConstant> constants;
+        std::unordered_map<std::string, std::string> preprocessor_definitions;
+    };
+    
+    struct ShaderModule {
+        VkShaderModule module;
+        SpvReflectShaderModule reflection_data;
+    };
+    
+    class ShaderCache {
         public:
-            ShaderStageDescription();
-            ~ShaderStageDescription();
-            
-            // Shader stage is automatically picked up from the file extension
-            // .vert - vertex
-            // .frag - fragment
-            // .geom - geometry
-            // .comp - compute
-            // .tesc - tesselation compute
-            // .tese - tesselation evaluation
-            // .mesh - mesh
-            // .task - task
-            ShaderStageDescription& set_filepath(std::filesystem::path path);
-            ShaderStageDescription& set_filepath(std::filesystem::path path, VkShaderStageFlags stage);
-            
-            ShaderStageDescription& define_macro(const char* name, const char* value);
-    
-            ShaderStageDescription& define_constant(const char* name, bool value);
-            ShaderStageDescription& define_constant(const char* name, int value);
-            ShaderStageDescription& define_constant(const char* name, unsigned value);
-            ShaderStageDescription& define_constant(const char* name, float value);
-            ShaderStageDescription& define_constant(const char* name, double value);
-            
-            std::filesystem::path path;
-            VkShaderStageFlags stage;
-            
-            std::vector<ShaderConstant> constants;
-            std::unordered_map<const char*, const char*> preprocessor_definitions;
-            
+            // Shader cache does lazy shader compilation - shaders are only compiled when they are needed
+            const ShaderModule& get_shader_module(const ShaderStageDescription& description);
+            void invalidate_shader_variants(const std::filesystem::path& filepath);
+        
         private:
-            [[nodiscard]] ShaderConstant& get_constant(const char* name);
+            struct CachedShaderModule : ShaderModule {
+                std::atomic<bool> needs_recompilation;
+                std::filesystem::file_time_type last_modified_time;
+            };
+            
+            struct ShaderStageDescriptionHash {
+                [[nodiscard]] std::size_t operator()(const ShaderStageDescription& description) const;
+            };
+            
+            void compile_shader(const ShaderStageDescription& description);
+            
+            std::deque<CachedShaderModule> m_modules; // Shader modules are stored as a deque to avoid invalidating references on reallocation
+            std::shared_mutex m_cache_mutex; // For threadsafe shader recompilation
+            
+            std::unordered_map<ShaderStageDescription, std::size_t, ShaderStageDescriptionHash> m_description_to_index;
+            std::unordered_map<std::filesystem::path, std::vector<std::size_t>> m_filepath_to_index;
     };
     
 }
 
-namespace utils {
-    
-    template <>
-    struct Formatter<VkShaderStageFlagBits> : public Formatter<const char*> {
-        [[nodiscard]] std::string format(VkShaderStageFlagBits stage) const;
-    };
-    
-}
-
-#endif // SHADER_HPP
+#endif // SHADER_COMPILER_HPP

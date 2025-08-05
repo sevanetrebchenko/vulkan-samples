@@ -1,175 +1,59 @@
 
-#include <utility>
-
 #include "vks/vulkan/shader.hpp"
-#include "utils/logging.hpp"
-#include "utils/exceptions.hpp"
 
 namespace vks {
-    
-    unsigned to_pipeline_index(VkShaderStageFlags stage) {
-        switch (stage) {
-            // Graphics pipelines
-            case VK_SHADER_STAGE_VERTEX_BIT:
-                return 0;
-            case VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT:
-                return 1;
-            case VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT:
-                return 2;
-            case VK_SHADER_STAGE_GEOMETRY_BIT:
-                return 3;
-            case VK_SHADER_STAGE_FRAGMENT_BIT:
-                return 4;
-            // Compute pipelines
-            case VK_SHADER_STAGE_COMPUTE_BIT:
-                return 0;
-//            // Mesh pipelines
-//            case ShaderStage::Mesh:
-//                return 0;
-//            case ShaderStage::Task:
-//                return 1;
-            default:
-                return -1;
-        }
-    }
 
-    ShaderStageDescription::ShaderStageDescription() : stage(VK_SHADER_STAGE_FLAG_BITS_MAX_ENUM) {
-    }
-    
-    ShaderStageDescription::~ShaderStageDescription() = default;
-    
-    ShaderStageDescription& ShaderStageDescription::set_filepath(std::filesystem::path _path) {
-        path = std::move(_path);
+    const ShaderModule& ShaderCache::get_shader_module(const ShaderStageDescription& description) {
+        // Shared (read) lock
+        // Multiple get_shader_module calls can run in parallel, but recompilation gets exclusive access
+        std::shared_lock read_lock(m_cache_mutex);
         
-        // Attempt to determine stage from shader extension
-        std::filesystem::path extension = path.extension();
-        if (extension == ".vert") {
-            // Vertex
-            stage = VK_SHADER_STAGE_VERTEX_BIT;
-        }
-        else if (extension == ".tesc") {
-            // Tesselation control
-            stage = VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT;
-        }
-        else if (extension == ".tese") {
-            // Tesselation evaluation
-            stage = VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT;
-        }
-        else if (extension == ".geom") {
-            // Geometry
-            stage = VK_SHADER_STAGE_GEOMETRY_BIT;
-        }
-        else if (extension == ".frag") {
-            // Fragment
-            stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-        }
-        else if (extension == ".comp") {
-            // Compute
-            stage = VK_SHADER_STAGE_COMPUTE_BIT;
+        std::size_t index = m_description_to_index[description];
+        if (index >= m_modules.size()) {
+            // Shader does not exist
         }
         else {
-            // Unknown shader type
-            std::string error = utils::format("Failed to determine shader type - unknown shader extension '{}'", extension);
-            utils::logging::error(error);
-            throw std::runtime_error(error);
-        }
-        
-        return *this;
-    }
-    
-    ShaderStageDescription& ShaderStageDescription::set_filepath(std::filesystem::path _path, VkShaderStageFlags _stage) {
-        path = std::move(_path);
-        stage = _stage;
-        return *this;
-    }
-
-    ShaderStageDescription& ShaderStageDescription::define_constant(const char* name, bool value) {
-        ShaderConstant& constant = get_constant(name);
-        constant.value.b = value;
-        constant.size = sizeof(bool);
-        return *this;
-    }
-    
-    ShaderStageDescription& ShaderStageDescription::define_constant(const char* name, int value) {
-        ShaderConstant& constant = get_constant(name);
-        constant.value.i = value;
-        constant.size = sizeof(int);
-        return *this;
-    }
-    
-    ShaderStageDescription& ShaderStageDescription::define_constant(const char* name, unsigned int value) {
-        ShaderConstant& constant = get_constant(name);
-        constant.value.u = value;
-        constant.size = sizeof(unsigned int);
-        return *this;
-    }
-    
-    ShaderStageDescription& ShaderStageDescription::define_constant(const char* name, float value) {
-        ShaderConstant& constant = get_constant(name);
-        constant.value.f = value;
-        constant.size = sizeof(float);
-        return *this;
-    }
-    
-    ShaderStageDescription& ShaderStageDescription::define_constant(const char* name, double value) {
-        ShaderConstant& constant = get_constant(name);
-        constant.value.d = value;
-        constant.size = sizeof(double);
-        return *this;
-    }
-    
-    ShaderStageDescription& ShaderStageDescription::define_macro(const char* name, const char* value) {
-        preprocessor_definitions[name] = value;
-        return *this;
-    }
-    
-    ShaderConstant& ShaderStageDescription::get_constant(const char* name) {
-        for (ShaderConstant& constant : constants) {
-            if (strcmp(constant.name, name) == 0) {
-                return constant;
+            CachedShaderModule& module = m_modules[index];
+            if (module.needs_recompilation.load()) {
+                // Shaders are compiled when they are requested
+                read_lock.unlock();
+                std::unique_lock write_lock(m_cache_mutex);
+                if (module.needs_recompilation.load()) {
+                    compile_shader(description);
+                }
             }
         }
+        
+        
+//        auto& entry = m_modules[idx];
+//
+//        if (entry.needs_recompile.load()) {
+//            // Shaders are compiled only when they are requested
+//            lock.unlock();
+//            std::unique_lock write_lock(m_cache_mutex);
+//            // Double-check after acquiring write lock
+//            if (entry.needs_recompile.load()) {
+//                recompile_shader(entry);
+//                entry.needs_recompile.store(false);
+//            }
+//        }
+//
+//        return entry.module;
 
-        // Create new entry
-        ShaderConstant& constant = constants.emplace_back();
-        constant.name = name;
-        return constant;
+        return { };
     }
     
-}
-
-namespace utils {
-    
-    std::string Formatter<VkShaderStageFlagBits>::format(VkShaderStageFlagBits stage) const {
-        using namespace vks;
-        const char* name = "";
-        
-        if (stage == VK_SHADER_STAGE_VERTEX_BIT) {
-            name = "vertex";
+    void ShaderCache::invalidate_shader_variants(const std::filesystem::path& filepath) {
+        std::shared_lock lock(m_cache_mutex);
+        if (auto it = m_filepath_to_index.find(filepath); it != m_filepath_to_index.end()) {
+            for (std::size_t index : it->second) {
+                m_modules[index].needs_recompilation.store(true);
+            }
         }
-        else if (stage == VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT) {
-            name = "tesselation control";
-        }
-        else if (stage == VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT) {
-            name = "tesselation evaluation";
-        }
-        else if (stage == VK_SHADER_STAGE_GEOMETRY_BIT) {
-            name = "geometry";
-        }
-        else if (stage == VK_SHADER_STAGE_FRAGMENT_BIT) {
-            name = "fragment";
-        }
-        else if (stage == VK_SHADER_STAGE_COMPUTE_BIT) {
-            name = "compute";
-        }
-//        else if (stage == ShaderStage::Mesh) {
-//            name = "mesh";
-//        }
-//        else if (stage == ShaderStage::Task) {
-//            name = "task";
-//        }
-        
-        return std::move(Formatter<const char*>::format(name));
     }
     
+    void ShaderCache::compile_shader(const ShaderStageDescription& description) {
+    
+    }
+
 }

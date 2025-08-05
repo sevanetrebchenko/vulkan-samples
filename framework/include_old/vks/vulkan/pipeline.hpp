@@ -10,6 +10,38 @@
 #include <functional> // std::function
 
 namespace vks {
+
+/**
+Automatically reflected from shaders:
+ - Descriptor set layouts (bindings, types, stages)
+ - Pipeline layout (descriptor sets + push constants)
+ - Vertex input attributes (locations, formats)
+ - Shader stages and entry points
+ - Specialization constants
+ - Push constant ranges
+
+Must be specified (cannot be reflected):
+ - Render pass / render targets
+ - Rasterization state (fill mode, culling, etc.)
+ - Viewport/scissor (usually dynamic anyway)
+ - Multisampling settings
+ - Depth/stencil test configuration
+ - Color blending settings
+ - Vertex buffer bindings (stride, rate)
+
+Reasonable default values:
+ - Input assembly (triangle list is common)
+ - Rasterization (fill, no culling, front face CCW)
+ - Depth testing (less-equal, write enabled)
+ - Color blending (no blending)
+**/
+    
+    struct VertexAttribute {
+        const char* name;  // Must match shader input variable name
+        
+    };
+
+
     
     struct BlendState {
     };
@@ -29,23 +61,6 @@ namespace vks {
         VkCullModeFlags cull_mode;
         VkFrontFace winding;
         VkPolygonMode mode;
-    };
-    
-    struct VertexAttribute {
-        const char* name;
-        
-        // Location attribute, specified by layout (location = n)
-        unsigned location;
-        
-        // format - the format of the data type of the attribute
-        //   - float: VK_FORMAT_R32_SFLOAT
-        //   - double: VK_FORMAT_R64_SFLOAT
-        //   - vec2: VK_FORMAT_R32G32_SFLOAT
-        //   - vec3: VK_FORMAT_R32G32B32_SFLOAT
-        //   - vec4: VK_FORMAT_R32G32B32A32_SFLOAT
-        //   - ivec2: VK_FORMAT_R32G32_SINT
-        //   - uvec4: VK_FORMAT_R32G32B32A32_UINT
-        VkFormat format;
     };
     
     struct VertexBinding {

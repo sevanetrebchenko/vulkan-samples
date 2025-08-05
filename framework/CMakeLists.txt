@@ -13,15 +13,20 @@ add_library(${PROJECT_NAME} STATIC
 #    "${PROJECT_SOURCE_DIR}/src/renderpass.cpp"
 
 #    "${PROJECT_SOURCE_DIR}/src/context.cpp"
-    "${PROJECT_SOURCE_DIR}/src/window.cpp"
-    "${PROJECT_SOURCE_DIR}/src/shader.cpp"
-
-    "${PROJECT_SOURCE_DIR}/src/vks/detail/shader_compiler.cpp"
-        
-    "${PROJECT_SOURCE_DIR}/src/vulkan/device.cpp"
+#    "${PROJECT_SOURCE_DIR}/src/window.cpp"
+#    "${PROJECT_SOURCE_DIR}/src/shader.cpp"
+#
+#    "${PROJECT_SOURCE_DIR}/src/vks/detail/shader_compiler.cpp"
+#
+#    "${PROJECT_SOURCE_DIR}/src/vulkan/device.cpp"
+#    "${PROJECT_SOURCE_DIR}/src/vulkan/shader.cpp"
+#    "${PROJECT_SOURCE_DIR}/src/vulkan/pipeline.cpp"
+#    "${PROJECT_SOURCE_DIR}/src/vulkan/utility.cpp"
+    "${PROJECT_SOURCE_DIR}/src/vulkan/render_context.cpp"
+    "${PROJECT_SOURCE_DIR}/src/vulkan/render_graph.cpp"
     "${PROJECT_SOURCE_DIR}/src/vulkan/shader.cpp"
-    "${PROJECT_SOURCE_DIR}/src/vulkan/pipeline.cpp"
-    "${PROJECT_SOURCE_DIR}/src/vulkan/utility.cpp"
+    "${PROJECT_SOURCE_DIR}/src/sample.cpp"
+    "${PROJECT_SOURCE_DIR}/src/window.cpp"
 )
 
 # Vulkan
