@@ -37,10 +37,15 @@ namespace vks {
                 VkQueueFlags transfer_family_flags;
             };
             
+            struct DeviceSelection {
+                VkPhysicalDevice gpu;
+                QueueFamilySelection queue_families;
+            };
+            
             void get_device_requirements(const SampleRequirements& requirements);
             
             // Returns the optimal queue family selection for the selected device
-            QueueFamilySelection select_physical_device(VkInstance instance, VkSurfaceKHR surface);
+            DeviceSelection select_physical_device(VkInstance instance, VkSurfaceKHR surface);
             bool validate_extension_support(VkPhysicalDevice gpu) const;
             bool validate_feature_support(VkPhysicalDevice gpu) const;
             QueueFamilySelection select_queue_families(VkSurfaceKHR surface, VkPhysicalDevice gpu) const;

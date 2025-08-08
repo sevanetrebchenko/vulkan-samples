@@ -23,9 +23,11 @@ add_library(${PROJECT_NAME} STATIC
 #    "${PROJECT_SOURCE_DIR}/src/vulkan/pipeline.cpp"
 #    "${PROJECT_SOURCE_DIR}/src/vulkan/utility.cpp"
     "${PROJECT_SOURCE_DIR}/src/vulkan/device.cpp"
+    "${PROJECT_SOURCE_DIR}/src/vulkan/queue.cpp"
     "${PROJECT_SOURCE_DIR}/src/vulkan/render_context.cpp"
     "${PROJECT_SOURCE_DIR}/src/vulkan/render_graph.cpp"
     "${PROJECT_SOURCE_DIR}/src/vulkan/shader.cpp"
+    "${PROJECT_SOURCE_DIR}/src/vulkan/swapchain.cpp"
     "${PROJECT_SOURCE_DIR}/src/sample.cpp"
     "${PROJECT_SOURCE_DIR}/src/window.cpp"
 )

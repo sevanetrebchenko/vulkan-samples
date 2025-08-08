@@ -10,9 +10,10 @@ namespace vks {
                                                                                                         m_device(VK_NULL_HANDLE),
                                                                                                         m_enabled_features(requirements.enabled_features) {
         get_device_requirements(requirements);
-        QueueFamilySelection queue_families = select_physical_device(instance, surface);
-        create_device(queue_families);
-        retrieve_device_queues(queue_families);
+        DeviceSelection selection = select_physical_device(instance, surface);
+        m_gpu = selection.gpu;
+        create_device(selection.queue_families);
+        retrieve_device_queues(selection.queue_families);
     }
     
     Device::~Device() {
@@ -77,7 +78,7 @@ namespace vks {
         }
     }
     
-    Device::QueueFamilySelection Device::select_physical_device(VkInstance instance, VkSurfaceKHR surface) {
+    Device::DeviceSelection Device::select_physical_device(VkInstance instance, VkSurfaceKHR surface) {
         std::uint32_t device_count;
         vkEnumeratePhysicalDevices(instance, &device_count, nullptr);
         if (device_count == 0) {
@@ -88,7 +89,7 @@ namespace vks {
         vkEnumeratePhysicalDevices(instance, &device_count, devices.data());
         
         std::uint32_t best_score = 0;
-        QueueFamilySelection best_queue_families { };
+        DeviceSelection best_device { };
         
         for (VkPhysicalDevice gpu : devices) {
             if (!validate_extension_support(gpu)) {
@@ -109,12 +110,14 @@ namespace vks {
             if (score > best_score) {
                 best_score = score;
                 
-                m_gpu = gpu;
-                best_queue_families = queue_families;
+                best_device = {
+                    .gpu = gpu,
+                    .queue_families = queue_families
+                };
             }
         }
         
-        return best_queue_families;
+        return best_device;
     }
     
     bool Device::validate_extension_support(VkPhysicalDevice gpu) const {
