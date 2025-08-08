@@ -6,85 +6,78 @@
 
 namespace vks {
 
-    Device::Device(VkInstance instance, VkSurfaceKHR surface, const SampleRequirements& requirements) {
-        collect_requirements(requirements);
-        select_physical_device(instance, surface);
-        create_device();
-        m_queues.retrieve_queue_handles(m_device);
+    Device::Device(VkInstance instance, VkSurfaceKHR surface, const SampleRequirements& requirements) : m_gpu(VK_NULL_HANDLE),
+                                                                                                        m_device(VK_NULL_HANDLE),
+                                                                                                        m_enabled_features(requirements.enabled_features) {
+        get_device_requirements(requirements);
+        QueueFamilySelection queue_families = select_physical_device(instance, surface);
+        create_device(queue_families);
+        retrieve_device_queues(queue_families);
     }
     
     Device::~Device() {
         vkDestroyDevice(m_device, nullptr);
     }
     
-    VkSurfaceFormatKHR Device::get_surface_format(VkSurfaceKHR surface) const {
-        std::uint32_t format_count;
-        CHECK_CALL(vkGetPhysicalDeviceSurfaceFormatsKHR, m_gpu, surface, &format_count, nullptr);
-        
-        if (format_count == 0) {
-            utils::logging::fatal("Selected GPU does not support any formats for presentation");
+    VkPhysicalDevice Device::get_physical_device() const {
+        return m_gpu;
+    }
+    
+    VkDevice Device::get_device() const {
+        return m_device;
+    }
+    
+    Queue Device::get_graphics_queue() const {
+        return m_graphics_queue;
+    }
+    
+    Queue Device::get_compute_queue() const {
+        if (m_compute_queue) {
+            // Dedicated compute
+            return m_compute_queue;
         }
-        
-        std::vector<VkSurfaceFormatKHR> formats(format_count);
-        CHECK_CALL(vkGetPhysicalDeviceSurfaceFormatsKHR, m_gpu, surface, &format_count, formats.data());
-        
-        // Surface format is for presentation
-        // In an ideal case, intermediate shader calculations should be performed in linear space (accurate for lighting calculations) but converted to sRGB (accurate for displaying) when presenting
-        
-        // Prefer sRGB for final presentation
-        for (const VkSurfaceFormatKHR& format : formats) {
-            // VK_FORMAT_B8G8R8A8_SRGB (sRGB) results in more accurate perceived colors in the final image, as it is a non-linear format that more accurately matches how humans perceive light
-            // If this format is supported, the hardware will automatically apply the sRGB gamma curve during presentation (no manual gamma correction needed)
-            if (format.format == VK_FORMAT_B8G8R8A8_SRGB && format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
-                return format;
-            }
+        else if (m_graphics_queue.supports_compute()) {
+            // Shared with graphics
+            return m_graphics_queue;
         }
-        
-        // Fallback to UNORM + sRGB color space
-        for (const VkSurfaceFormatKHR& format : formats) {
-            // VK_FORMAT_B8G8R8A8_UNORM is a linear format, which does not have automatic sRGB conversion
-            // However, the VK_COLOR_SPACE_SRGB_NONLINEAR_KHR color space tells the monitor to expect sRGB values
-            // If this format is selected, a manual gamma correction step is required before presenting to the screen
-            if (format.format == VK_FORMAT_B8G8R8A8_UNORM && format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
-                return format;
-            }
+        return { };
+    }
+    
+    Queue Device::get_transfer_queue() const {
+        if (m_transfer_queue) {
+            // Dedicated transfer queue
+            return m_transfer_queue;
         }
-        
-        // Return the first format as a last resort
-        return formats[0];
+        else if (m_compute_queue && m_compute_queue.supports_transfer()) {
+            // Dedicated transfer queue (shared with compute)
+            return m_compute_queue;
+        }
+        else if (m_graphics_queue.supports_transfer()) {
+            // Shared with graphics
+            return m_graphics_queue;
+        }
+        return { };
     }
     
-    VkQueue Device::get_graphics_queue() const {
-        return m_queues.graphics;
-    }
-    
-    VkQueue Device::get_compute_queue() const {
-        return m_queues.compute;
-    }
-    
-    VkQueue Device::get_transfer_queue() const {
-        return m_queues.transfer;
-    }
-    
-    void Device::collect_requirements(const SampleRequirements& requirements) {
-        m_enabled_features = requirements.enabled_features;
-        
-        // Check each feature bit individually
-        if (test(m_enabled_features, FeatureFlags::Raytracing)) {
+    void Device::get_device_requirements(const SampleRequirements& requirements) {
+        // Store required extensions to support requested features
+        if (test(requirements.enabled_features, FeatureFlags::Raytracing)) {
             m_extensions.emplace_back(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME);
             m_extensions.emplace_back(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME);
             m_extensions.emplace_back(VK_KHR_RAY_QUERY_EXTENSION_NAME);
             m_extensions.emplace_back(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
         }
-        if (test(m_enabled_features, FeatureFlags::MeshShaders)) {
+        
+        if (test(requirements.enabled_features, FeatureFlags::MeshShaders)) {
             m_extensions.emplace_back(VK_EXT_MESH_SHADER_EXTENSION_NAME);
         }
-        if (test(m_enabled_features, FeatureFlags::VariableRateShading)) {
+        
+        if (test(requirements.enabled_features, FeatureFlags::VariableRateShading)) {
             m_extensions.emplace_back(VK_KHR_FRAGMENT_SHADING_RATE_EXTENSION_NAME);
         }
     }
     
-    void Device::select_physical_device(VkInstance instance, VkSurfaceKHR surface) {
+    Device::QueueFamilySelection Device::select_physical_device(VkInstance instance, VkSurfaceKHR surface) {
         std::uint32_t device_count;
         vkEnumeratePhysicalDevices(instance, &device_count, nullptr);
         if (device_count == 0) {
@@ -95,6 +88,8 @@ namespace vks {
         vkEnumeratePhysicalDevices(instance, &device_count, devices.data());
         
         std::uint32_t best_score = 0;
+        QueueFamilySelection best_queue_families { };
+        
         for (VkPhysicalDevice gpu : devices) {
             if (!validate_extension_support(gpu)) {
                 continue;
@@ -105,15 +100,21 @@ namespace vks {
                 continue;
             }
             
-            DeviceQueues queues = select_queue_families(surface, gpu);
-            std::uint32_t score = calculate_device_score(gpu, queues);
+            QueueFamilySelection queue_families = select_queue_families(surface, gpu);
+            
+            // Device properties should dominate over queue properties when scoring a device
+            // This prevents a worse tier GPU with a better queue selection winning over a more powerful GPU
+            std::uint32_t score = calculate_device_score(gpu) * 100 + calculate_queue_family_score(queue_families);
             
             if (score > best_score) {
                 best_score = score;
-                m_queues = queues;
+                
                 m_gpu = gpu;
+                best_queue_families = queue_families;
             }
         }
+        
+        return best_queue_families;
     }
     
     bool Device::validate_extension_support(VkPhysicalDevice gpu) const {
@@ -227,7 +228,7 @@ namespace vks {
         return result;
     }
     
-    Device::DeviceQueues Device::select_queue_families(VkSurfaceKHR surface, VkPhysicalDevice gpu) const {
+    Device::QueueFamilySelection Device::select_queue_families(VkSurfaceKHR surface, VkPhysicalDevice gpu) const {
         std::uint32_t queue_family_count;
         vkGetPhysicalDeviceQueueFamilyProperties(gpu, &queue_family_count, nullptr);
         
@@ -276,7 +277,7 @@ namespace vks {
             transfer_queue_families.emplace_back(VK_QUEUE_FAMILY_IGNORED);
         }
         
-        DeviceQueues best_config { };
+        QueueFamilySelection best_queue_families { };
         std::uint32_t best_score = 0;
 
         for (std::uint32_t graphics : graphics_queue_families) {
@@ -285,7 +286,7 @@ namespace vks {
                     bool supports_async_compute = compute != graphics && compute != VK_QUEUE_FAMILY_IGNORED;
                     bool supports_async_transfer = transfer != graphics && transfer != VK_QUEUE_FAMILY_IGNORED;
                     
-                    DeviceQueues config {
+                    QueueFamilySelection current_queue_families {
                         // Graphics family is guaranteed to be valid
                         .graphics_family_index = graphics,
                         .compute_family_index = supports_async_compute ? compute : VK_QUEUE_FAMILY_IGNORED,
@@ -296,20 +297,20 @@ namespace vks {
                         .transfer_family_flags = supports_async_transfer ? queue_families[transfer].queueFlags : 0
                     };
                     
-                    std::uint32_t current_score = config.calculate_score();
+                    std::uint32_t current_score = calculate_queue_family_score(current_queue_families);
                     
                     if (current_score > best_score) {
                         best_score = current_score;
-                        best_config = config;
+                        best_queue_families = current_queue_families;
                     }
                 }
             }
         }
         
-        return best_config;
+        return best_queue_families;
     }
     
-    std::uint32_t Device::calculate_device_score(VkPhysicalDevice gpu, const Device::DeviceQueues& queue_families) const {
+    std::uint32_t Device::calculate_device_score(VkPhysicalDevice gpu) const {
         VkPhysicalDeviceProperties gpu_properties;
         vkGetPhysicalDeviceProperties(gpu, &gpu_properties);
         
@@ -345,13 +346,10 @@ namespace vks {
         }
         
         score += std::min(static_cast<int>(vram / (1024 * 1024)), 5000); // Cap at 5GB
-        
-        // Device properties should dominate over queue properties when scoring a device
-        // This prevents a worse tier GPU with a better queue selection winning over a more powerful GPU
-        return score * 100 + queue_families.calculate_score();
+        return score;
     }
     
-    void Device::create_device() {
+    void Device::create_device(const QueueFamilySelection& queue_families) {
         VkDeviceCreateInfo device_create_info { };
         device_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
         
@@ -405,76 +403,20 @@ namespace vks {
         device_create_info.ppEnabledExtensionNames = m_extensions.data();
         
         // Device queues
-        std::vector<VkDeviceQueueCreateInfo> queue_create_infos = m_queues.to_create_infos();
-        device_create_info.queueCreateInfoCount = queue_create_infos.size();
-        device_create_info.pQueueCreateInfos = queue_create_infos.data();
-        
-        CHECK_CALL(vkCreateDevice, m_gpu, &device_create_info, nullptr, &m_device);
-    }
-    
-    std::uint32_t Device::DeviceQueues::calculate_score() const {
-        std::uint32_t score = 0;
-        
-        // Prefer graphics family that supports compute operations
-        // Graphics family inherently supports transfer operations
-        if (graphics_family_flags & VK_QUEUE_COMPUTE_BIT) {
-            score |= 1 << 9;
-        }
-        
-        bool compute_supported = compute_family_index != VK_QUEUE_FAMILY_IGNORED;
-        if (compute_supported) {
-            score |= 1 << 8;
-        }
-        
-        // Prefer device that has support for an async compute queue
-        bool async_compute = compute_supported && compute_family_index != graphics_family_index;
-        if (async_compute) {
-            score |= 1 << 7;
-        }
-    
-        bool transfer_supported = transfer_family_index != VK_QUEUE_FAMILY_IGNORED;
-        if (transfer_supported) {
-            score |= 1 << 6;
-        }
-        
-        // Prefer device that has support for an async transfer queue
-        bool async_transfer = transfer_supported && transfer_family_index != graphics_family_index;
-        if (async_transfer) {
-            score |= 1 << 5;
-        }
-        
-        // Efficiency bonus: async compute and async transfer queue come from the same queue family
-        if (async_compute && async_transfer && compute_family_index == transfer_family_index) {
-            score |= 1 << 4;
-        }
-        
-        // In the case of a tie-breaker, prefer lower queue family indices
-        score = score * 100 - graphics_family_index;
-        if (compute_supported) {
-            score -= compute_family_index;
-        }
-        if (transfer_supported) {
-            score -= transfer_family_index;
-        }
-        
-        return score;
-    }
-    
-    std::vector<VkDeviceQueueCreateInfo> Device::DeviceQueues::to_create_infos() const {
         std::vector<VkDeviceQueueCreateInfo> queue_create_infos;
-        std::unordered_set<std::uint32_t> queue_families;
+        std::unordered_set<std::uint32_t> unique_queue_families;
 
         // Create a queue per unique queue family
-        queue_families.insert(graphics_family_index); // Graphics is always supported
-        if (compute_family_index != VK_QUEUE_FAMILY_IGNORED) {
-            queue_families.insert(compute_family_index);
+        unique_queue_families.insert(queue_families.graphics_family_index); // Graphics is always supported
+        if (queue_families.compute_family_index != VK_QUEUE_FAMILY_IGNORED) {
+            unique_queue_families.insert(queue_families.compute_family_index);
         }
-        if (transfer_family_index != VK_QUEUE_FAMILY_IGNORED) {
-            queue_families.insert(transfer_family_index);
+        if (queue_families.transfer_family_index != VK_QUEUE_FAMILY_IGNORED) {
+            unique_queue_families.insert(queue_families.transfer_family_index);
         }
         
         float queue_priority = 1.0f;
-        for (std::uint32_t family : queue_families) {
+        for (std::uint32_t family : unique_queue_families) {
             VkDeviceQueueCreateInfo queue_create_info { };
             queue_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
             queue_create_info.queueFamilyIndex = family;
@@ -483,25 +425,84 @@ namespace vks {
             queue_create_infos.push_back(queue_create_info);
         }
         
-        return queue_create_infos;
+        device_create_info.queueCreateInfoCount = queue_create_infos.size();
+        device_create_info.pQueueCreateInfos = queue_create_infos.data();
+        
+        CHECK_CALL(vkCreateDevice, m_gpu, &device_create_info, nullptr, &m_device);
     }
     
-    void Device::DeviceQueues::retrieve_queue_handles(VkDevice device) {
-        vkGetDeviceQueue(device, graphics_family_index, 0, &graphics);
+    std::uint32_t Device::calculate_queue_family_score(const QueueFamilySelection& queue_families) const {
+        std::uint32_t score = 0;
         
-        if (compute_family_index != VK_QUEUE_FAMILY_IGNORED) {
-            vkGetDeviceQueue(device, compute_family_index, 0, &compute);
+        // Prefer graphics family that supports compute operations
+        // Graphics family inherently supports transfer operations
+        if (queue_families.graphics_family_flags & VK_QUEUE_COMPUTE_BIT) {
+            score |= 1 << 9;
+        }
+        
+        bool compute_supported = queue_families.compute_family_index != VK_QUEUE_FAMILY_IGNORED;
+        if (compute_supported) {
+            score |= 1 << 8;
+        }
+        
+        // Prefer device that has support for an async compute queue
+        bool async_compute = compute_supported && queue_families.compute_family_index != queue_families.graphics_family_index;
+        if (async_compute) {
+            score |= 1 << 7;
+        }
+    
+        bool transfer_supported = queue_families.transfer_family_index != VK_QUEUE_FAMILY_IGNORED;
+        if (transfer_supported) {
+            score |= 1 << 6;
+        }
+        
+        // Prefer device that has support for an async transfer queue
+        bool async_transfer = transfer_supported && queue_families.transfer_family_index != queue_families.graphics_family_index;
+        if (async_transfer) {
+            score |= 1 << 5;
+        }
+        
+        // Efficiency bonus: async compute and async transfer queue come from the same queue family
+        if (async_compute && async_transfer && queue_families.compute_family_index == queue_families.transfer_family_index) {
+            score |= 1 << 4;
+        }
+        
+        // In the case of a tie-breaker, prefer lower queue family indices
+        score = score * 100 - queue_families.graphics_family_index;
+        if (compute_supported) {
+            score -= queue_families.compute_family_index;
+        }
+        if (transfer_supported) {
+            score -= queue_families.transfer_family_index;
+        }
+        
+        return score;
+    }
+    
+    void Device::retrieve_device_queues(const Device::QueueFamilySelection& queue_families) {
+        VkQueue graphics;
+        VkQueue compute;
+        VkQueue transfer;
+        
+        vkGetDeviceQueue(m_device, queue_families.graphics_family_index, 0, &graphics);
+        
+        if (queue_families.compute_family_index != VK_QUEUE_FAMILY_IGNORED) {
+            vkGetDeviceQueue(m_device, queue_families.compute_family_index, 0, &compute);
         }
         else {
             compute = VK_NULL_HANDLE;
         }
         
-        if (transfer_family_index != VK_QUEUE_FAMILY_IGNORED) {
-            vkGetDeviceQueue(device, transfer_family_index, 0, &transfer);
+        if (queue_families.transfer_family_index != VK_QUEUE_FAMILY_IGNORED) {
+            vkGetDeviceQueue(m_device, queue_families.transfer_family_index, 0, &transfer);
         }
         else {
             transfer = VK_NULL_HANDLE;
         }
+        
+        m_graphics_queue = Queue(graphics, queue_families.graphics_family_index, queue_families.graphics_family_flags, true);
+        m_compute_queue = Queue(compute, queue_families.compute_family_index, queue_families.compute_family_flags, queue_families.compute_family_index != queue_families.graphics_family_index);
+        m_transfer_queue = Queue(transfer, queue_families.transfer_family_index, queue_families.transfer_family_flags, queue_families.transfer_family_index != queue_families.graphics_family_index);
     }
     
 }

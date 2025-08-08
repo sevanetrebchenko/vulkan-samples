@@ -3,6 +3,7 @@
 #define DEVICE_HPP
 
 #include "vks/core.hpp"
+#include "vks/vulkan/queue.hpp"
 #include <vulkan/vulkan.h>
 #include <vector> // std::vector
 
@@ -17,18 +18,16 @@ namespace vks {
             Device(VkInstance instance, VkSurfaceKHR surface, const SampleRequirements& requirements);
             ~Device() override;
             
-            VkSurfaceFormatKHR get_surface_format(VkSurfaceKHR surface) const;
+            VkPhysicalDevice get_physical_device() const;
+            VkDevice get_device() const;
             
-            VkQueue get_graphics_queue() const;
-            VkQueue get_compute_queue() const;
-            VkQueue get_transfer_queue() const;
+            // Returns a non-owning reference to the underlying queue
+            Queue get_graphics_queue() const;
+            Queue get_compute_queue() const;
+            Queue get_transfer_queue() const;
             
         private:
-            struct DeviceQueues {
-                [[nodiscard]] std::uint32_t calculate_score() const;
-                [[nodiscard]] std::vector<VkDeviceQueueCreateInfo> to_create_infos() const;
-                void retrieve_queue_handles(VkDevice device);
-                
+            struct QueueFamilySelection {
                 std::uint32_t graphics_family_index;
                 std::uint32_t compute_family_index;
                 std::uint32_t transfer_family_index;
@@ -36,29 +35,31 @@ namespace vks {
                 VkQueueFlags graphics_family_flags;
                 VkQueueFlags compute_family_flags;
                 VkQueueFlags transfer_family_flags;
-                
-                VkQueue graphics;
-                VkQueue compute;
-                VkQueue transfer;
             };
             
-            void collect_requirements(const SampleRequirements& requirements);
+            void get_device_requirements(const SampleRequirements& requirements);
             
-            void select_physical_device(VkInstance instance, VkSurfaceKHR surface);
-            
+            // Returns the optimal queue family selection for the selected device
+            QueueFamilySelection select_physical_device(VkInstance instance, VkSurfaceKHR surface);
             bool validate_extension_support(VkPhysicalDevice gpu) const;
             bool validate_feature_support(VkPhysicalDevice gpu) const;
-            DeviceQueues select_queue_families(VkSurfaceKHR surface, VkPhysicalDevice gpu) const;
-            std::uint32_t calculate_device_score(VkPhysicalDevice gpu, const DeviceQueues& queues) const;
+            QueueFamilySelection select_queue_families(VkSurfaceKHR surface, VkPhysicalDevice gpu) const;
             
-            void create_device();
-
+            std::uint32_t calculate_device_score(VkPhysicalDevice gpu) const;
+            std::uint32_t calculate_queue_family_score(const QueueFamilySelection& queue_families) const;
+            
+            void create_device(const QueueFamilySelection& queue_families);
+            void retrieve_device_queues(const QueueFamilySelection& queue_families);
+            
             VkPhysicalDevice m_gpu;
+            VkDevice m_device;
+            
             std::vector<const char*> m_extensions;
             FeatureFlags m_enabled_features;
-            DeviceQueues m_queues;
-            
-            VkDevice m_device;
+
+            Queue m_graphics_queue;
+            Queue m_compute_queue;
+            Queue m_transfer_queue;
     };
     
 }
