@@ -124,10 +124,10 @@ namespace vks {
     
     void Image::configure(VkImage image, const ImageDescription& description) {
         m_image = image;
-        m_dirty = m_description != description;
         m_description = description;
         m_type = get_image_type();
-        build();
+        
+        m_dirty = true;
     }
     
     std::size_t Image::ImageViewHash::operator()(const ImageViewDescription& description) const {
