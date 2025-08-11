@@ -2,17 +2,14 @@
 #ifndef RENDER_CONTEXT_HPP
 #define RENDER_CONTEXT_HPP
 
-#include "vks/scene.hpp"
+#include "vks/sample/requirements.hpp"
+#include "vks/vulkan/device.hpp"
 #include "vks/window.hpp"
 #include "vks/vulkan/pipeline_cache.hpp"
 #include "vks/vulkan/render_graph.hpp"
 
 namespace vks {
     
-    // Forward declarations
-    struct SampleRequirements;
-    enum class FeatureFlags : std::uint32_t;
-
     class RenderContext {
         public:
             void initialize(const Window& window, const SampleRequirements& requirements);
@@ -41,7 +38,7 @@ namespace vks {
             std::vector<const char*> m_layers;
             std::vector<const char*> m_extensions;
             
-            DeviceHandle m_device;
+            std::shared_ptr<Device> m_device;
     };
 
 }

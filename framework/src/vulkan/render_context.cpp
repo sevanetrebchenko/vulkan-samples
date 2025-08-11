@@ -13,7 +13,11 @@ namespace vks {
         create_vulkan_instance();
         create_surface(window);
         
-        m_device = std::make_shared<Device>(m_instance, m_surface, requirements);
+        DeviceRequirements device_requirements {
+            .enabled_features = requirements.enabled_features
+        };
+        
+        m_device = std::make_shared<Device>(m_instance, m_surface, device_requirements);
     }
     
     void RenderContext::begin_frame() {

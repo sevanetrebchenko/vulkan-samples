@@ -3,6 +3,7 @@
 #define DEVICE_HPP
 
 #include "vks/core.hpp"
+#include "vks/sample/features.hpp"
 #include "vks/vulkan/queue.hpp"
 
 // Resources
@@ -13,12 +14,11 @@
 
 namespace vks {
     
-    // Forward declarations
-    enum class FeatureFlags : std::uint32_t;
-    
     struct DeviceRequirements {
-        std::vector<const char*> m_extensions;
-        FeatureFlags m_enabled_features;
+        // Returns the extensions required to support the requested features
+        [[nodiscard]] std::vector<const char*> get_required_extensions() const;
+        
+        FeatureFlags enabled_features;
     };
     
     class Device final : public ManagedObject<Device> {
@@ -69,14 +69,14 @@ namespace vks {
             
             VkPhysicalDevice m_gpu;
             VkDevice m_device;
-            DeviceRequirements m_requirements;
+            
+            std::vector<const char*> m_extensions;
+            FeatureFlags m_enabled_features;
 
             Queue m_graphics_queue;
             Queue m_compute_queue;
             Queue m_transfer_queue;
     };
-    
-    typedef std::shared_ptr<Device> DeviceHandle;
     
 }
 

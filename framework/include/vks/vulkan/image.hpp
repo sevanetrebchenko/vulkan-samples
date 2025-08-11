@@ -42,7 +42,12 @@ namespace vks {
         std::uint32_t base_layer = 0;
         std::uint32_t layer_count = VK_REMAINING_ARRAY_LAYERS;
 
-        VkComponentMapping swizzle;
+        VkComponentMapping swizzle = {
+            .r = VK_COMPONENT_SWIZZLE_R,
+            .g = VK_COMPONENT_SWIZZLE_G,
+            .b = VK_COMPONENT_SWIZZLE_B,
+            .a = VK_COMPONENT_SWIZZLE_A
+        };
         
         // Optional (will be automatically detected from image properties)
         VkImageViewCreateFlags flags = 0;

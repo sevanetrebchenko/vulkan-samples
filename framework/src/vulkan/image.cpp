@@ -1,17 +1,42 @@
 
-
 #include "vks/vulkan/image.hpp"
 #include "vks/vulkan/device.hpp"
 #include <utils/hash.hpp>
 
 namespace vks {
     
-    Image::Image(DeviceHandle device) : m_device(std::move(device)),
-                                        m_description(),
-                                        m_image(VK_NULL_HANDLE),
-                                        m_type(VK_IMAGE_TYPE_MAX_ENUM),
-                                        m_dirty(true), // Defer image initialization
-                                        m_managed(false) {
+    bool ImageDescription::operator==(const ImageDescription& other) const {
+        return width == other.width &&
+               height == other.height &&
+               depth == other.depth &&
+               format == other.format &&
+               mip_levels == other.mip_levels &&
+               layers == other.layers &&
+               samples == other.samples &&
+               flags == other.flags &&
+               usage == other.usage;
+    }
+    
+    bool ImageViewDescription::operator==(const ImageViewDescription& other) const {
+        return base_mip_level == other.base_mip_level &&
+               mip_count == other.mip_count &&
+               base_layer == other.base_layer &&
+               layer_count == other.layer_count &&
+               swizzle.r == other.swizzle.r &&
+               swizzle.g == other.swizzle.g &&
+               swizzle.b == other.swizzle.b &&
+               swizzle.a == other.swizzle.a &&
+               flags == other.flags &&
+               type == other.type &&
+               aspect == other.aspect;
+    }
+    
+    Image::Image(std::shared_ptr<Device> device) : m_device(std::move(device)),
+                                                   m_description(),
+                                                   m_image(VK_NULL_HANDLE),
+                                                   m_type(VK_IMAGE_TYPE_MAX_ENUM),
+                                                   m_dirty(true), // Defer image initialization
+                                                   m_managed(false) {
     }
     
     Image::~Image() {
@@ -200,7 +225,6 @@ namespace vks {
     VkImageType Image::get_image_type() const {
         // Auto-detect image type
         // Image type depends on resource dimensions
-        VkImageType image_type;
         if (m_description.depth > 1) {
             // 3D image
             return VK_IMAGE_TYPE_3D;

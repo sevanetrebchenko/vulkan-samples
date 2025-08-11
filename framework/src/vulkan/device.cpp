@@ -2,16 +2,36 @@
 #include "vks/vulkan/device.hpp"
 #include "vks/vulkan/image.hpp"
 #include "vks/core.hpp"
-#include "vks/sample.hpp"
 #include <utils/logging.hpp>
-#include <memory>
 
 namespace vks {
 
-    Device::Device(VkInstance instance, VkSurfaceKHR surface, const SampleRequirements& requirements) : m_gpu(VK_NULL_HANDLE),
+    std::vector<const char*> DeviceRequirements::get_required_extensions() const {
+        std::vector<const char*> extensions;
+        
+        // Store required extensions to support requested features
+        if (test(enabled_features, FeatureFlags::Raytracing)) {
+            extensions.emplace_back(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME);
+            extensions.emplace_back(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME);
+            extensions.emplace_back(VK_KHR_RAY_QUERY_EXTENSION_NAME);
+            extensions.emplace_back(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
+        }
+        
+        if (test(enabled_features, FeatureFlags::MeshShaders)) {
+            extensions.emplace_back(VK_EXT_MESH_SHADER_EXTENSION_NAME);
+        }
+        
+        if (test(enabled_features, FeatureFlags::VariableRateShading)) {
+            extensions.emplace_back(VK_KHR_FRAGMENT_SHADING_RATE_EXTENSION_NAME);
+        }
+        
+        return std::move(extensions);
+    }
+    
+    Device::Device(VkInstance instance, VkSurfaceKHR surface, const DeviceRequirements& requirements) : m_gpu(VK_NULL_HANDLE),
                                                                                                         m_device(VK_NULL_HANDLE),
+                                                                                                        m_extensions(requirements.get_required_extensions()),
                                                                                                         m_enabled_features(requirements.enabled_features) {
-        get_device_requirements(requirements);
         DeviceSelection selection = select_physical_device(instance, surface);
         m_gpu = selection.gpu;
         create_device(selection.queue_families);
@@ -62,30 +82,8 @@ namespace vks {
         return { };
     }
     
-    ImageHandle Device::provision_image(const ImageDescription& description) {
-        return std::make_shared<Image>(shared_from_this(), description);
-    }
-    
-    ImageHandle Device::provision_image(VkImage image, const ImageDescription& description) {
-        return std::make_shared<Image>(shared_from_this(), image, description);
-    }
-    
-    void Device::get_device_requirements(const SampleRequirements& requirements) {
-        // Store required extensions to support requested features
-        if (test(requirements.enabled_features, FeatureFlags::Raytracing)) {
-            m_extensions.emplace_back(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME);
-            m_extensions.emplace_back(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME);
-            m_extensions.emplace_back(VK_KHR_RAY_QUERY_EXTENSION_NAME);
-            m_extensions.emplace_back(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
-        }
-        
-        if (test(requirements.enabled_features, FeatureFlags::MeshShaders)) {
-            m_extensions.emplace_back(VK_EXT_MESH_SHADER_EXTENSION_NAME);
-        }
-        
-        if (test(requirements.enabled_features, FeatureFlags::VariableRateShading)) {
-            m_extensions.emplace_back(VK_KHR_FRAGMENT_SHADING_RATE_EXTENSION_NAME);
-        }
+    std::shared_ptr<Image> Device::provision_image() {
+        return std::make_shared<Image>(shared_from_this());
     }
     
     Device::DeviceSelection Device::select_physical_device(VkInstance instance, VkSurfaceKHR surface) {
@@ -412,33 +410,11 @@ namespace vks {
         }
         
         // Device extensions
-        device_create_info.enabledExtensionCount = m_extensions.size();
+        device_create_info.enabledExtensionCount = (std::uint32_t) m_extensions.size();
         device_create_info.ppEnabledExtensionNames = m_extensions.data();
         
-        // Device queues
-        std::vector<VkDeviceQueueCreateInfo> queue_create_infos;
-        std::unordered_set<std::uint32_t> unique_queue_families;
-
-        // Create a queue per unique queue family
-        unique_queue_families.insert(queue_families.graphics_family_index); // Graphics is always supported
-        if (queue_families.compute_family_index != VK_QUEUE_FAMILY_IGNORED) {
-            unique_queue_families.insert(queue_families.compute_family_index);
-        }
-        if (queue_families.transfer_family_index != VK_QUEUE_FAMILY_IGNORED) {
-            unique_queue_families.insert(queue_families.transfer_family_index);
-        }
-        
-        float queue_priority = 1.0f;
-        for (std::uint32_t family : unique_queue_families) {
-            VkDeviceQueueCreateInfo queue_create_info { };
-            queue_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-            queue_create_info.queueFamilyIndex = family;
-            queue_create_info.queueCount = 1; // No need to create more than one queue per family
-            queue_create_info.pQueuePriorities = &queue_priority;
-            queue_create_infos.push_back(queue_create_info);
-        }
-        
-        device_create_info.queueCreateInfoCount = queue_create_infos.size();
+        std::vector<VkDeviceQueueCreateInfo> queue_create_infos = queue_families;
+        device_create_info.queueCreateInfoCount = (std::uint32_t) queue_create_infos.size();
         device_create_info.pQueueCreateInfos = queue_create_infos.data();
         
         CHECK_CALL(vkCreateDevice, m_gpu, &device_create_info, nullptr, &m_device);
@@ -516,6 +492,33 @@ namespace vks {
         m_graphics_queue = Queue(graphics, queue_families.graphics_family_index, queue_families.graphics_family_flags, true);
         m_compute_queue = Queue(compute, queue_families.compute_family_index, queue_families.compute_family_flags, queue_families.compute_family_index != queue_families.graphics_family_index);
         m_transfer_queue = Queue(transfer, queue_families.transfer_family_index, queue_families.transfer_family_flags, queue_families.transfer_family_index != queue_families.graphics_family_index);
+    }
+    
+    Device::QueueFamilySelection::operator std::vector<VkDeviceQueueCreateInfo>() const {
+        // Device queues
+        std::vector<VkDeviceQueueCreateInfo> queue_create_infos;
+        std::unordered_set<std::uint32_t> unique_queue_families;
+
+        // Create a queue per unique queue family
+        unique_queue_families.insert(graphics_family_index); // Graphics is always supported
+        if (compute_family_index != VK_QUEUE_FAMILY_IGNORED) {
+            unique_queue_families.insert(compute_family_index);
+        }
+        if (transfer_family_index != VK_QUEUE_FAMILY_IGNORED) {
+            unique_queue_families.insert(transfer_family_index);
+        }
+        
+        float queue_priority = 1.0f;
+        for (std::uint32_t family : unique_queue_families) {
+            VkDeviceQueueCreateInfo queue_create_info { };
+            queue_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+            queue_create_info.queueFamilyIndex = family;
+            queue_create_info.queueCount = 1; // No need to create more than one queue per family
+            queue_create_info.pQueuePriorities = &queue_priority;
+            queue_create_infos.push_back(queue_create_info);
+        }
+        
+        return std::move(queue_create_infos);
     }
     
 }

@@ -3,7 +3,6 @@
 #define SWAPCHAIN_HPP
 
 #include "vks/vulkan/device.hpp"
-#include "vks/vulkan/resources.hpp"
 #include "vks/vulkan/image.hpp"
 #include <vulkan/vulkan.h>
 #include <memory> // std::shared_ptr
@@ -34,12 +33,12 @@ namespace vks {
 
             void retrieve_swapchain_images(const ImageDescription& description);
             
-            DeviceHandle m_device;
+            std::shared_ptr<Device> m_device;
             VkSurfaceKHR m_surface;
             VkSurfaceCapabilitiesKHR m_surface_properties;
             
             VkSwapchainKHR m_swapchain;
-            std::vector<ImageHandle> m_swapchain_images;
+            std::vector<std::shared_ptr<Image>> m_swapchain_images;
             
             // Configuration
             VkSurfaceFormatKHR m_surface_format;
