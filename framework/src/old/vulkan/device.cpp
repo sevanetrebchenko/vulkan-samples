@@ -133,8 +133,7 @@ namespace vks {
     Device::Device() : instance(VK_NULL_HANDLE) {
     }
 
-    Device::~Device() {
-    }
+
 
     void Device::initialize(const DeviceDescription& device_description) {
         // Query for validation layer support
@@ -924,6 +923,4 @@ namespace vks {
 //        }
         
     }
-
-
 }

@@ -1,8 +1,10 @@
 
 #include "vks/vulkan/device.hpp"
+#include "vks/vulkan/image.hpp"
 #include "vks/core.hpp"
 #include "vks/sample.hpp"
 #include <utils/logging.hpp>
+#include <memory>
 
 namespace vks {
 
@@ -20,11 +22,11 @@ namespace vks {
         vkDestroyDevice(m_device, nullptr);
     }
     
-    VkPhysicalDevice Device::get_physical_device() const {
+    Device::operator VkPhysicalDevice() const {
         return m_gpu;
     }
     
-    VkDevice Device::get_device() const {
+    Device::operator VkDevice() const {
         return m_device;
     }
     
@@ -58,6 +60,14 @@ namespace vks {
             return m_graphics_queue;
         }
         return { };
+    }
+    
+    ImageHandle Device::provision_image(const ImageDescription& description) {
+        return std::make_shared<Image>(shared_from_this(), description);
+    }
+    
+    ImageHandle Device::provision_image(VkImage image, const ImageDescription& description) {
+        return std::make_shared<Image>(shared_from_this(), image, description);
     }
     
     void Device::get_device_requirements(const SampleRequirements& requirements) {

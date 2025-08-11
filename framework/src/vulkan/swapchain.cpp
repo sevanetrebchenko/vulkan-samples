@@ -7,38 +7,37 @@
 
 namespace vks {
     
-    Swapchain::Swapchain(std::shared_ptr<Device> device, VkSurfaceKHR surface, const SampleRequirements& requirements) : m_device(std::move(device)),
-                                                                                                                         m_surface(surface),
-                                                                                                                         m_swapchain(VK_NULL_HANDLE) {
+    Swapchain::Swapchain(std::shared_ptr<Device> device, VkSurfaceKHR surface, const SwapchainDescription& requirements) : m_device(std::move(device)),
+                                                                                                                           m_surface(surface),
+                                                                                                                           m_swapchain(VK_NULL_HANDLE) {
         recreate(requirements.width, requirements.height);
     }
     
     Swapchain::~Swapchain() {
-        VkDevice device = m_device->get_device();
-        
-        // Destroy swapchain image views
-        
+        // Swapchain views are automatically cleaned up
         // Swapchain images are controlled by the implementation and are destroyed alongside vkDestroySwapchainKHR
-        vkDestroySwapchainKHR(device, m_swapchain, nullptr);
+        vkDestroySwapchainKHR(*m_device, m_swapchain, nullptr);
     }
     
     void Swapchain::recreate(std::uint32_t width, std::uint32_t height) {
         // Retrieve surface properties, as these are unique per monitor
-        CHECK_CALL(vkGetPhysicalDeviceSurfaceCapabilitiesKHR, m_device->get_physical_device(), m_surface, &m_surface_properties);
+        CHECK_CALL(vkGetPhysicalDeviceSurfaceCapabilitiesKHR, *m_device, m_surface, &m_surface_properties);
         
         m_surface_format = select_surface_format();
         m_presentation_mode = select_presentation_mode();
         m_extent = get_extent(width, height);
         
         VkSwapchainKHR previous = m_swapchain;
-        create_swapchain(previous);
-        vkDestroySwapchainKHR(m_device->get_device(), previous, nullptr);
+        ImageDescription description = create_swapchain(previous);
+        if (previous) {
+            vkDestroySwapchainKHR(*m_device, previous, nullptr);
+        }
         
-        retrieve_swapchain_images();
+        retrieve_swapchain_images(description);
     }
     
     VkSurfaceFormatKHR Swapchain::select_surface_format() const {
-        VkPhysicalDevice gpu = m_device->get_physical_device();
+        VkPhysicalDevice gpu = *m_device;
         
         std::uint32_t format_count;
         CHECK_CALL(vkGetPhysicalDeviceSurfaceFormatsKHR, gpu, m_surface, &format_count, nullptr);
@@ -77,7 +76,7 @@ namespace vks {
     }
     
     VkPresentModeKHR Swapchain::select_presentation_mode() const {
-        VkPhysicalDevice gpu = m_device->get_physical_device();
+        VkPhysicalDevice gpu = *m_device;
         
         // Select Vulkan surface presentation model
         // VK_PRESENT_MODE_IMMEDIATE_KHR - images are transferred to the screen right away (may result in visual tearing if the previous frame is still being drawn as a new one arrives)
@@ -115,7 +114,7 @@ namespace vks {
         };
     }
     
-    void Swapchain::create_swapchain(VkSwapchainKHR previous) {
+    ImageDescription Swapchain::create_swapchain(VkSwapchainKHR previous) {
         VkSwapchainCreateInfoKHR swapchain_create_info { };
         swapchain_create_info.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
         swapchain_create_info.surface = m_surface;
@@ -134,7 +133,9 @@ namespace vks {
         swapchain_create_info.imageFormat = m_surface_format.format;
         swapchain_create_info.imageColorSpace = m_surface_format.colorSpace;
         swapchain_create_info.imageExtent = m_extent;
-        swapchain_create_info.imageArrayLayers = 1;
+        
+        std::uint32_t layers = 1;
+        swapchain_create_info.imageArrayLayers = layers;
         swapchain_create_info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
         
         // Allow swapchain images to be used as transfer source / destination
@@ -155,15 +156,37 @@ namespace vks {
         swapchain_create_info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR; // Do not blend with other windows in the window system
         swapchain_create_info.presentMode = m_presentation_mode;
         swapchain_create_info.clipped = VK_TRUE;
-        swapchain_create_info.oldSwapchain = previous; // For reusing resources on swapchain recreation
+        swapchain_create_info.oldSwapchain = previous; // For reusing resources on swapchain recreation (can be VK_NULL_HANDLE)
         swapchain_create_info.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE; // Ownership of swapchain images needs to be explicitly transferred between queue families
         
-        VkDevice device = m_device->get_device();
-        CHECK_CALL(vkCreateSwapchainKHR, device, &swapchain_create_info, nullptr, &m_swapchain);
+        CHECK_CALL(vkCreateSwapchainKHR, *m_device, &swapchain_create_info, nullptr, &m_swapchain);
+        
+        return {
+            .width = m_extent.width,
+            .height = m_extent.height,
+            .format = swapchain_create_info.imageFormat,
+            .layers = layers,
+            .usage = swapchain_create_info.imageUsage
+        };
     }
     
-    void Swapchain::retrieve_swapchain_images() {
-    
+    void Swapchain::retrieve_swapchain_images(const ImageDescription& description) {
+        VkDevice device = *m_device;
+        
+        // Retrieve handles to swapchain images
+        std::uint32_t swapchain_image_count;
+        vkGetSwapchainImagesKHR(device, m_swapchain, &swapchain_image_count, nullptr);
+        
+        std::vector<VkImage> swapchain_images(swapchain_image_count);
+        vkGetSwapchainImagesKHR(device, m_swapchain, &swapchain_image_count, swapchain_images.data());
+        
+        for (VkImage swapchain_image : swapchain_images) {
+            std::shared_ptr<Image> image = m_device->provision_image();
+            image->configure(swapchain_image, description);
+            image->create_view(); // Create default view covering the entire image
+            
+            m_swapchain_images.emplace_back(image);
+        }
     }
     
 }

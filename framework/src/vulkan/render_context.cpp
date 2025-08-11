@@ -1,5 +1,6 @@
 
 #include "vks/vulkan/render_context.hpp"
+#include "vks/vulkan/device.hpp"
 #include "vks/core.hpp"
 #include "vks/sample.hpp"
 #include <utils/logging.hpp>
@@ -11,7 +12,8 @@ namespace vks {
         collect_requirements(requirements);
         create_vulkan_instance();
         create_surface(window);
-        m_device.initialize(m_instance, m_surface, requirements);
+        
+        m_device = std::make_shared<Device>(m_instance, m_surface, requirements);
     }
     
     void RenderContext::begin_frame() {
@@ -73,7 +75,7 @@ namespace vks {
             if (!vkCreateDebugUtilsMessengerEXT) {
                 utils::logging::fatal("Failed to load vkCreateDebugUtilsMessengerEXT (is the VK_EXT_debug_utils extension enabled?)");
             }
-    
+
             // CHECK_CALL(vkCreateDebugUtilsMessengerEXT, m_instance, &debug_callback_create_info, nullptr, &m_debug_messenger);
         }
         else {

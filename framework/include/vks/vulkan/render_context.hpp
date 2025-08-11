@@ -6,7 +6,6 @@
 #include "vks/window.hpp"
 #include "vks/vulkan/pipeline_cache.hpp"
 #include "vks/vulkan/render_graph.hpp"
-#include "vks/vulkan/device.hpp"
 
 namespace vks {
     
@@ -42,7 +41,7 @@ namespace vks {
             std::vector<const char*> m_layers;
             std::vector<const char*> m_extensions;
             
-            std::shared_ptr<Device> m_device;
+            DeviceHandle m_device;
     };
 
 }
