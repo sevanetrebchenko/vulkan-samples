@@ -17,15 +17,28 @@ namespace vks {
             m_window.initialize(requirements.width, requirements.height, m_name.c_str());
         }
         
-        m_render_context.initialize(m_window, {
-        });
+        m_render_context.initialize(m_window, requirements);
+        
+        // Load sample
+        load();
     }
     
     void Sample::run() {
-    
+        float dt;
+        
+        while (m_window.active()) {
+            m_window.poll();
+            
+            m_render_context.begin_frame();
+                update(dt);
+                render_frame(m_render_context);
+            m_render_context.end_frame();
+        }
     }
     
     void Sample::shutdown() {
+        unload();
+        m_render_context.shutdown();
         m_window.shutdown();
     }
     
@@ -38,4 +51,5 @@ namespace vks {
                                                display_mode(DisplayMode::Windowed),
                                                enabled_features(FeatureFlags::None) {
     }
+    
 }

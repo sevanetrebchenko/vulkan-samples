@@ -16,6 +16,15 @@
     } \
 }
 
+#define DEFINE_SAMPLE_MAIN(SAMPLE) \
+    int main() { \
+        SAMPLE sample { }; \
+        sample.initialize(); \
+        sample.run(); \
+        sample.shutdown(); \
+        return 0; \
+    }
+
 namespace vks {
     
     template <typename T>

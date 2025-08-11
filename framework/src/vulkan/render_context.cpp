@@ -20,12 +20,15 @@ namespace vks {
         m_device = std::make_shared<Device>(m_instance, m_surface, device_requirements);
     }
     
-    void RenderContext::begin_frame() {
+    void RenderContext::shutdown() {
+        // TODO: wait for idle
+        m_device.reset();
+    }
     
+    void RenderContext::begin_frame() {
     }
     
     void RenderContext::end_frame() {
-    
     }
     
     void RenderContext::create_vulkan_instance() {

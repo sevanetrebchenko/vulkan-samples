@@ -21,7 +21,7 @@ namespace vks {
         FeatureFlags enabled_features;
     };
     
-    class Device final : public ManagedObject<Device> {
+    class Device final : ManagedObject<Device> {
         public:
             Device(VkInstance instance, VkSurfaceKHR surface, const DeviceRequirements& requirements);
             ~Device() override;
