@@ -15,6 +15,7 @@ namespace vks {
     }
     
     Image::~Image() {
+        reset();
     }
     
     Image::operator VkImage() const {
