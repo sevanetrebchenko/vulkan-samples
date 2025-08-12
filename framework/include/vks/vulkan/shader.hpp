@@ -2,6 +2,7 @@
 #ifndef SHADER_COMPILER_HPP
 #define SHADER_COMPILER_HPP
 
+#include "vks/vulkan/device.hpp"
 #include <vulkan/vulkan.h>
 #include <spirv_reflect.h>
 #include <cstdint> // std::uint8_t
@@ -53,13 +54,52 @@ namespace vks {
         std::unordered_map<std::string, std::string> preprocessor_definitions;
     };
     
+    struct ShaderResource {
+        enum class Type {
+            // Primitive types
+
+            
+            // Aggregate types
+            Struct,
+            Array,
+            
+
+            
+            // Storage images
+            Image2D, Image3D, Image2DArray,
+            IImage2D, IImage3D, IImage2DArray,
+            UImage2D, UImage3D, UImage2DArray,
+            
+            // Buffer types
+            UniformBuffer,
+            StorageBuffer,
+            PushConstantBlock
+        } type;
+        
+        std::string name;
+        std::uint32_t binding;
+        std::uint32_t set;
+        
+        std::uint32_t size;
+        std::uint32_t offset; // Global offset into buffer
+        
+        // For array descriptors
+        std::uint32_t count;
+        std::uint32_t stride;
+        
+        // For nested members
+        std::vector<ShaderResource> members;
+    };
+    
     struct ShaderModule {
         VkShaderModule module;
-        SpvReflectShaderModule reflection_data;
+        std::vector<ShaderResource> resources;
     };
     
     class ShaderCache {
         public:
+            ShaderCache(std::shared_ptr<Device> device);
+            
             // Shader cache does lazy shader compilation - shaders are only compiled when they are needed
             const ShaderModule& get_shader_module(const ShaderStageDescription& description);
             void invalidate_shader_variants(const std::filesystem::path& filepath);
@@ -75,6 +115,8 @@ namespace vks {
             };
             
             void compile_shader(const ShaderStageDescription& description);
+            
+            std::shared_ptr<Device> m_device;
             
             std::deque<CachedShaderModule> m_modules; // Shader modules are stored as a deque to avoid invalidating references on reallocation
             std::shared_mutex m_cache_mutex; // For threadsafe shader recompilation

@@ -18,7 +18,19 @@ class Test final : public Sample {
             return requirements;
         }
         
-        void load() override {
+        void load(RenderContext& context) override {
+            PipelineCache& pipeline_cache = context.pipeline_cache;
+            
+            pipeline_cache.register_pipeline_template("gbuffer")
+                .add_shader_stage("shaders/sample.vert")
+                .add_shader_stage("shaders/sample.frag")
+                .configure_vertex_input([](VertexInput& input) {
+                    input.add_binding(0)
+                         .add_attribute("vertex_position")
+                         .add_attribute("vertex_normal");
+                })
+                .use_triangles()
+                .add_dynamic_state(VK_DYNAMIC_STATE_VIEWPORT);
         }
         
         void update(float dt) override {

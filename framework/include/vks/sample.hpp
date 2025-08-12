@@ -21,10 +21,11 @@ namespace vks {
             
         protected:
         
+        
         private:
             virtual SampleRequirements get_requirements();
             
-            virtual void load() = 0;
+            virtual void load(RenderContext& context) = 0;
             virtual void update(float dt) = 0;
             virtual void render_frame(RenderContext& context) = 0;
             virtual void unload() = 0;

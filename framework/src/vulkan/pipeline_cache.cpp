@@ -58,4 +58,8 @@ namespace vks {
     MultisampleState::MultisampleState() : sample_count(VK_SAMPLE_COUNT_1_BIT) {
     }
     
+    PipelineBuilder& PipelineBuilder::add_shader_stage(std::filesystem::path filepath) {
+    
+    }
+    
 }
