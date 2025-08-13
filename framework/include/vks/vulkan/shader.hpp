@@ -14,6 +14,8 @@
 namespace vks {
     
     struct UniformDescriptor {
+        static UniformDescriptor reflect(const SpvReflectBlockVariable& var);
+        
         enum class ResourceType : std::uint8_t {
             Scalar, // Determined by component_type
             Vec2, Vec3, Vec4,
@@ -27,16 +29,18 @@ namespace vks {
         void add_shader_stage(VkShaderStageFlags stage);
         
         std::string name;
-        ResourceType type;
+        ResourceType resource_type;
         ComponentType component_type;
         VkShaderStageFlags stages;
         std::uint32_t size;
         std::uint32_t offset;
-        std::uint32_t count = 1;
+        std::vector<std::uint32_t> dimensions;
         std::vector<UniformDescriptor> members;
     };
     
     struct BufferDescriptor {
+        static BufferDescriptor reflect(const SpvReflectDescriptorBinding& binding);
+        
         enum class ResourceType : std::uint8_t {
             UniformBuffer, StorageBuffer
         };
@@ -59,41 +63,49 @@ namespace vks {
         VkShaderStageFlags stages;
         std::uint32_t set;
         std::uint32_t binding;
-        std::uint32_t count = 1;
+        std::vector<std::uint32_t> dimensions;
     };
     
-    // For images / samplers, the sampled type represents the underlying type of the sampler
-    // For example, this is an uint for usampler2D, or a float for sampler2D
-    enum SampledType : std::uint8_t {
-        Float, Integer, Unsigned
-    };
+
     
     struct SampledImageDescriptor {
+        // Extracts relevant descriptor information
+        static SampledImageDescriptor reflect(const SpvReflectDescriptorBinding& binding);
+        
         enum class ResourceType : std::uint8_t {
             Texture2D, Texture3D, TextureCube, Texture2DArray,
         };
         
+        // Represents the underlying type of the sampler
+        enum class SampleType : std::uint8_t {
+            Float, Integer, Unsigned
+        };
+        
         std::string name;
-        ResourceType resource;
-        SampledType type;
+        ResourceType resource_type;
+        SampleType sample_type;
         VkShaderStageFlags stages;
         std::uint32_t set;
         std::uint32_t binding;
-        std::uint32_t count = 1;
+        std::vector<std::uint32_t> dimensions;
     };
     
     struct CombinedImageSamplerDescriptor {
         enum class ResourceType : std::uint8_t {
             Sampler2D, Sampler3D, SamplerCube, Sampler2DArray,
         };
+        // Represents the underlying type of the sampler
+        enum class SampleType : std::uint8_t {
+            Float, Integer, Unsigned
+        };
         
         std::string name;
-        ResourceType resource;
-        SampledType type;
+        ResourceType resource_type;
+        SampleType sample_type;
         VkShaderStageFlags stages;
         std::uint32_t set;
         std::uint32_t binding;
-        std::uint32_t count = 1;
+        std::vector<std::uint32_t> dimensions;
     };
     
     struct StorageImageDescriptor {
@@ -101,13 +113,18 @@ namespace vks {
             Image2D, Image3D, ImageCube, Image2DArray,
         };
 
+        // Represents the underlying type of the image
+        enum class SampleType : std::uint8_t {
+            Float, Integer, Unsigned
+        };
+        
         std::string name;
-        ResourceType resource;
-        SampledType type;
+        ResourceType resource_type;
+        SampleType sample_type;
         VkShaderStageFlags stages;
         std::uint32_t set;
         std::uint32_t binding;
-        std::uint32_t count = 1;
+        std::vector<std::uint32_t> dimensions;
     };
     
     struct InputAttachmentDescriptor {

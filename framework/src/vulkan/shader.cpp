@@ -308,33 +308,11 @@ namespace vks {
         return reflection_data;
     }
     
-    std::vector<UniformDescriptor> ShaderCompiler::reflect_block_members(const SpvReflectBlockVariable& block) const {
+    std::vector<UniformDescriptor> reflect_block_members(const SpvReflectBlockVariable& block) {
         std::vector<UniformDescriptor> members;
         
         for (uint32_t i = 0; i < block.member_count; ++i) {
-            const SpvReflectBlockVariable& member = block.members[i];
-            
-            UniformDescriptor& uniform = members.emplace_back();
-            uniform.name = member.name ? member.name : "";
-            uniform.size = member.size;
-            uniform.offset = member.offset;
-            uniform.count = 1;
-            
-            if (member.array.dims_count > 0) {
-                uniform.count = member.array.dims[0];
-            }
-            
-            // Arbitrary, no ComponentType for struct types
-            uniform.component_type = reflect_component_type(member.type_description);
-            
-            if (member.member_count > 0) {
-                // Recursively process nested struct members
-                uniform.type = UniformDescriptor::ResourceType::Struct;
-                uniform.members = reflect_block_members(member);
-            }
-            else {
-                uniform.type = reflect_type(member.type_description);
-            }
+            members.emplace_back(UniformDescriptor::reflect(block.members[i]));
         }
         
         return std::move(members);
@@ -351,40 +329,7 @@ namespace vks {
     }
     
     UniformDescriptor::ResourceType ShaderCompiler::reflect_uniform_type(const SpvReflectTypeDescription* type) const {
-        switch (type->type_flags) {
-            case SPV_REFLECT_TYPE_FLAG_BOOL:
-            case SPV_REFLECT_TYPE_FLAG_INT:
-            case SPV_REFLECT_TYPE_FLAG_FLOAT:
-                return UniformDescriptor::ResourceType::Scalar;
-                
-            case SPV_REFLECT_TYPE_FLAG_VECTOR:
-                switch (type->traits.numeric.vector.component_count) {
-                    case 2:
-                        return UniformDescriptor::ResourceType::Vec2;
-                    case 3:
-                        return UniformDescriptor::ResourceType::Vec3;
-                    case 4:
-                        return UniformDescriptor::ResourceType::Vec4;
-                    default:
-                        return UniformDescriptor::ResourceType::Scalar;
-                }
-                
-            case SPV_REFLECT_TYPE_FLAG_MATRIX:
-                if (type->traits.numeric.matrix.column_count == 2) {
-                    return UniformDescriptor::ResourceType::Mat2;
-                }
-                else if (type->traits.numeric.matrix.column_count == 3) {
-                    return UniformDescriptor::ResourceType::Mat3;
-                }
-                return UniformDescriptor::ResourceType::Mat4;
-                
-            case SPV_REFLECT_TYPE_FLAG_STRUCT:
-                return UniformDescriptor::ResourceType::Struct;
-                
-            default:
-                utils::logging::warning("Potentially unhandled resource type");
-                return UniformDescriptor::ResourceType::Scalar;
-        }
+
     }
     
     CombinedImageSamplerDescriptor::ResourceType ShaderCompiler::reflect_image_resource_type(const SpvReflectTypeDescription* type) const {
@@ -419,12 +364,107 @@ namespace vks {
             return type->traits.numeric.scalar.signedness ? SampledType::Integer : SampledType::Unsigned;
         }
     }
+//
+//    void BufferDescriptor::add_shader_stage(VkShaderStageFlags stage) {
+//        stages |= stage;
+//        for (UniformDescriptor& member : members) {
+//            member.add_shader_stage(stage);
+//        }
+//    }
+//
+//    std::vector<
+//
+//    BufferDescriptor BufferDescriptor::reflect(const SpvReflectDescriptorBinding& binding) {
+//        BufferDescriptor& buffer = reflection_data.buffers.emplace_back();
+//        buffer.name = binding->name;
+//        buffer.resource = binding->descriptor_type == SPV_REFLECT_DESCRIPTOR_TYPE_UNIFORM_BUFFER ? BufferDescriptor::ResourceType::UniformBuffer : BufferDescriptor::ResourceType::StorageBuffer;
+//        buffer.set = binding->set;
+//        buffer.binding = binding->binding;
+//        buffer.size = binding->block.size;
+//        buffer.members = reflect_block_members(binding->block);
+//
+//        buffer.add_shader_stage(stage);
     
-    void BufferDescriptor::add_shader_stage(VkShaderStageFlags stage) {
-        stages |= stage;
-        for (UniformDescriptor& member : members) {
-            member.add_shader_stage(stage);
+    
+    UniformDescriptor UniformDescriptor::reflect(const SpvReflectBlockVariable& var) {
+        UniformDescriptor uniform { };
+        
+        uniform.name = var.name ? var.name : "";
+        uniform.size = var.size;
+        uniform.offset = var.offset;
+        
+        uniform.dimensions.resize(var.array.dims_count);
+        for (std::uint32_t i = 0; i < var.array.dims_count; ++i) {
+            uniform.dimensions[i] = var.array.dims[i];
         }
+        
+        if (var.member_count > 0) {
+            // Recursively process nested members
+            uniform.resource_type = ResourceType::Struct;
+            uniform.component_type = ComponentType::Float; // Arbitrary, component_type is not applicable for structs
+            uniform.members = reflect_block_members(var);
+        }
+        else {
+            const SpvReflectTypeDescription* type = var.type_description;
+            
+            // Determine resource type
+            switch (type->type_flags) {
+                case SPV_REFLECT_TYPE_FLAG_BOOL:
+                case SPV_REFLECT_TYPE_FLAG_INT:
+                case SPV_REFLECT_TYPE_FLAG_FLOAT:
+                    uniform.resource_type = ResourceType::Scalar;
+                    break;
+                    
+                case SPV_REFLECT_TYPE_FLAG_VECTOR:
+                    switch (type->traits.numeric.vector.component_count) {
+                        case 2:
+                            uniform.resource_type = ResourceType::Vec2;
+                            break;
+                            
+                        case 3:
+                            uniform.resource_type = ResourceType::Vec3;
+                            break;
+                            
+                        case 4:
+                            uniform.resource_type = ResourceType::Vec4;
+                            break;
+                            
+                        default:
+                            uniform.resource_type = ResourceType::Scalar;
+                            break;
+                    }
+                    break;
+                    
+                case SPV_REFLECT_TYPE_FLAG_MATRIX:
+                    if (type->traits.numeric.matrix.column_count == 2) {
+                        uniform.resource_type = ResourceType::Mat2;
+                    }
+                    else if (type->traits.numeric.matrix.column_count == 3) {
+                        uniform.resource_type = ResourceType::Mat3;
+                    }
+                    else {
+                        uniform.resource_type = ResourceType::Mat4;
+                    }
+                    break;
+                    
+                default:
+                    uniform.resource_type = ResourceType::Scalar;
+                    break;
+            }
+            
+            // Determine component type
+            if (type->type_flags & SPV_REFLECT_TYPE_FLAG_BOOL) {
+                uniform.component_type = ComponentType::Bool;
+            }
+            else if (type->type_flags & SPV_REFLECT_TYPE_FLAG_INT) {
+                uniform.component_type = type->traits.numeric.scalar.signedness ? ComponentType::Integer : ComponentType::Unsigned;
+            }
+            else {
+                uniform.component_type = ComponentType::Float;
+            }
+        }
+        
+        return std::move(uniform);
     }
     
     void UniformDescriptor::add_shader_stage(VkShaderStageFlags stage) {
@@ -432,6 +472,9 @@ namespace vks {
         for (UniformDescriptor& member : members) {
             member.add_shader_stage(stage);
         }
+    }
+    
+    UniformDescriptor UniformDescriptor::reflect(const SpvReflectDescriptorBinding& binding) {
     }
     
     ShaderStageDescription::ShaderStageDescription(std::filesystem::path filepath) : path(filepath) {
