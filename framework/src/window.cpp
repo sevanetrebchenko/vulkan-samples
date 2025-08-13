@@ -29,7 +29,7 @@ namespace vks {
     }
     
     bool Window::active() const {
-        return false;
+        return true;
     }
     
     void Window::close() {

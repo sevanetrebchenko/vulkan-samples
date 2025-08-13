@@ -6,6 +6,8 @@
 #include <utils/logging.hpp>
 #include <algorithm> // std::min
 
+#include "vks/vulkan/shader.hpp"
+
 namespace vks {
     
     void RenderContext::initialize(const Window& window, const SampleRequirements& requirements) {
@@ -26,6 +28,8 @@ namespace vks {
     }
     
     void RenderContext::begin_frame() {
+        ShaderCompiler compiler { m_device };
+        compiler.compile({"shaders/sample.frag"});
     }
     
     void RenderContext::end_frame() {

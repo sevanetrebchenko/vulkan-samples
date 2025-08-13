@@ -1,18 +1,138 @@
 
-#ifndef SHADER_COMPILER_HPP
-#define SHADER_COMPILER_HPP
+#ifndef SHADER_HPP
+#define SHADER_HPP
 
 #include "vks/vulkan/device.hpp"
+#include <utils/result.hpp>
 #include <vulkan/vulkan.h>
 #include <spirv_reflect.h>
-#include <cstdint> // std::uint8_t
-#include <filesystem> // std::filesystem::path, std::filesystem::file_time_type
-#include <unordered_map> // std::unordered_map
-#include <utility> // std::hash
-#include <deque> // std::deque
-#include <shared_mutex> // std::shared_mutex
+#include <shaderc/shaderc.hpp>
+#include <string> // std::string
+#include <cstdint> // std::uint32_t
+#include <vector> // std::vector
 
 namespace vks {
+    
+    struct UniformDescriptor {
+        enum class ResourceType : std::uint8_t {
+            Scalar, // Determined by component_type
+            Vec2, Vec3, Vec4,
+            Mat2, Mat3, Mat4,
+            Struct
+        };
+        enum class ComponentType : std::uint8_t {
+            Float, Integer, Unsigned, Bool
+        };
+        
+        void add_shader_stage(VkShaderStageFlags stage);
+        
+        std::string name;
+        ResourceType type;
+        ComponentType component_type;
+        VkShaderStageFlags stages;
+        std::uint32_t size;
+        std::uint32_t offset;
+        std::uint32_t count = 1;
+        std::vector<UniformDescriptor> members;
+    };
+    
+    struct BufferDescriptor {
+        enum class ResourceType : std::uint8_t {
+            UniformBuffer, StorageBuffer
+        };
+        
+        // Add a shader stage in which this resource is referenced
+        // Applies recursively to all member descriptors (if applicable)
+        void add_shader_stage(VkShaderStageFlags stage);
+        
+        std::string name;
+        ResourceType resource;
+        VkShaderStageFlags stages;
+        std::uint32_t set;
+        std::uint32_t binding;
+        std::uint32_t size;
+        std::vector<UniformDescriptor> members;
+    };
+    
+    struct SamplerDescriptor {
+        std::string name;
+        VkShaderStageFlags stages;
+        std::uint32_t set;
+        std::uint32_t binding;
+        std::uint32_t count = 1;
+    };
+    
+    // For images / samplers, the sampled type represents the underlying type of the sampler
+    // For example, this is an uint for usampler2D, or a float for sampler2D
+    enum SampledType : std::uint8_t {
+        Float, Integer, Unsigned
+    };
+    
+    struct SampledImageDescriptor {
+        enum class ResourceType : std::uint8_t {
+            Texture2D, Texture3D, TextureCube, Texture2DArray,
+        };
+        
+        std::string name;
+        ResourceType resource;
+        SampledType type;
+        VkShaderStageFlags stages;
+        std::uint32_t set;
+        std::uint32_t binding;
+        std::uint32_t count = 1;
+    };
+    
+    struct CombinedImageSamplerDescriptor {
+        enum class ResourceType : std::uint8_t {
+            Sampler2D, Sampler3D, SamplerCube, Sampler2DArray,
+        };
+        
+        std::string name;
+        ResourceType resource;
+        SampledType type;
+        VkShaderStageFlags stages;
+        std::uint32_t set;
+        std::uint32_t binding;
+        std::uint32_t count = 1;
+    };
+    
+    struct StorageImageDescriptor {
+        enum class ResourceType : std::uint8_t {
+            Image2D, Image3D, ImageCube, Image2DArray,
+        };
+
+        std::string name;
+        ResourceType resource;
+        SampledType type;
+        VkShaderStageFlags stages;
+        std::uint32_t set;
+        std::uint32_t binding;
+        std::uint32_t count = 1;
+    };
+    
+    struct InputAttachmentDescriptor {
+        // TODO:
+    };
+
+    struct ShaderReflectionData {
+        std::vector<BufferDescriptor> buffers;
+        
+        std::vector<UniformDescriptor> push_constants;
+        
+        // Image/sampler resources
+        std::vector<SamplerDescriptor> samplers;
+        std::vector<SampledImageDescriptor> sampled_images;
+        std::vector<CombinedImageSamplerDescriptor> combined_image_samplers;
+        std::vector<StorageImageDescriptor> storage_images;
+        
+        // Subpass resources
+        std::vector<InputAttachmentDescriptor> input_attachments;
+    };
+    
+    struct ShaderModule {
+        VkShaderModule module;
+        ShaderReflectionData reflection_data;
+    };
     
     struct ShaderConstant {
         // Vulkan GLSL specialization constants must be one of: bool, int, uint, float, double
@@ -29,6 +149,7 @@ namespace vks {
     };
     
     struct ShaderStageDescription {
+        // TODO: custom entry point + combined shader source files
         ShaderStageDescription(std::filesystem::path filepath);
         
         [[nodiscard]] bool operator==(const ShaderStageDescription& other) const;
@@ -54,77 +175,38 @@ namespace vks {
         std::unordered_map<std::string, std::string> preprocessor_definitions;
     };
     
-    struct ShaderResource {
-        enum class Type {
-            // Primitive types
-
+    class ShaderCompiler {
+        public:
+            ShaderCompiler(std::shared_ptr<Device> device);
+            ~ShaderCompiler();
             
-            // Aggregate types
-            Struct,
-            Array,
+            utils::Result<ShaderModule> compile(const ShaderStageDescription& description) const;
             
-
+        private:
+            shaderc_shader_kind to_shaderc_type(VkShaderStageFlags stage) const;
             
-            // Storage images
-            Image2D, Image3D, Image2DArray,
-            IImage2D, IImage3D, IImage2DArray,
-            UImage2D, UImage3D, UImage2DArray,
+            // Reflection API
+            [[nodiscard]] ShaderReflectionData reflect(const SpvReflectShaderModule& module) const;
+            [[nodiscard]] std::vector<UniformDescriptor> reflect_block_members(const SpvReflectBlockVariable& block) const;
             
-            // Buffer types
-            UniformBuffer,
-            StorageBuffer,
-            PushConstantBlock
-        } type;
-        
-        std::string name;
-        std::uint32_t binding;
-        std::uint32_t set;
-        
-        std::uint32_t size;
-        std::uint32_t offset; // Global offset into buffer
-        
-        // For array descriptors
-        std::uint32_t count;
-        std::uint32_t stride;
-        
-        // For nested members
-        std::vector<ShaderResource> members;
-    };
-    
-    struct ShaderModule {
-        VkShaderModule module;
-        std::vector<ShaderResource> resources;
+            [[nodiscard]] UniformDescriptor::ResourceType reflect_uniform_type(const SpvReflectTypeDescription* type) const;
+            [[nodiscard]] UniformDescriptor::ComponentType reflect_uniform_component_type(const SpvReflectTypeDescription* type) const;
+            
+            [[nodiscard]] CombinedImageSamplerDescriptor::ResourceType reflect_image_resource_type(const SpvReflectTypeDescription* type) const;
+            [[nodiscard]] SampledImageDescriptor::ResourceType reflect_sampled_image_resource_type(const SpvReflectTypeDescription* type) const;
+            [[nodiscard]] StorageImageDescriptor::ResourceType reflect_storage_image_resource_type(const SpvReflectTypeDescription* type) const;
+            [[nodiscard]] SampledType reflect_sampled_type(const SpvReflectTypeDescription* type) const;
+            
+            std::shared_ptr<Device> m_device;
     };
     
     class ShaderCache {
         public:
-            ShaderCache(std::shared_ptr<Device> device);
-            
-            // Shader cache does lazy shader compilation - shaders are only compiled when they are needed
-            const ShaderModule& get_shader_module(const ShaderStageDescription& description);
-            void invalidate_shader_variants(const std::filesystem::path& filepath);
+        
         
         private:
-            struct CachedShaderModule : ShaderModule {
-                std::atomic<bool> needs_recompilation;
-                std::filesystem::file_time_type last_modified_time;
-            };
-            
-            struct ShaderStageDescriptionHash {
-                [[nodiscard]] std::size_t operator()(const ShaderStageDescription& description) const;
-            };
-            
-            void compile_shader(const ShaderStageDescription& description);
-            
-            std::shared_ptr<Device> m_device;
-            
-            std::deque<CachedShaderModule> m_modules; // Shader modules are stored as a deque to avoid invalidating references on reallocation
-            std::shared_mutex m_cache_mutex; // For threadsafe shader recompilation
-            
-            std::unordered_map<ShaderStageDescription, std::size_t, ShaderStageDescriptionHash> m_description_to_index;
-            std::unordered_map<std::filesystem::path, std::vector<std::size_t>> m_filepath_to_index;
     };
     
 }
 
-#endif // SHADER_COMPILER_HPP
+#endif // SHADER_HPP

@@ -5,8 +5,8 @@ layout (constant_id = 0) const int LIGHT_COUNT = 32;
 
 layout (set = 1, binding = 2) uniform sampler2D albedo_map;
 layout (set = 1, binding = 3) uniform sampler2D ao_map;
-layout (set = 1, binding = 4) uniform sampler2D metallic_roughness_map;
-layout (set = 1, binding = 5) uniform sampler2D normal_map;
+layout (set = 1, binding = 4) uniform usampler2D metallic_roughness_map;
+layout (set = 1, binding = 5) uniform isampler2D normal_map;
 
 // Per object uniforms
 layout (set = 1, binding = 0) uniform ObjectUniforms {

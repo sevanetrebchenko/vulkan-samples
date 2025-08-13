@@ -20,7 +20,7 @@ namespace vks {
         m_render_context.initialize(m_window, requirements);
         
         // Load sample
-        load();
+        load(m_render_context);
     }
     
     void Sample::run() {
