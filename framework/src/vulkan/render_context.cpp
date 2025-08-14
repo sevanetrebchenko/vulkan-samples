@@ -29,7 +29,9 @@ namespace vks {
     
     void RenderContext::begin_frame() {
         ShaderCompiler compiler { m_device };
-        compiler.compile({"shaders/sample.frag"});
+        auto module = compiler.compile({"shaders/sample.frag"});
+        
+        return;
     }
     
     void RenderContext::end_frame() {
